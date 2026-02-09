@@ -16,6 +16,7 @@ import campaignRoutes from './routes/campaigns';
 import sequenceRoutes from './routes/sequences';
 import importRoutes from './routes/imports';
 import dashboardRoutes from './routes/dashboard';
+import settingsRoutes from './routes/settings';
 
 async function main(): Promise<void> {
   // Create Express app
@@ -65,6 +66,7 @@ async function main(): Promise<void> {
   app.use('/api/sequences', sequenceRoutes);
   app.use('/api/imports', importRoutes);
   app.use('/api/dashboard', dashboardRoutes);
+  app.use('/api/settings', settingsRoutes);
 
   // --- 404 handler ---
   app.use((_req, res) => {

@@ -62,20 +62,40 @@ export default function ProspectDetail() {
     },
   });
 
+  const enrichMutation = useMutation({
+    mutationFn: () => prospectsApi.enrich(id!),
+    onSuccess: () => {
+      toast.success('Prospecto enriquecido exitosamente');
+      queryClient.invalidateQueries({ queryKey: ['prospects', id] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.error || 'Error al enriquecer el prospecto');
+    },
+  });
+
+  const recalcScoreMutation = useMutation({
+    mutationFn: () => prospectsApi.recalculateScore(id!),
+    onSuccess: (response) => {
+      const score = response?.data?.data?.score;
+      toast.success(`Score recalculado: ${score}`);
+      queryClient.invalidateQueries({ queryKey: ['prospects', id] });
+    },
+    onError: () => {
+      toast.error('Error al recalcular el score');
+    },
+  });
+
   const prospect = data?.data?.data;
 
   const handleEdit = () => {
     setEditForm({
-      firstName: prospect?.firstName || '',
-      lastName: prospect?.lastName || '',
+      first_name: prospect?.first_name || '',
+      last_name: prospect?.last_name || '',
       email: prospect?.email || '',
       phone: prospect?.phone || '',
-      company: prospect?.company || prospect?.companyName || '',
-      title: prospect?.title || prospect?.jobTitle || '',
-      linkedinUrl: prospect?.linkedinUrl || '',
-      website: prospect?.website || '',
+      title: prospect?.title || '',
+      linkedin_url: prospect?.linkedin_url || '',
       status: prospect?.status || 'new',
-      notes: prospect?.notes || '',
     });
     setIsEditing(true);
   };
@@ -105,8 +125,8 @@ export default function ProspectDetail() {
     );
   }
 
-  const name = `${prospect.firstName || ''} ${prospect.lastName || ''}`.trim() || prospect.name || 'Sin nombre';
-  const score = prospect.score || 0;
+  const name = prospect.full_name || `${prospect.first_name || ''} ${prospect.last_name || ''}`.trim() || 'Sin nombre';
+  const score = prospect.lead_score || 0;
 
   const tabs = [
     { id: 'info', label: 'Informacion', icon: <User className="h-4 w-4" /> },
@@ -135,21 +155,26 @@ export default function ProspectDetail() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-slate-900">{name}</h1>
-              <span className={`inline-flex items-center justify-center w-10 h-10 rounded-xl text-sm font-bold ${getScoreColor(score)}`}>
-                {score}
-              </span>
+              <button
+                onClick={() => recalcScoreMutation.mutate()}
+                disabled={recalcScoreMutation.isPending}
+                title="Recalcular score"
+                className={`inline-flex items-center justify-center w-10 h-10 rounded-xl text-sm font-bold cursor-pointer hover:ring-2 hover:ring-primary-300 transition-all ${getScoreColor(score)}`}
+              >
+                {recalcScoreMutation.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : score}
+              </button>
             </div>
             <div className="flex items-center gap-3 mt-1 text-sm text-slate-500">
               {prospect.title && (
                 <span className="flex items-center gap-1">
                   <Briefcase className="h-3.5 w-3.5" />
-                  {prospect.title || prospect.jobTitle}
+                  {prospect.title}
                 </span>
               )}
-              {(prospect.company || prospect.companyName) && (
+              {prospect.company_name && (
                 <span className="flex items-center gap-1">
                   <Building2 className="h-3.5 w-3.5" />
-                  {prospect.company || prospect.companyName}
+                  {prospect.company_name}
                 </span>
               )}
             </div>
@@ -193,14 +218,14 @@ export default function ProspectDetail() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Input
                       label="Nombre"
-                      value={editForm.firstName as string}
-                      onChange={(e) => setEditForm((f) => ({ ...f, firstName: e.target.value }))}
+                      value={editForm.first_name as string}
+                      onChange={(e) => setEditForm((f) => ({ ...f, first_name: e.target.value }))}
                       icon={<User className="h-4 w-4" />}
                     />
                     <Input
                       label="Apellido"
-                      value={editForm.lastName as string}
-                      onChange={(e) => setEditForm((f) => ({ ...f, lastName: e.target.value }))}
+                      value={editForm.last_name as string}
+                      onChange={(e) => setEditForm((f) => ({ ...f, last_name: e.target.value }))}
                     />
                     <Input
                       label="Correo Electronico"
@@ -216,12 +241,6 @@ export default function ProspectDetail() {
                       icon={<Phone className="h-4 w-4" />}
                     />
                     <Input
-                      label="Empresa"
-                      value={editForm.company as string}
-                      onChange={(e) => setEditForm((f) => ({ ...f, company: e.target.value }))}
-                      icon={<Building2 className="h-4 w-4" />}
-                    />
-                    <Input
                       label="Cargo"
                       value={editForm.title as string}
                       onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
@@ -229,8 +248,8 @@ export default function ProspectDetail() {
                     />
                     <Input
                       label="LinkedIn"
-                      value={editForm.linkedinUrl as string}
-                      onChange={(e) => setEditForm((f) => ({ ...f, linkedinUrl: e.target.value }))}
+                      value={editForm.linkedin_url as string}
+                      onChange={(e) => setEditForm((f) => ({ ...f, linkedin_url: e.target.value }))}
                       icon={<Globe className="h-4 w-4" />}
                     />
                     <Select
@@ -239,32 +258,17 @@ export default function ProspectDetail() {
                       value={editForm.status as string}
                       onChange={(val) => setEditForm((f) => ({ ...f, status: val }))}
                     />
-                    <div className="md:col-span-2">
-                      <label className="form-label">Notas</label>
-                      <textarea
-                        value={editForm.notes as string}
-                        onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
-                        rows={3}
-                        className="form-input"
-                        placeholder="Notas adicionales..."
-                      />
-                    </div>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <InfoField icon={<User className="h-4 w-4" />} label="Nombre completo" value={name} />
                     <InfoField icon={<Mail className="h-4 w-4" />} label="Email" value={prospect.email} />
                     <InfoField icon={<Phone className="h-4 w-4" />} label="Telefono" value={prospect.phone} />
-                    <InfoField icon={<Building2 className="h-4 w-4" />} label="Empresa" value={prospect.company || prospect.companyName} />
-                    <InfoField icon={<Briefcase className="h-4 w-4" />} label="Cargo" value={prospect.title || prospect.jobTitle} />
-                    <InfoField icon={<Globe className="h-4 w-4" />} label="LinkedIn" value={prospect.linkedinUrl} />
+                    <InfoField icon={<Building2 className="h-4 w-4" />} label="Empresa" value={prospect.company_name} />
+                    <InfoField icon={<Briefcase className="h-4 w-4" />} label="Cargo" value={prospect.title} />
+                    <InfoField icon={<Globe className="h-4 w-4" />} label="LinkedIn" value={prospect.linkedin_url} />
                     <InfoField label="Fuente" value={prospect.source} />
-                    <InfoField label="Creado" value={prospect.createdAt ? formatDateTime(prospect.createdAt) : '-'} />
-                    {prospect.notes && (
-                      <div className="md:col-span-2">
-                        <InfoField label="Notas" value={prospect.notes} />
-                      </div>
-                    )}
+                    <InfoField label="Creado" value={prospect.created_at ? formatDateTime(prospect.created_at) : '-'} />
                   </div>
                 )}
               </Card>
@@ -287,9 +291,9 @@ export default function ProspectDetail() {
                       <div key={index} className="flex gap-3 py-3 border-b border-slate-100 last:border-b-0">
                         <div className="w-2 h-2 rounded-full bg-primary-400 mt-2 shrink-0" />
                         <div>
-                          <p className="text-sm text-slate-700">{activity.description as string || activity.message as string}</p>
+                          <p className="text-sm text-slate-700">{activity.description as string || activity.title as string}</p>
                           <p className="text-xs text-slate-400 mt-0.5">
-                            {formatRelativeDate(activity.createdAt as string || activity.date as string)}
+                            {formatRelativeDate(activity.occurred_at as string)}
                           </p>
                         </div>
                       </div>
@@ -336,7 +340,7 @@ export default function ProspectDetail() {
                           </div>
                         </div>
                         <p className="text-xs text-slate-400">
-                          {email.sentAt ? formatDateTime(email.sentAt as string) : '-'}
+                          {email.sent_at ? formatDateTime(email.sent_at as string) : '-'}
                         </p>
                       </div>
                     ))}
@@ -356,7 +360,8 @@ export default function ProspectDetail() {
                     variant="secondary"
                     size="sm"
                     icon={<RefreshCw className="h-4 w-4" />}
-                    onClick={() => toast('Re-enriquecimiento en desarrollo')}
+                    onClick={() => enrichMutation.mutate()}
+                    loading={enrichMutation.isPending}
                   >
                     Re-enriquecer
                   </Button>
@@ -370,7 +375,8 @@ export default function ProspectDetail() {
                       size="sm"
                       className="mt-3"
                       icon={<RefreshCw className="h-4 w-4" />}
-                      onClick={() => toast('Enriquecimiento en desarrollo')}
+                      onClick={() => enrichMutation.mutate()}
+                      loading={enrichMutation.isPending}
                     >
                       Enriquecer ahora
                     </Button>

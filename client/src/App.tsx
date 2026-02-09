@@ -11,6 +11,7 @@ import Companies from '@/pages/Companies';
 import Campaigns from '@/pages/Campaigns';
 import CampaignDetail from '@/pages/CampaignDetail';
 import Sequences from '@/pages/Sequences';
+import SequenceDetail from '@/pages/SequenceDetail';
 import Imports from '@/pages/Imports';
 import Settings from '@/pages/Settings';
 
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="/campaigns" element={<Campaigns />} />
         <Route path="/campaigns/:id" element={<CampaignDetail />} />
         <Route path="/sequences" element={<Sequences />} />
+        <Route path="/sequences/:id" element={<SequenceDetail />} />
         <Route path="/imports" element={<Imports />} />
         <Route path="/settings" element={<Settings />} />
       </Route>

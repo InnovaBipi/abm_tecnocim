@@ -614,4 +614,85 @@ router.post('/:id/resume', async (req: Request, res: Response): Promise<void> =>
   }
 });
 
+// --- POST /:id/generate-step - Generate email content with AI ---
+router.post('/:id/generate-step', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { step_number, prospect_id } = req.body;
+
+    // Load the sequence with campaign
+    const sequences = await query<any[]>(
+      `SELECT es.*, c.name as campaign_name, c.asset_type, c.asset_location,
+              c.asset_price, c.description as campaign_description
+       FROM email_sequences es
+       LEFT JOIN campaigns c ON es.campaign_id = c.id
+       WHERE es.id = ?`,
+      [id]
+    );
+
+    if (sequences.length === 0) {
+      res.status(404).json({ success: false, error: 'Sequence not found.' });
+      return;
+    }
+
+    const sequence = sequences[0];
+
+    // Load prospect data if provided
+    let prospectData: any = {
+      first_name: 'Prospecto',
+      title: 'Director',
+      company_name: 'Empresa',
+    };
+
+    if (prospect_id) {
+      const prospects = await query<any[]>(
+        `SELECT p.*, c.name as company_name, c.industry as company_industry
+         FROM prospects p
+         LEFT JOIN companies c ON p.company_id = c.id
+         WHERE p.id = ?`,
+        [prospect_id]
+      );
+      if (prospects.length > 0) {
+        prospectData = prospects[0];
+      }
+    }
+
+    const { generateEmail } = await import('../services/ai');
+
+    const result = await generateEmail(
+      {
+        first_name: prospectData.first_name,
+        last_name: prospectData.last_name,
+        title: prospectData.title,
+        company_name: prospectData.company_name,
+        industry: prospectData.company_industry,
+        city: prospectData.city,
+      },
+      {
+        name: sequence.campaign_name || sequence.name,
+        asset_type: sequence.asset_type,
+        asset_location: sequence.asset_location,
+        asset_price: sequence.asset_price,
+        description: sequence.campaign_description,
+      },
+      step_number || 1
+    );
+
+    res.json({
+      success: true,
+      data: {
+        subject: result.subject,
+        body: result.body,
+        step_number: step_number || 1,
+      },
+    });
+  } catch (error: any) {
+    console.error('Generate email step error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'An error occurred while generating email content.',
+    });
+  }
+});
+
 export default router;

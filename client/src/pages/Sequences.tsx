@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sequencesApi, campaignsApi } from '@/services/api';
 import { Card } from '@/components/ui/Card';
@@ -32,6 +33,7 @@ const statusOptions = [
 ];
 
 export default function Sequences() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [statusFilter, setStatusFilter] = useState('');
@@ -111,7 +113,11 @@ export default function Sequences() {
       toast.error('El nombre es obligatorio');
       return;
     }
-    createMutation.mutate(createForm);
+    createMutation.mutate({
+      name: createForm.name,
+      campaign_id: createForm.campaignId || undefined,
+      description: createForm.description || undefined,
+    });
   };
 
   return (
@@ -173,12 +179,12 @@ export default function Sequences() {
                 Inscritos
               </TableCell>
               <TableCell isHeader className="text-center">
-                <Send className="h-4 w-4 inline mr-1" />
-                Enviados
+                <Mail className="h-4 w-4 inline mr-1" />
+                Pasos
               </TableCell>
               <TableCell isHeader className="text-center">
-                <MessageSquare className="h-4 w-4 inline mr-1" />
-                Respondidos
+                <Users className="h-4 w-4 inline mr-1" />
+                Activos
               </TableCell>
               <TableCell isHeader className="w-32">Acciones</TableCell>
             </TableRow>
@@ -192,7 +198,12 @@ export default function Sequences() {
                 <TableRow key={seqId}>
                   <TableCell>
                     <div>
-                      <p className="text-sm font-medium text-slate-900">{sequence.name as string}</p>
+                      <button
+                        onClick={() => navigate(`/sequences/${seqId}`)}
+                        className="text-sm font-medium text-primary-600 hover:text-primary-800 hover:underline transition-colors text-left"
+                      >
+                        {sequence.name as string}
+                      </button>
                       {sequence.description && (
                         <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[200px]">
                           {sequence.description as string}
@@ -201,19 +212,19 @@ export default function Sequences() {
                     </div>
                   </TableCell>
                   <TableCell className="text-slate-600 text-sm">
-                    {sequence.campaignName as string || sequence.campaign as string || '-'}
+                    {sequence.campaign_name as string || '-'}
                   </TableCell>
                   <TableCell>
                     <Badge className={getStatusColor(status)}>{status}</Badge>
                   </TableCell>
                   <TableCell className="text-center text-slate-600">
-                    {formatNumber(sequence.enrolledCount as number || 0)}
+                    {formatNumber(sequence.enrollment_count as number || 0)}
                   </TableCell>
                   <TableCell className="text-center text-slate-600">
-                    {formatNumber(sequence.sentCount as number || 0)}
+                    {formatNumber(sequence.step_count as number || 0)}
                   </TableCell>
                   <TableCell className="text-center text-slate-600">
-                    {formatNumber(sequence.repliedCount as number || 0)}
+                    {formatNumber(sequence.active_enrollment_count as number || 0)}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">

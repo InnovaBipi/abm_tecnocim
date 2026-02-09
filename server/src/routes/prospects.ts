@@ -436,4 +436,144 @@ router.post('/bulk-delete', async (req: Request, res: Response): Promise<void> =
   }
 });
 
+// --- POST /:id/enrich - Trigger enrichment for a prospect ---
+router.post('/:id/enrich', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    const existing = await query<any[]>('SELECT id, email, first_name FROM prospects WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      res.status(404).json({ success: false, error: 'Prospect not found.' });
+      return;
+    }
+
+    // Import enrichment service dynamically to avoid circular deps
+    const { enrichProspect } = await import('../services/enrichment');
+    const result = await enrichProspect(id);
+
+    if (!result.success) {
+      res.status(500).json({
+        success: false,
+        error: result.error || 'Enrichment failed.',
+      });
+      return;
+    }
+
+    // Fetch updated prospect
+    const updated = await query<any[]>(
+      `SELECT p.*, c.name as company_name, c.domain as company_domain
+       FROM prospects p
+       LEFT JOIN companies c ON p.company_id = c.id
+       WHERE p.id = ?`,
+      [id]
+    );
+
+    res.json({
+      success: true,
+      data: updated[0],
+    });
+  } catch (error: any) {
+    console.error('Enrich prospect error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'An error occurred while enriching the prospect.',
+    });
+  }
+});
+
+// --- POST /:id/recalculate-score - Recalculate lead score for a prospect ---
+router.post('/:id/recalculate-score', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    const existing = await query<any[]>('SELECT id FROM prospects WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      res.status(404).json({ success: false, error: 'Prospect not found.' });
+      return;
+    }
+
+    const { calculateScore } = await import('../services/scoring');
+    const result = await calculateScore(id);
+
+    res.json({
+      success: true,
+      data: {
+        score: result.score,
+        breakdown: result.breakdown,
+      },
+    });
+  } catch (error: any) {
+    console.error('Recalculate score error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'An error occurred while recalculating the score.',
+    });
+  }
+});
+
+// --- POST /bulk-add-campaign - Add multiple prospects to a campaign ---
+router.post('/bulk-add-campaign', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const schema = z.object({
+      ids: z.array(z.string().uuid()).min(1, 'At least one prospect ID is required'),
+      campaign_id: z.string().uuid('Valid campaign ID is required'),
+    });
+
+    const validation = schema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        details: validation.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const { ids, campaign_id } = validation.data;
+
+    // Verify campaign exists
+    const campaign = await query<any[]>('SELECT id FROM campaigns WHERE id = ?', [campaign_id]);
+    if (campaign.length === 0) {
+      res.status(404).json({ success: false, error: 'Campaign not found.' });
+      return;
+    }
+
+    let addedCount = 0;
+    let skippedCount = 0;
+
+    for (const prospectId of ids) {
+      try {
+        const cpId = uuidv4();
+        await query(
+          `INSERT INTO campaign_prospects (id, campaign_id, prospect_id, status)
+           VALUES (?, ?, ?, 'active')`,
+          [cpId, campaign_id, prospectId]
+        );
+        addedCount++;
+      } catch (err: any) {
+        if (err.code === 'ER_DUP_ENTRY') {
+          skippedCount++;
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        message: `Added ${addedCount} prospect(s) to campaign. ${skippedCount} already in campaign.`,
+        addedCount,
+        skippedCount,
+      },
+    });
+  } catch (error: any) {
+    console.error('Bulk add to campaign error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'An error occurred while adding prospects to the campaign.',
+    });
+  }
+});
+
 export default router;

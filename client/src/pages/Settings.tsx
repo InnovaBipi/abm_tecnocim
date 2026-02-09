@@ -274,24 +274,24 @@ export default function Settings() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
               <div>
                 <p className="text-xs font-medium text-slate-500 uppercase">Servidor SMTP</p>
-                <p className="text-sm text-slate-900 mt-1">{emailSettings.smtpHost || 'No configurado'}</p>
+                <p className="text-sm text-slate-900 mt-1">{emailSettings.smtp_host || 'No configurado'}</p>
               </div>
               <div>
                 <p className="text-xs font-medium text-slate-500 uppercase">Puerto</p>
-                <p className="text-sm text-slate-900 mt-1">{emailSettings.smtpPort || '-'}</p>
+                <p className="text-sm text-slate-900 mt-1">{emailSettings.smtp_port || '-'}</p>
               </div>
               <div>
                 <p className="text-xs font-medium text-slate-500 uppercase">Nombre del Remitente</p>
-                <p className="text-sm text-slate-900 mt-1">{emailSettings.fromName || 'No configurado'}</p>
+                <p className="text-sm text-slate-900 mt-1">{emailSettings.from_name || 'No configurado'}</p>
               </div>
               <div>
                 <p className="text-xs font-medium text-slate-500 uppercase">Email del Remitente</p>
-                <p className="text-sm text-slate-900 mt-1">{emailSettings.fromEmail || 'No configurado'}</p>
+                <p className="text-sm text-slate-900 mt-1">{emailSettings.from_email || 'No configurado'}</p>
               </div>
               <div>
                 <p className="text-xs font-medium text-slate-500 uppercase">Estado</p>
                 <div className="mt-1">
-                  {emailSettings.isConfigured ? (
+                  {emailSettings.is_configured ? (
                     <Badge variant="success">
                       <CheckCircle className="h-3 w-3 mr-1" /> Configurado
                     </Badge>
@@ -335,11 +335,11 @@ export default function Settings() {
                     <div>
                       <p className="text-sm font-medium text-slate-700">{key.name as string || key.service as string}</p>
                       <p className="text-xs text-slate-400 font-mono">
-                        {key.maskedKey as string || '****-****-****-' + (key.lastFour as string || '????')}
+                        {key.masked_key as string || '****-****-****'}
                       </p>
                     </div>
                   </div>
-                  {key.isActive || key.status === 'active' ? (
+                  {key.is_active ? (
                     <Badge variant="success">
                       <CheckCircle className="h-3 w-3 mr-1" /> Activa
                     </Badge>
@@ -416,16 +416,16 @@ export default function Settings() {
                       <TableCell className="font-medium text-slate-900">
                         {rule.name as string}
                       </TableCell>
-                      <TableCell className="text-slate-600">{rule.field as string}</TableCell>
-                      <TableCell className="text-slate-600">{rule.condition as string}</TableCell>
-                      <TableCell className="text-slate-600">{rule.value as string}</TableCell>
+                      <TableCell className="text-slate-600">{rule.field_name as string || rule.field as string}</TableCell>
+                      <TableCell className="text-slate-600">{rule.operator as string || rule.condition as string}</TableCell>
+                      <TableCell className="text-slate-600">{typeof rule.field_value === 'string' ? rule.field_value : JSON.stringify(rule.field_value)}</TableCell>
                       <TableCell className="text-center">
                         <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold ${
-                          (rule.score as number) > 0
+                          (rule.points as number || rule.score as number || 0) > 0
                             ? 'bg-emerald-50 text-emerald-700'
                             : 'bg-red-50 text-red-700'
                         }`}>
-                          {(rule.score as number) > 0 ? '+' : ''}{rule.score as number}
+                          {(rule.points as number || rule.score as number || 0) > 0 ? '+' : ''}{rule.points as number || rule.score as number || 0}
                         </span>
                       </TableCell>
                       <TableCell>

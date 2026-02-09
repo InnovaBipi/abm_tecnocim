@@ -80,7 +80,13 @@ export const prospectsApi = {
     api.post('/prospects/bulk-delete', { ids }),
 
   bulkAddToCampaign: (ids: string[], campaignId: string) =>
-    api.post('/prospects/bulk-add-campaign', { ids, campaignId }),
+    api.post('/prospects/bulk-add-campaign', { ids, campaign_id: campaignId }),
+
+  enrich: (id: string) =>
+    api.post(`/prospects/${id}/enrich`),
+
+  recalculateScore: (id: string) =>
+    api.post(`/prospects/${id}/recalculate-score`),
 };
 
 // ── Companies ─────────────────────────────────────────────────────────────────
@@ -140,7 +146,7 @@ export const campaignsApi = {
     api.delete(`/campaigns/${id}`),
 
   addProspects: (id: string, prospectIds: string[]) =>
-    api.post(`/campaigns/${id}/prospects`, { prospectIds }),
+    api.post(`/campaigns/${id}/prospects`, { prospect_ids: prospectIds }),
 
   removeProspect: (id: string, prospectId: string) =>
     api.delete(`/campaigns/${id}/prospects/${prospectId}`),
@@ -185,6 +191,9 @@ export const sequencesApi = {
 
   resume: (id: string) =>
     api.post(`/sequences/${id}/resume`),
+
+  generateStep: (id: string, stepNumber: number, prospectId?: string) =>
+    api.post(`/sequences/${id}/generate-step`, { step_number: stepNumber, prospect_id: prospectId }),
 };
 
 // ── Imports ───────────────────────────────────────────────────────────────────

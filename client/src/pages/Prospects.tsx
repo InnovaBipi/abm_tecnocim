@@ -143,7 +143,14 @@ export default function Prospects() {
       toast.error('El email es obligatorio');
       return;
     }
-    createMutation.mutate(createForm);
+    createMutation.mutate({
+      email: createForm.email,
+      first_name: createForm.firstName,
+      last_name: createForm.lastName,
+      phone: createForm.phone || undefined,
+      title: createForm.title || undefined,
+      source: createForm.source,
+    });
   };
 
   return (

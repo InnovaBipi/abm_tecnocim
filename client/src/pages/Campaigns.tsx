@@ -100,7 +100,13 @@ export default function Campaigns() {
       toast.error('El nombre es obligatorio');
       return;
     }
-    createMutation.mutate(createForm);
+    createMutation.mutate({
+      name: createForm.name,
+      description: createForm.description || undefined,
+      asset_type: createForm.assetType,
+      asset_location: createForm.assetName || undefined,
+      status: createForm.status,
+    });
   };
 
   return (
@@ -161,8 +167,8 @@ export default function Campaigns() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {campaigns.map((campaign: Record<string, unknown>) => {
             const id = (campaign.id || campaign._id) as string;
-            const emailsSent = campaign.emailsSent as number || 0;
-            const repliedCount = campaign.repliedCount as number || 0;
+            const emailsSent = campaign.emails_sent as number || 0;
+            const repliedCount = campaign.emails_replied as number || 0;
             const replyRate = emailsSent > 0 ? ((repliedCount / emailsSent) * 100).toFixed(1) : '0';
 
             return (
@@ -178,10 +184,10 @@ export default function Campaigns() {
                         <h3 className="text-sm font-semibold text-slate-900 leading-tight">
                           {campaign.name as string}
                         </h3>
-                        {campaign.assetType && (
+                        {campaign.asset_type && (
                           <span className="text-xs text-slate-500 capitalize">
-                            {campaign.assetType as string}
-                            {campaign.assetName ? ` - ${campaign.assetName}` : ''}
+                            {campaign.asset_type as string}
+                            {campaign.asset_location ? ` - ${campaign.asset_location}` : ''}
                           </span>
                         )}
                       </div>
@@ -203,7 +209,7 @@ export default function Campaigns() {
                     <div className="flex items-center gap-1.5">
                       <Users className="h-3.5 w-3.5 text-slate-400" />
                       <span className="text-xs text-slate-600">
-                        {formatNumber(campaign.prospectCount as number || 0)}
+                        {formatNumber(campaign.prospect_count as number || 0)}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -224,7 +230,7 @@ export default function Campaigns() {
                 {/* Footer actions */}
                 <div className="flex items-center justify-between px-5 py-3 bg-slate-50 border-t border-slate-100">
                   <span className="text-xs text-slate-400">
-                    {campaign.createdAt ? formatDate(campaign.createdAt as string) : ''}
+                    {campaign.created_at ? formatDate(campaign.created_at as string) : ''}
                   </span>
                   <div className="flex items-center gap-2">
                     <button

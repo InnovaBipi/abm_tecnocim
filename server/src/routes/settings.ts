@@ -1,0 +1,323 @@
+import { Router, Request, Response } from 'express';
+import { v4 as uuidv4 } from 'uuid';
+import { z } from 'zod';
+import { query } from '../config/database';
+import { authenticate, hashPassword, comparePassword } from '../middleware/auth';
+import { config } from '../config/env';
+
+const router = Router();
+
+// All routes require authentication
+router.use(authenticate);
+
+// --- Profile ---
+
+router.get('/profile', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const users = await query<any[]>(
+      'SELECT id, email, first_name, last_name, role, created_at FROM users WHERE id = ?',
+      [req.user!.id]
+    );
+
+    if (users.length === 0) {
+      res.status(404).json({ success: false, error: 'User not found.' });
+      return;
+    }
+
+    res.json({ success: true, data: users[0] });
+  } catch (error: any) {
+    console.error('Get profile error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+const updateProfileSchema = z.object({
+  name: z.string().optional(),
+  first_name: z.string().optional(),
+  last_name: z.string().optional(),
+  email: z.string().email().optional(),
+});
+
+router.put('/profile', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const validation = updateProfileSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ success: false, error: 'Validation failed', details: validation.error.flatten().fieldErrors });
+      return;
+    }
+
+    const data = validation.data;
+    const setClauses: string[] = [];
+    const params: any[] = [];
+
+    // Support both "name" (split into first/last) and direct first_name/last_name
+    if (data.name) {
+      const parts = data.name.trim().split(/\s+/);
+      setClauses.push('first_name = ?', 'last_name = ?');
+      params.push(parts[0], parts.slice(1).join(' ') || null);
+    }
+    if (data.first_name !== undefined) {
+      setClauses.push('first_name = ?');
+      params.push(data.first_name);
+    }
+    if (data.last_name !== undefined) {
+      setClauses.push('last_name = ?');
+      params.push(data.last_name);
+    }
+    if (data.email) {
+      setClauses.push('email = ?');
+      params.push(data.email);
+    }
+
+    if (setClauses.length === 0) {
+      res.status(400).json({ success: false, error: 'No fields to update.' });
+      return;
+    }
+
+    params.push(req.user!.id);
+    await query(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`, params);
+
+    const updated = await query<any[]>(
+      'SELECT id, email, first_name, last_name, role, created_at FROM users WHERE id = ?',
+      [req.user!.id]
+    );
+
+    res.json({ success: true, data: updated[0] });
+  } catch (error: any) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+// --- Password ---
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(6, 'Password must be at least 6 characters'),
+});
+
+router.put('/password', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const validation = changePasswordSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ success: false, error: 'Validation failed', details: validation.error.flatten().fieldErrors });
+      return;
+    }
+
+    const { currentPassword, newPassword } = validation.data;
+
+    const users = await query<any[]>('SELECT password FROM users WHERE id = ?', [req.user!.id]);
+    if (users.length === 0) {
+      res.status(404).json({ success: false, error: 'User not found.' });
+      return;
+    }
+
+    const isValid = await comparePassword(currentPassword, users[0].password);
+    if (!isValid) {
+      res.status(400).json({ success: false, error: 'Current password is incorrect.' });
+      return;
+    }
+
+    const hashedPassword = await hashPassword(newPassword);
+    await query('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, req.user!.id]);
+
+    res.json({ success: true, data: { message: 'Password changed successfully.' } });
+  } catch (error: any) {
+    console.error('Change password error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+// --- Email Settings ---
+
+router.get('/email', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    // Return email configuration from environment
+    const hasResendKey = !!config.RESEND_API_KEY;
+
+    res.json({
+      success: true,
+      data: {
+        from_email: config.EMAIL_FROM,
+        from_name: 'CamiaCasa ABM',
+        smtp_host: hasResendKey ? 'Resend API' : 'No configurado',
+        smtp_port: hasResendKey ? 'API' : '-',
+        is_configured: hasResendKey,
+      },
+    });
+  } catch (error: any) {
+    console.error('Get email settings error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+router.put('/email', async (_req: Request, res: Response): Promise<void> => {
+  // Email settings are managed via environment variables
+  res.json({
+    success: true,
+    data: { message: 'Email settings are managed via environment variables (.env file).' },
+  });
+});
+
+// --- API Keys ---
+
+router.get('/api-keys', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const keys = [
+      {
+        name: 'Resend (Email)',
+        service: 'resend',
+        is_active: !!config.RESEND_API_KEY,
+        masked_key: config.RESEND_API_KEY ? config.RESEND_API_KEY.substring(0, 8) + '...' : null,
+      },
+      {
+        name: 'Google Gemini (AI)',
+        service: 'gemini',
+        is_active: !!config.GEMINI_API_KEY,
+        masked_key: config.GEMINI_API_KEY ? config.GEMINI_API_KEY.substring(0, 8) + '...' : null,
+      },
+      {
+        name: 'Perplexity (AI)',
+        service: 'perplexity',
+        is_active: !!config.PERPLEXITY_API_KEY,
+        masked_key: config.PERPLEXITY_API_KEY ? config.PERPLEXITY_API_KEY.substring(0, 8) + '...' : null,
+      },
+      {
+        name: 'Firecrawl (Scraping)',
+        service: 'firecrawl',
+        is_active: !!config.FIRECRAWL_API_KEY,
+        masked_key: config.FIRECRAWL_API_KEY ? config.FIRECRAWL_API_KEY.substring(0, 8) + '...' : null,
+      },
+    ];
+
+    res.json({ success: true, data: { keys } });
+  } catch (error: any) {
+    console.error('Get API keys error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+// --- Scoring Rules ---
+
+router.get('/scoring-rules', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const rules = await query<any[]>(
+      'SELECT * FROM scoring_rules ORDER BY created_at DESC'
+    );
+
+    res.json({ success: true, data: { rules } });
+  } catch (error: any) {
+    console.error('Get scoring rules error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+const createRuleSchema = z.object({
+  name: z.string().min(1, 'Rule name is required'),
+  field: z.string().min(1, 'Field is required'),
+  condition: z.string().min(1, 'Condition is required'),
+  value: z.string().optional(),
+  score: z.number(),
+});
+
+router.post('/scoring-rules', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const validation = createRuleSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ success: false, error: 'Validation failed', details: validation.error.flatten().fieldErrors });
+      return;
+    }
+
+    const data = validation.data;
+    const id = uuidv4();
+
+    // Map frontend fields to DB columns
+    const categoryMap: Record<string, string> = {
+      email: 'demographic',
+      title: 'demographic',
+      seniority: 'demographic',
+      company: 'firmographic',
+      industry: 'firmographic',
+      employee_count: 'firmographic',
+    };
+    const category = categoryMap[data.field] || 'behavioral';
+
+    const operatorMap: Record<string, string> = {
+      equals: 'equals',
+      contains: 'contains',
+      starts_with: 'contains',
+      ends_with: 'contains',
+      not_empty: 'exists',
+      greater_than: 'greater_than',
+      less_than: 'less_than',
+    };
+    const operator = operatorMap[data.condition] || 'equals';
+
+    await query(
+      `INSERT INTO scoring_rules (id, name, category, field_name, operator, field_value, points)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, data.name, category, data.field, operator, JSON.stringify(data.value || ''), data.score]
+    );
+
+    const created = await query<any[]>('SELECT * FROM scoring_rules WHERE id = ?', [id]);
+
+    res.status(201).json({ success: true, data: created[0] });
+  } catch (error: any) {
+    console.error('Create scoring rule error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+router.put('/scoring-rules/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    const validation = createRuleSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ success: false, error: 'Validation failed', details: validation.error.flatten().fieldErrors });
+      return;
+    }
+
+    const existing = await query<any[]>('SELECT id FROM scoring_rules WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      res.status(404).json({ success: false, error: 'Scoring rule not found.' });
+      return;
+    }
+
+    const data = validation.data;
+
+    await query(
+      `UPDATE scoring_rules SET name = ?, field_name = ?, field_value = ?, points = ?
+       WHERE id = ?`,
+      [data.name, data.field, JSON.stringify(data.value || ''), data.score, id]
+    );
+
+    const updated = await query<any[]>('SELECT * FROM scoring_rules WHERE id = ?', [id]);
+
+    res.json({ success: true, data: updated[0] });
+  } catch (error: any) {
+    console.error('Update scoring rule error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+router.delete('/scoring-rules/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    const existing = await query<any[]>('SELECT id FROM scoring_rules WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      res.status(404).json({ success: false, error: 'Scoring rule not found.' });
+      return;
+    }
+
+    await query('DELETE FROM scoring_rules WHERE id = ?', [id]);
+
+    res.json({ success: true, data: { message: 'Scoring rule deleted successfully.' } });
+  } catch (error: any) {
+    console.error('Delete scoring rule error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+export default router;

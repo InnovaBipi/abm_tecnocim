@@ -94,8 +94,8 @@ export default function CampaignDetail() {
     );
   }
 
-  const emailsSent = campaign.emailsSent || 0;
-  const repliedCount = campaign.repliedCount || 0;
+  const emailsSent = campaign.emailStats?.sent || 0;
+  const repliedCount = campaign.emailStats?.replied || 0;
   const replyRate = emailsSent > 0 ? ((repliedCount / emailsSent) * 100).toFixed(1) : '0';
   const prospects = campaign.prospects || [];
   const sequences = campaign.sequences || [];
@@ -129,10 +129,10 @@ export default function CampaignDetail() {
                 {campaign.status || 'borrador'}
               </Badge>
             </div>
-            {campaign.assetType && (
+            {campaign.asset_type && (
               <p className="text-sm text-slate-500 mt-1 capitalize">
-                {campaign.assetType}
-                {campaign.assetName ? ` - ${campaign.assetName}` : ''}
+                {campaign.asset_type}
+                {campaign.asset_location ? ` - ${campaign.asset_location}` : ''}
               </p>
             )}
             {campaign.description && (
@@ -151,7 +151,7 @@ export default function CampaignDetail() {
             </div>
             <div>
               <p className="text-xs text-slate-500">Prospectos</p>
-              <p className="text-xl font-bold text-slate-900">{formatNumber(campaign.prospectCount || prospects.length)}</p>
+              <p className="text-xl font-bold text-slate-900">{formatNumber(campaign.prospect_count || prospects.length)}</p>
             </div>
           </div>
         </Card>
@@ -236,7 +236,7 @@ export default function CampaignDetail() {
                     <TableBody>
                       {prospects.map((prospect: Record<string, unknown>) => {
                         const pId = (prospect.id || prospect._id || prospect.prospectId) as string;
-                        const pName = `${prospect.firstName || ''} ${prospect.lastName || ''}`.trim() || prospect.name as string || '-';
+                        const pName = (prospect.full_name as string) || `${prospect.first_name || ''} ${prospect.last_name || ''}`.trim() || '-';
                         return (
                           <TableRow key={pId}>
                             <TableCell>
@@ -248,10 +248,10 @@ export default function CampaignDetail() {
                               </button>
                             </TableCell>
                             <TableCell className="text-slate-500">{prospect.email as string || '-'}</TableCell>
-                            <TableCell className="text-slate-600">{prospect.company as string || '-'}</TableCell>
+                            <TableCell className="text-slate-600">{prospect.company_name as string || '-'}</TableCell>
                             <TableCell className="text-center">
-                              <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold ${getScoreColor(prospect.score as number || 0)}`}>
-                                {prospect.score as number || 0}
+                              <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold ${getScoreColor(prospect.lead_score as number || 0)}`}>
+                                {prospect.lead_score as number || 0}
                               </span>
                             </TableCell>
                             <TableCell>
@@ -317,9 +317,8 @@ export default function CampaignDetail() {
                           <div>
                             <h4 className="text-sm font-semibold text-slate-900">{seq.name as string}</h4>
                             <div className="flex items-center gap-4 mt-1 text-xs text-slate-500">
-                              <span>{seq.enrolledCount as number || 0} inscritos</span>
-                              <span>{seq.sentCount as number || 0} enviados</span>
-                              <span>{seq.repliedCount as number || 0} respondidos</span>
+                              <span>{seq.enrollment_count as number || 0} inscritos</span>
+                              <span>{seq.step_count as number || 0} pasos</span>
                             </div>
                           </div>
                           <Badge className={getStatusColor(seq.status as string || 'draft')}>
@@ -365,7 +364,7 @@ export default function CampaignDetail() {
             ) : (
               allProspects.map((prospect: Record<string, unknown>) => {
                 const pId = (prospect.id || prospect._id) as string;
-                const pName = `${prospect.firstName || ''} ${prospect.lastName || ''}`.trim() || prospect.name as string || '-';
+                const pName = (prospect.full_name as string) || `${prospect.first_name || ''} ${prospect.last_name || ''}`.trim() || '-';
                 const isSelected = selectedProspectIds.includes(pId);
 
                 return (
@@ -390,8 +389,8 @@ export default function CampaignDetail() {
                       <p className="text-sm font-medium text-slate-900">{pName}</p>
                       <p className="text-xs text-slate-500">{prospect.email as string}</p>
                     </div>
-                    {prospect.company && (
-                      <span className="text-xs text-slate-400">{prospect.company as string}</span>
+                    {prospect.company_name && (
+                      <span className="text-xs text-slate-400">{prospect.company_name as string}</span>
                     )}
                   </div>
                 );

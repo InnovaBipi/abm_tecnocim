@@ -109,10 +109,15 @@ export default function Companies() {
       toast.error('El nombre es obligatorio');
       return;
     }
-    const payload: Record<string, unknown> = { ...createForm };
-    if (createForm.employeeCount) {
-      payload.employeeCount = parseInt(createForm.employeeCount, 10);
-    }
+    const payload: Record<string, unknown> = {
+      name: createForm.name,
+      domain: createForm.domain || undefined,
+      industry: createForm.industry || undefined,
+      tier: createForm.tier,
+      description: createForm.description || undefined,
+      website_url: createForm.website || undefined,
+      employee_count: createForm.employeeCount || undefined,
+    };
     createMutation.mutate(payload);
   };
 
@@ -237,11 +242,11 @@ export default function Companies() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-center text-slate-600">
-                      {formatNumber(company.prospectCount as number || 0)}
+                      {formatNumber(company.prospect_count as number || 0)}
                     </TableCell>
                     <TableCell className="text-center">
                       <span className="text-sm font-medium text-slate-900">
-                        {company.score as number || 0}
+                        {company.account_score as number || 0}
                       </span>
                     </TableCell>
                     <TableCell>
