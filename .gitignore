@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Environment variables (CRITICAL - never commit)
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Build output
+dist/
+build/
+.next/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Uploads
+uploads/
+temp/
+
+# SSL certificates
+*.pem
+*.key
+*.crt
+
+# Coverage
+coverage/
