@@ -1,0 +1,20 @@
+{
+  "name": "camiacasa-abm",
+  "version": "1.0.0",
+  "description": "CamiaCasa ABM - Account-Based Marketing for Real Estate",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "build": "cd client && npm run build",
+    "start": "cd server && npm start",
+    "db:migrate": "cd server && npm run db:migrate",
+    "db:seed": "cd server && npm run db:seed",
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "mysql2": "^3.16.3"
+  }
+}

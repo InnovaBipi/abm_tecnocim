@@ -1,0 +1,313 @@
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
+import { campaignsApi } from '@/services/api';
+import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Badge } from '@/components/ui/Badge';
+import { Modal } from '@/components/ui/Modal';
+import {
+  Search,
+  Plus,
+  Trash2,
+  Megaphone,
+  Loader2,
+  AlertCircle,
+  Users,
+  Mail,
+  MessageSquare,
+  ChevronRight,
+} from 'lucide-react';
+import { getStatusColor, formatNumber, formatDate } from '@/lib/utils';
+import toast from 'react-hot-toast';
+
+const statusFilterOptions = [
+  { value: '', label: 'Todos los estados' },
+  { value: 'draft', label: 'Borrador' },
+  { value: 'active', label: 'Activo' },
+  { value: 'paused', label: 'Pausado' },
+  { value: 'completed', label: 'Completado' },
+];
+
+const assetTypeOptions = [
+  { value: 'property', label: 'Propiedad' },
+  { value: 'development', label: 'Desarrollo' },
+  { value: 'land', label: 'Terreno' },
+  { value: 'commercial', label: 'Comercial' },
+  { value: 'general', label: 'General' },
+];
+
+const statusOptions = [
+  { value: 'draft', label: 'Borrador' },
+  { value: 'active', label: 'Activo' },
+];
+
+export default function Campaigns() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    name: '',
+    description: '',
+    assetType: 'general',
+    assetName: '',
+    status: 'draft',
+  });
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['campaigns', { search, status: statusFilter }],
+    queryFn: () =>
+      campaignsApi.list({
+        search: search || undefined,
+        status: statusFilter || undefined,
+      }),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data: Record<string, unknown>) => campaignsApi.create(data),
+    onSuccess: () => {
+      toast.success('Campana creada exitosamente');
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+      setShowCreateModal(false);
+      setCreateForm({ name: '', description: '', assetType: 'general', assetName: '', status: 'draft' });
+    },
+    onError: () => {
+      toast.error('Error al crear la campana');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => campaignsApi.delete(id),
+    onSuccess: () => {
+      toast.success('Campana eliminada');
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+    },
+    onError: () => {
+      toast.error('Error al eliminar la campana');
+    },
+  });
+
+  const campaigns = data?.data?.data?.campaigns || [];
+
+  const handleCreateSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!createForm.name) {
+      toast.error('El nombre es obligatorio');
+      return;
+    }
+    createMutation.mutate(createForm);
+  };
+
+  return (
+    <div className="p-6 lg:p-8 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Campanas</h1>
+          <p className="text-slate-500 mt-1">Gestiona tus campanas de marketing basado en cuentas</p>
+        </div>
+        <Button icon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
+          Nueva Campana
+        </Button>
+      </div>
+
+      {/* Filters */}
+      <Card padding="md">
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="flex-1 min-w-[240px]">
+            <Input
+              placeholder="Buscar campanas..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              icon={<Search className="h-4 w-4" />}
+            />
+          </div>
+          <div className="w-48">
+            <Select
+              options={statusFilterOptions}
+              value={statusFilter}
+              onChange={setStatusFilter}
+            />
+          </div>
+        </div>
+      </Card>
+
+      {/* Campaigns grid */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
+          <span className="ml-2 text-slate-500">Cargando campanas...</span>
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center py-16 text-red-500">
+          <AlertCircle className="h-8 w-8 mb-2" />
+          <p className="text-sm">Error al cargar las campanas</p>
+        </div>
+      ) : campaigns.length === 0 ? (
+        <Card className="flex flex-col items-center justify-center py-16">
+          <Megaphone className="h-12 w-12 text-slate-300 mb-3" />
+          <h3 className="text-lg font-medium text-slate-600">Sin campanas</h3>
+          <p className="text-sm text-slate-400 mt-1">Crea tu primera campana ABM</p>
+          <Button className="mt-4" onClick={() => setShowCreateModal(true)}>
+            Nueva Campana
+          </Button>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {campaigns.map((campaign: Record<string, unknown>) => {
+            const id = (campaign.id || campaign._id) as string;
+            const emailsSent = campaign.emailsSent as number || 0;
+            const repliedCount = campaign.repliedCount as number || 0;
+            const replyRate = emailsSent > 0 ? ((repliedCount / emailsSent) * 100).toFixed(1) : '0';
+
+            return (
+              <Card key={id} padding="none" className="hover:shadow-md transition-shadow">
+                <div className="p-5">
+                  {/* Top row */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary-50 text-primary-600">
+                        <Megaphone className="h-4.5 w-4.5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-900 leading-tight">
+                          {campaign.name as string}
+                        </h3>
+                        {campaign.assetType && (
+                          <span className="text-xs text-slate-500 capitalize">
+                            {campaign.assetType as string}
+                            {campaign.assetName ? ` - ${campaign.assetName}` : ''}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <Badge className={getStatusColor(campaign.status as string || 'draft')}>
+                      {campaign.status as string || 'borrador'}
+                    </Badge>
+                  </div>
+
+                  {/* Description */}
+                  {campaign.description && (
+                    <p className="text-xs text-slate-500 mb-3 line-clamp-2">
+                      {campaign.description as string}
+                    </p>
+                  )}
+
+                  {/* Stats */}
+                  <div className="grid grid-cols-3 gap-3 pt-3 border-t border-slate-100">
+                    <div className="flex items-center gap-1.5">
+                      <Users className="h-3.5 w-3.5 text-slate-400" />
+                      <span className="text-xs text-slate-600">
+                        {formatNumber(campaign.prospectCount as number || 0)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Mail className="h-3.5 w-3.5 text-slate-400" />
+                      <span className="text-xs text-slate-600">
+                        {formatNumber(emailsSent)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <MessageSquare className="h-3.5 w-3.5 text-slate-400" />
+                      <span className="text-xs text-slate-600">
+                        {replyRate}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer actions */}
+                <div className="flex items-center justify-between px-5 py-3 bg-slate-50 border-t border-slate-100">
+                  <span className="text-xs text-slate-400">
+                    {campaign.createdAt ? formatDate(campaign.createdAt as string) : ''}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm('Eliminar esta campana?')) {
+                          deleteMutation.mutate(id);
+                        }
+                      }}
+                      className="p-1 rounded text-slate-400 hover:text-red-600 transition-colors"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => navigate(`/campaigns/${id}`)}
+                      className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700 transition-colors"
+                    >
+                      Ver detalle
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Create modal */}
+      <Modal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title="Nueva Campana"
+        size="lg"
+      >
+        <form onSubmit={handleCreateSubmit} className="space-y-4">
+          <Input
+            label="Nombre de la Campana"
+            value={createForm.name}
+            onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+            placeholder="Campana Q1 2025 - Propiedades Premium"
+            required
+          />
+          <div className="grid grid-cols-2 gap-4">
+            <Select
+              label="Tipo de Activo"
+              options={assetTypeOptions}
+              value={createForm.assetType}
+              onChange={(val) => setCreateForm((f) => ({ ...f, assetType: val }))}
+            />
+            <Input
+              label="Nombre del Activo"
+              value={createForm.assetName}
+              onChange={(e) => setCreateForm((f) => ({ ...f, assetName: e.target.value }))}
+              placeholder="Torre Palermo 500"
+            />
+          </div>
+          <Select
+            label="Estado"
+            options={statusOptions}
+            value={createForm.status}
+            onChange={(val) => setCreateForm((f) => ({ ...f, status: val }))}
+          />
+          <div>
+            <label className="form-label">Descripcion</label>
+            <textarea
+              value={createForm.description}
+              onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))}
+              rows={3}
+              className="form-input"
+              placeholder="Describe el objetivo de esta campana..."
+            />
+          </div>
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+            <Button variant="secondary" type="button" onClick={() => setShowCreateModal(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" loading={createMutation.isPending}>
+              Crear Campana
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
+}

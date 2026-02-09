@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: add .gitignore to protect sensitive files\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(\"C:\\\\xampp\\\\mysql\\\\bin\\\\mysql.exe\" -u root -e \"CREATE DATABASE IF NOT EXISTS camiacasa_abm CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; SHOW DATABASES LIKE ''camiacasa%'';\")",
+      "Bash(\"C:\\\\xampp\\\\mysql\\\\bin\\\\mysql.exe\" -u root camiacasa_abm -e \"SHOW TABLES; SELECT COUNT\\(*\\) as scoring_rules_count FROM scoring_rules; SELECT email, first_name, last_name, role FROM users;\")",
+      "Bash(npm install:*)",
+      "Bash(node database/migrate.js:*)",
+      "Bash(npx tsx:*)",
+      "Bash(npx vite build:*)",
+      "Bash(node -e \"\nconst bcrypt = require\\(''bcryptjs''\\);\nconst mysql = require\\(''mysql2/promise''\\);\n\nasync function seedUser\\(\\) {\n  const hash = await bcrypt.hash\\(''admin123'', 10\\);\n  console.log\\(''Hash generated:'', hash.substring\\(0, 20\\) + ''...''\\);\n  const conn = await mysql.createConnection\\({\n    host: ''db-mysql-fra1-15909-do-user-33157620-0.i.db.ondigitalocean.com'',\n    port: 25060, user: ''doadmin'', password: ''AVNS_fSJzmyNeigDEDse7XuJ'',\n    database: ''camiacasa_abm'', ssl: { rejectUnauthorized: false }\n  }\\);\n  await conn.query\\(''UPDATE users SET password = ? WHERE email = ?'', [hash, ''alfons.marques@camiacasa.cat'']\\);\n  const [rows] = await conn.query\\(''SELECT id, email, first_name, role FROM users''\\);\n  console.log\\(''User updated:'', JSON.stringify\\(rows\\)\\);\n  await conn.end\\(\\);\n}\nseedUser\\(\\).catch\\(console.error\\);\n\")",
+      "Bash(timeout:*)",
+      "Bash(ping:*)",
+      "Bash(npm run dev:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(curl:*)",
+      "Bash(node -e:*)",
+      "Bash(NODE_PATH=\"C:/Users/Nessa/Documents/camiacasa_abm/server/node_modules\" node:*)",
+      "Bash(NODE_PATH=\"C:/Users/Nessa/Documents/camiacasa_abm/server/node_modules\" node -e \"const mysql = require\\(''mysql2/promise''\\); const dotenv = require\\(''dotenv''\\); dotenv.config\\({path:''C:/Users/Nessa/Documents/camiacasa_abm/.env''}\\); async function run\\(\\) { const conn = await mysql.createConnection\\({host:process.env.DB_HOST,port:parseInt\\(process.env.DB_PORT\\),user:process.env.DB_USER,password:process.env.DB_PASS,database:process.env.DB_NAME,ssl:process.env.DB_SSL?{rejectUnauthorized:false}:undefined}\\); const [rows] = await conn.execute\\(\"\"UPDATE users SET password = ? WHERE email = ?\"\", [''\\\\$2a\\\\$10\\\\$3v9etfgsV27J3tR9kE0rGuI/T.SoBcxtKF8byquftBMvxyEn/.lue'', ''alfons.marques@camiacasa.cat'']\\); console.log\\(''Rows affected:'', rows.affectedRows\\); await conn.end\\(\\); } run\\(\\).catch\\(e => console.error\\(e\\)\\);\")",
+      "Bash(gh auth:*)",
+      "Bash(gh.exe auth status)",
+      "Bash(where.exe:*)",
+      "Bash(winget.exe install:*)",
+      "Bash(curl.exe:*)",
+      "Bash(git remote add:*)"
+    ]
+  }
+}
