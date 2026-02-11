@@ -10,8 +10,7 @@ import ProspectDetail from '@/pages/ProspectDetail';
 import Companies from '@/pages/Companies';
 import Campaigns from '@/pages/Campaigns';
 import CampaignDetail from '@/pages/CampaignDetail';
-import Sequences from '@/pages/Sequences';
-import SequenceDetail from '@/pages/SequenceDetail';
+import Outbox from '@/pages/Outbox';
 import Imports from '@/pages/Imports';
 import Settings from '@/pages/Settings';
 
@@ -44,10 +43,13 @@ export default function App() {
         <Route path="/companies" element={<Companies />} />
         <Route path="/campaigns" element={<Campaigns />} />
         <Route path="/campaigns/:id" element={<CampaignDetail />} />
-        <Route path="/sequences" element={<Sequences />} />
-        <Route path="/sequences/:id" element={<SequenceDetail />} />
+        <Route path="/outbox" element={<Outbox />} />
         <Route path="/imports" element={<Imports />} />
         <Route path="/settings" element={<Settings />} />
+
+        {/* Redirect old sequences routes to campaigns */}
+        <Route path="/sequences" element={<Navigate to="/campaigns" replace />} />
+        <Route path="/sequences/:id" element={<Navigate to="/campaigns" replace />} />
       </Route>
 
       {/* Catch all */}

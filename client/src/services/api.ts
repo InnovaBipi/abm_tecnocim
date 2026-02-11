@@ -150,6 +150,21 @@ export const campaignsApi = {
 
   removeProspect: (id: string, prospectId: string) =>
     api.delete(`/campaigns/${id}/prospects/${prospectId}`),
+
+  generateEmails: (id: string, prospectIds: string[], numSteps?: number) =>
+    api.post(`/campaigns/${id}/generate-emails`, { prospect_ids: prospectIds, num_steps: numSteps }),
+
+  getGeneratedEmails: (id: string, params?: { status?: string; prospect_id?: string }) =>
+    api.get(`/campaigns/${id}/generated-emails`, { params }),
+
+  editGeneratedEmail: (id: string, emailId: string, data: { subject?: string; body_html?: string }) =>
+    api.put(`/campaigns/${id}/generated-emails/${emailId}`, data),
+
+  approveEmails: (id: string, emailIds: string[]) =>
+    api.post(`/campaigns/${id}/approve-emails`, { email_ids: emailIds }),
+
+  rejectEmails: (id: string, emailIds: string[]) =>
+    api.post(`/campaigns/${id}/reject-emails`, { email_ids: emailIds }),
 };
 
 // ── Sequences ─────────────────────────────────────────────────────────────────
@@ -194,6 +209,31 @@ export const sequencesApi = {
 
   generateStep: (id: string, stepNumber: number, prospectId?: string) =>
     api.post(`/sequences/${id}/generate-step`, { step_number: stepNumber, prospect_id: prospectId }),
+
+  generatePersonalized: (id: string, prospectId: string, numSteps?: number) =>
+    api.post(`/sequences/${id}/generate-personalized`, { prospect_id: prospectId, num_steps: numSteps }),
+};
+
+// ── Outbox ───────────────────────────────────────────────────────────────────
+
+export const outboxApi = {
+  list: (params?: { status?: string; campaign_id?: string; page?: number; limit?: number }) =>
+    api.get('/outbox', { params }),
+
+  stats: () =>
+    api.get('/outbox/stats'),
+
+  approve: (emailId: string) =>
+    api.put(`/outbox/${emailId}/approve`),
+
+  reject: (emailId: string) =>
+    api.put(`/outbox/${emailId}/reject`),
+
+  bulkApprove: (emailIds: string[]) =>
+    api.post('/outbox/bulk-approve', { email_ids: emailIds }),
+
+  send: (emailIds?: string[]) =>
+    api.post('/outbox/send', { email_ids: emailIds }),
 };
 
 // ── Imports ───────────────────────────────────────────────────────────────────

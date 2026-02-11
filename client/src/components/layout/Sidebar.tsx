@@ -5,20 +5,19 @@ import {
   LayoutDashboard,
   Users,
   Building2,
-  Megaphone,
-  Mail,
+  Building,
+  Send,
   Upload,
   Settings,
   LogOut,
-  Home,
 } from 'lucide-react';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/prospects', label: 'Prospectos', icon: Users },
   { to: '/companies', label: 'Empresas', icon: Building2 },
-  { to: '/campaigns', label: 'Campanas', icon: Megaphone },
-  { to: '/sequences', label: 'Secuencias', icon: Mail },
+  { to: '/campaigns', label: 'Propiedades', icon: Building },
+  { to: '/outbox', label: 'Bandeja de Salida', icon: Send },
   { to: '/imports', label: 'Importar', icon: Upload },
   { to: '/settings', label: 'Configuracion', icon: Settings },
 ];
@@ -33,15 +32,13 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-30 w-64 bg-white border-r border-slate-200 flex flex-col">
+    <aside className="fixed inset-y-0 left-0 z-30 w-64 bg-slate-900 border-r border-slate-700 flex flex-col">
       {/* Logo */}
-      <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-200">
-        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary-600 text-white">
-          <Home className="h-5 w-5" />
-        </div>
+      <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-700">
+        <img src="/logo.png" alt="CamiaCasa" className="h-9 w-9 rounded-lg object-contain" />
         <div>
-          <h1 className="text-lg font-bold text-slate-900 tracking-tight">CamiaCasa</h1>
-          <p className="text-xs text-slate-500 -mt-0.5">ABM Platform</p>
+          <h1 className="text-lg font-bold text-white tracking-tight">CamiaCasa</h1>
+          <p className="text-xs text-slate-400 -mt-0.5">ABM Platform</p>
         </div>
       </div>
 
@@ -60,7 +57,7 @@ export function Sidebar() {
                 active ? 'sidebar-link-active' : 'sidebar-link-inactive'
               )}
             >
-              <Icon className={cn('h-5 w-5 shrink-0', active ? 'text-primary-600' : 'text-slate-400')} />
+              <Icon className={cn('h-5 w-5 shrink-0', active ? 'text-white' : 'text-slate-400')} />
               <span>{item.label}</span>
             </NavLink>
           );
@@ -68,22 +65,22 @@ export function Sidebar() {
       </nav>
 
       {/* User info & logout */}
-      <div className="px-3 py-4 border-t border-slate-200">
+      <div className="px-3 py-4 border-t border-slate-700">
         <div className="flex items-center gap-3 px-3 py-2">
-          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary-100 text-primary-700 text-sm font-semibold">
+          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary-600 text-white text-sm font-semibold">
             {user?.name?.charAt(0)?.toUpperCase() || 'U'}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-slate-900 truncate">
+            <p className="text-sm font-medium text-white truncate">
               {user?.name || 'Usuario'}
             </p>
-            <p className="text-xs text-slate-500 truncate">
+            <p className="text-xs text-slate-400 truncate">
               {user?.email || ''}
             </p>
           </div>
           <button
             onClick={logout}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-white/5 transition-colors"
             title="Cerrar sesion"
           >
             <LogOut className="h-4 w-4" />

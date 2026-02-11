@@ -252,6 +252,34 @@ CREATE TABLE email_events (
 );
 
 -- ============================================
+-- GENERATED EMAILS (per-prospect personalized emails)
+-- ============================================
+
+CREATE TABLE generated_emails (
+    id              CHAR(36) PRIMARY KEY,
+    campaign_id     CHAR(36) NOT NULL,
+    prospect_id     CHAR(36) NOT NULL,
+    step_number     INT NOT NULL,
+    subject         TEXT,
+    body_html       TEXT,
+    delay_days      INT DEFAULT 0,
+    status          ENUM('draft', 'approved', 'rejected', 'scheduled', 'sent', 'opened', 'replied', 'bounced') DEFAULT 'draft',
+    approved_at     DATETIME,
+    approved_by     CHAR(36),
+    sent_at         DATETIME,
+    metadata        JSON,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY idx_ge_unique (campaign_id, prospect_id, step_number),
+    KEY idx_ge_campaign (campaign_id, status),
+    KEY idx_ge_prospect (prospect_id),
+    KEY idx_ge_status (status),
+    CONSTRAINT fk_ge_campaign FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ge_prospect FOREIGN KEY (prospect_id) REFERENCES prospects(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ge_approver FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- ============================================
 -- SCORING
 -- ============================================
 

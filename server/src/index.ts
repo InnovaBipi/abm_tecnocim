@@ -17,6 +17,7 @@ import sequenceRoutes from './routes/sequences';
 import importRoutes from './routes/imports';
 import dashboardRoutes from './routes/dashboard';
 import settingsRoutes from './routes/settings';
+import outboxRoutes from './routes/outbox';
 
 async function main(): Promise<void> {
   // Create Express app
@@ -67,6 +68,7 @@ async function main(): Promise<void> {
   app.use('/api/imports', importRoutes);
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/settings', settingsRoutes);
+  app.use('/api/outbox', outboxRoutes);
 
   // --- 404 handler ---
   app.use((_req, res) => {
@@ -143,6 +145,7 @@ async function main(): Promise<void> {
     console.log('  CRUD /api/sequences       - Email sequences');
     console.log('  POST /api/imports/upload   - File upload');
     console.log('  GET  /api/dashboard/stats  - Dashboard');
+    console.log('  CRUD /api/outbox          - Outbox (generated emails)');
     console.log('');
   });
 }

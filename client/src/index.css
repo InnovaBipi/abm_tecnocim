@@ -30,11 +30,11 @@
   }
 
   .sidebar-link-active {
-    @apply bg-primary-50 text-primary-700;
+    @apply bg-white/10 text-white;
   }
 
   .sidebar-link-inactive {
-    @apply text-slate-600 hover:bg-slate-100 hover:text-slate-900;
+    @apply text-slate-400 hover:bg-white/5 hover:text-white;
   }
 
   .stat-card {

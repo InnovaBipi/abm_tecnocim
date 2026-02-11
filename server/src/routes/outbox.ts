@@ -1,0 +1,301 @@
+import { Router, Request, Response } from 'express';
+import { v4 as uuidv4 } from 'uuid';
+import { query } from '../config/database';
+import { authenticate } from '../middleware/auth';
+import { config } from '../config/env';
+
+const router = Router();
+
+router.use(authenticate);
+
+// --- GET / - List all generated emails cross-campaign ---
+router.get('/', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const status = req.query.status as string;
+    const campaignId = req.query.campaign_id as string;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const offset = (page - 1) * limit;
+
+    let whereClauses: string[] = [];
+    let params: any[] = [];
+
+    if (status) {
+      whereClauses.push('ge.status = ?');
+      params.push(status);
+    }
+
+    if (campaignId) {
+      whereClauses.push('ge.campaign_id = ?');
+      params.push(campaignId);
+    }
+
+    const whereSQL = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+
+    const countResult = await query<any[]>(
+      `SELECT COUNT(*) as total FROM generated_emails ge ${whereSQL}`,
+      params
+    );
+    const total = countResult[0].total;
+
+    const emails = await query<any[]>(
+      `SELECT ge.*, p.first_name, p.last_name, p.full_name, p.email as prospect_email,
+              p.title as prospect_title, cam.name as campaign_name,
+              cam.asset_type, cam.asset_location
+       FROM generated_emails ge
+       JOIN prospects p ON ge.prospect_id = p.id
+       JOIN campaigns cam ON ge.campaign_id = cam.id
+       ${whereSQL}
+       ORDER BY ge.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        emails,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      },
+    });
+  } catch (error: any) {
+    console.error('Outbox list error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred while fetching outbox.' });
+  }
+});
+
+// --- GET /stats - Counts by status ---
+router.get('/stats', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const stats = await query<any[]>(
+      `SELECT status, COUNT(*) as count FROM generated_emails GROUP BY status`
+    );
+
+    const totalResult = await query<any[]>(
+      `SELECT COUNT(*) as total FROM generated_emails`
+    );
+
+    res.json({
+      success: true,
+      data: {
+        total: totalResult[0].total,
+        byStatus: stats.reduce((acc: any, row: any) => {
+          acc[row.status] = row.count;
+          return acc;
+        }, {}),
+      },
+    });
+  } catch (error: any) {
+    console.error('Outbox stats error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred while fetching outbox stats.' });
+  }
+});
+
+// --- PUT /:emailId/approve - Approve single email ---
+router.put('/:emailId/approve', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { emailId } = req.params;
+
+    await query(
+      `UPDATE generated_emails SET status = 'approved', approved_at = NOW(), approved_by = ?
+       WHERE id = ? AND status IN ('draft', 'rejected')`,
+      [req.user!.id, emailId]
+    );
+
+    const updated = await query<any[]>('SELECT * FROM generated_emails WHERE id = ?', [emailId]);
+
+    res.json({ success: true, data: updated[0] });
+  } catch (error: any) {
+    console.error('Outbox approve error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred while approving the email.' });
+  }
+});
+
+// --- PUT /:emailId/reject - Reject single email ---
+router.put('/:emailId/reject', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { emailId } = req.params;
+
+    await query(
+      `UPDATE generated_emails SET status = 'rejected'
+       WHERE id = ? AND status IN ('draft', 'approved')`,
+      [emailId]
+    );
+
+    const updated = await query<any[]>('SELECT * FROM generated_emails WHERE id = ?', [emailId]);
+
+    res.json({ success: true, data: updated[0] });
+  } catch (error: any) {
+    console.error('Outbox reject error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred while rejecting the email.' });
+  }
+});
+
+// --- POST /bulk-approve - Bulk approve emails ---
+router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email_ids } = req.body;
+
+    if (!email_ids || !Array.isArray(email_ids) || email_ids.length === 0) {
+      res.status(400).json({ success: false, error: 'email_ids array is required.' });
+      return;
+    }
+
+    const placeholders = email_ids.map(() => '?').join(',');
+    const result = await query<any>(
+      `UPDATE generated_emails SET status = 'approved', approved_at = NOW(), approved_by = ?
+       WHERE id IN (${placeholders}) AND status IN ('draft', 'rejected')`,
+      [req.user!.id, ...email_ids]
+    );
+
+    res.json({
+      success: true,
+      data: { message: `Approved ${result.affectedRows} email(s).`, count: result.affectedRows },
+    });
+  } catch (error: any) {
+    console.error('Outbox bulk approve error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred while bulk approving.' });
+  }
+});
+
+// --- POST /send - Send approved emails via Resend ---
+router.post('/send', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email_ids } = req.body;
+
+    // If email_ids provided, send only those. Otherwise, send all approved.
+    let emailsToSend: any[];
+
+    if (email_ids && Array.isArray(email_ids) && email_ids.length > 0) {
+      const placeholders = email_ids.map(() => '?').join(',');
+      emailsToSend = await query<any[]>(
+        `SELECT ge.*, p.email as prospect_email, p.first_name, p.last_name, p.full_name,
+                p.title as prospect_title, p.do_not_contact,
+                cam.name as campaign_name
+         FROM generated_emails ge
+         JOIN prospects p ON ge.prospect_id = p.id
+         JOIN campaigns cam ON ge.campaign_id = cam.id
+         WHERE ge.id IN (${placeholders}) AND ge.status = 'approved'`,
+        email_ids
+      );
+    } else {
+      emailsToSend = await query<any[]>(
+        `SELECT ge.*, p.email as prospect_email, p.first_name, p.last_name, p.full_name,
+                p.title as prospect_title, p.do_not_contact,
+                cam.name as campaign_name
+         FROM generated_emails ge
+         JOIN prospects p ON ge.prospect_id = p.id
+         JOIN campaigns cam ON ge.campaign_id = cam.id
+         WHERE ge.status = 'approved'
+         ORDER BY ge.campaign_id, ge.prospect_id, ge.step_number`
+      );
+    }
+
+    if (emailsToSend.length === 0) {
+      res.json({ success: true, data: { message: 'No hay emails aprobados para enviar.', sent: 0, failed: 0 } });
+      return;
+    }
+
+    const { sendEmail } = await import('../services/email');
+
+    let sent = 0;
+    let failed = 0;
+    const results: any[] = [];
+    const fromAddress = `Alfons Marques <${config.EMAIL_FROM}>`;
+
+    for (const email of emailsToSend) {
+      // Skip do_not_contact
+      if (email.do_not_contact) {
+        results.push({ id: email.id, status: 'skipped', reason: 'do_not_contact' });
+        continue;
+      }
+
+      // Check suppression list
+      const suppressed = await query<any[]>(
+        'SELECT id FROM suppression_list WHERE email = ?',
+        [email.prospect_email]
+      );
+      if (suppressed.length > 0) {
+        results.push({ id: email.id, status: 'skipped', reason: 'suppressed' });
+        continue;
+      }
+
+      try {
+        const result = await sendEmail(
+          email.prospect_email,
+          email.subject,
+          email.body_html,
+          undefined,
+          fromAddress
+        );
+
+        if (result.success) {
+          // Update status to sent
+          await query(
+            `UPDATE generated_emails SET status = 'sent', sent_at = NOW(),
+             metadata = JSON_SET(COALESCE(metadata, '{}'), '$.resend_id', ?)
+             WHERE id = ?`,
+            [result.id, email.id]
+          );
+
+          // Update prospect last_contacted
+          await query(
+            `UPDATE prospects SET last_contacted = NOW(),
+             status = CASE WHEN status IN ('new', 'enriched', 'qualified') THEN 'contacted' ELSE status END
+             WHERE id = ?`,
+            [email.prospect_id]
+          );
+
+          // Log activity
+          await query(
+            `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
+             VALUES (?, ?, 'email_sent', ?, ?)`,
+            [
+              uuidv4(),
+              email.prospect_id,
+              `Email enviado: Paso ${email.step_number}`,
+              `Asunto: ${email.subject} | Propiedad: ${email.campaign_name}`,
+            ]
+          );
+
+          sent++;
+          results.push({ id: email.id, status: 'sent', resend_id: result.id });
+        } else {
+          failed++;
+          await query(
+            `UPDATE generated_emails SET status = 'bounced',
+             metadata = JSON_SET(COALESCE(metadata, '{}'), '$.error', 'Send failed')
+             WHERE id = ?`,
+            [email.id]
+          );
+          results.push({ id: email.id, status: 'failed' });
+        }
+      } catch (sendError: any) {
+        failed++;
+        await query(
+          `UPDATE generated_emails SET status = 'bounced',
+           metadata = JSON_SET(COALESCE(metadata, '{}'), '$.error', ?)
+           WHERE id = ?`,
+          [sendError.message || 'Unknown error', email.id]
+        );
+        results.push({ id: email.id, status: 'failed', error: sendError.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        message: `Enviados: ${sent}, Fallidos: ${failed}, Total: ${emailsToSend.length}`,
+        sent,
+        failed,
+        skipped: results.filter(r => r.status === 'skipped').length,
+        results,
+      },
+    });
+  } catch (error: any) {
+    console.error('Outbox send error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred while sending emails.' });
+  }
+});
+
+export default router;
