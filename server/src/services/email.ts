@@ -2,6 +2,7 @@ import { Resend } from 'resend';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config/env';
 import { query } from '../config/database';
+import { getEmailFooter, getUnsubscribeUrl } from '../routes/unsubscribe';
 
 // Initialize Resend client (may be undefined if API key not configured)
 let resend: Resend | null = null;
@@ -30,13 +31,23 @@ export async function sendEmail(
   const client = getResendClient();
 
   try {
+    // Append compliance footer with unsubscribe link
+    const htmlWithFooter = html + getEmailFooter(to);
+
+    // Build List-Unsubscribe header for email clients
+    const unsubscribeUrl = getUnsubscribeUrl(to);
+
     const result = await client.emails.send({
       from: from || config.EMAIL_FROM,
       to: [to],
       subject,
-      html,
+      html: htmlWithFooter,
       text: text || undefined,
       replyTo: replyTo || config.EMAIL_REPLY_TO || undefined,
+      headers: {
+        'List-Unsubscribe': `<${unsubscribeUrl}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
     });
 
     if (result.error) {

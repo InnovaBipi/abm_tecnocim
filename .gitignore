@@ -30,6 +30,9 @@ desktop.ini
 *.swp
 *.swo
 
+# Claude Code local settings (may contain credentials in command history)
+.claude/
+
 # Uploads
 uploads/
 temp/

@@ -8,7 +8,7 @@ const poolConfig: mysql.PoolOptions = {
   password: config.DB_PASSWORD,
   database: config.DB_NAME,
   waitForConnections: true,
-  connectionLimit: 10,
+  connectionLimit: config.NODE_ENV === 'production' ? 50 : 10,
   queueLimit: 0,
   enableKeepAlive: true,
   keepAliveInitialDelay: 0,

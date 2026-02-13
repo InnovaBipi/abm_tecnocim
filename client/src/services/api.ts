@@ -199,7 +199,7 @@ export const sequencesApi = {
     api.post(`/sequences/${id}/steps`, { steps }),
 
   enroll: (id: string, prospectIds: string[]) =>
-    api.post(`/sequences/${id}/enroll`, { prospectIds }),
+    api.post(`/sequences/${id}/enroll`, { prospect_ids: prospectIds }),
 
   pause: (id: string) =>
     api.post(`/sequences/${id}/pause`),

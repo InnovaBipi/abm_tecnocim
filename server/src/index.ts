@@ -3,9 +3,11 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import path from 'path';
+import rateLimit from 'express-rate-limit';
 
 import { config } from './config/env';
 import { testConnection } from './config/database';
+import pool from './config/database';
 import { startScheduler } from './jobs/scheduler';
 
 // Import route handlers
@@ -18,8 +20,16 @@ import importRoutes from './routes/imports';
 import dashboardRoutes from './routes/dashboard';
 import settingsRoutes from './routes/settings';
 import outboxRoutes from './routes/outbox';
+import webhookRoutes from './routes/webhooks';
+import unsubscribeRoutes from './routes/unsubscribe';
 
 async function main(): Promise<void> {
+  // --- Production safety checks ---
+  if (config.NODE_ENV === 'production' && config.JWT_SECRET.includes('change')) {
+    console.error('CRITICAL: JWT_SECRET must be changed from default in production!');
+    process.exit(1);
+  }
+
   // Create Express app
   const app = express();
 
@@ -59,16 +69,48 @@ async function main(): Promise<void> {
     });
   });
 
+  // --- Rate limiters ---
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 10, // 10 attempts per window
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: 'Massa intents. Espera 15 minuts.' },
+  });
+
+  const sendLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 200, // 200 email sends per hour
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: 'Límit d\'enviaments assolit. Espera 1 hora.' },
+  });
+
+  const uploadLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 10, // 10 uploads per hour
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: 'Massa pujades. Espera 1 hora.' },
+  });
+
   // --- API Routes ---
-  app.use('/api/auth', authRoutes);
+  app.use('/api/auth', authLimiter, authRoutes);
   app.use('/api/prospects', prospectRoutes);
   app.use('/api/companies', companyRoutes);
   app.use('/api/campaigns', campaignRoutes);
   app.use('/api/sequences', sequenceRoutes);
-  app.use('/api/imports', importRoutes);
+  app.use('/api/imports', uploadLimiter, importRoutes);
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/settings', settingsRoutes);
   app.use('/api/outbox', outboxRoutes);
+
+  // Email sending rate limit on specific send endpoint
+  app.use('/api/outbox/send', sendLimiter);
+
+  // Public routes (no auth, no rate limit on webhooks - Resend needs to reach us)
+  app.use('/api/webhooks', webhookRoutes);
+  app.use('/api/unsubscribe', unsubscribeRoutes);
 
   // --- 404 handler ---
   app.use((_req, res) => {
@@ -122,7 +164,7 @@ async function main(): Promise<void> {
   }
 
   // --- Start server ---
-  app.listen(config.PORT, () => {
+  const server = app.listen(config.PORT, () => {
     console.log('');
     console.log('=========================================');
     console.log('  CamiaCasa ABM Server');
@@ -135,19 +177,41 @@ async function main(): Promise<void> {
     console.log('=========================================');
     console.log('');
     console.log('API endpoints:');
-    console.log('  GET  /api/health          - Health check');
-    console.log('  POST /api/auth/register   - Register');
-    console.log('  POST /api/auth/login      - Login');
-    console.log('  GET  /api/auth/me         - Current user');
-    console.log('  CRUD /api/prospects       - Prospects');
-    console.log('  CRUD /api/companies       - Companies');
-    console.log('  CRUD /api/campaigns       - Campaigns');
-    console.log('  CRUD /api/sequences       - Email sequences');
-    console.log('  POST /api/imports/upload   - File upload');
-    console.log('  GET  /api/dashboard/stats  - Dashboard');
-    console.log('  CRUD /api/outbox          - Outbox (generated emails)');
+    console.log('  GET  /api/health           - Health check');
+    console.log('  POST /api/auth/register    - Register');
+    console.log('  POST /api/auth/login       - Login');
+    console.log('  CRUD /api/prospects        - Prospects');
+    console.log('  CRUD /api/companies        - Companies');
+    console.log('  CRUD /api/campaigns        - Campaigns');
+    console.log('  CRUD /api/sequences        - Email sequences');
+    console.log('  CRUD /api/outbox           - Outbox (generated emails)');
+    console.log('  POST /api/webhooks/resend  - Resend webhook');
+    console.log('  GET  /api/unsubscribe      - Unsubscribe link');
     console.log('');
   });
+
+  // --- Graceful shutdown ---
+  const shutdown = (signal: string) => {
+    console.log(`\n${signal} received. Shutting down gracefully...`);
+    server.close(() => {
+      console.log('HTTP server closed.');
+      pool.end().then(() => {
+        console.log('Database pool closed.');
+        process.exit(0);
+      }).catch(() => {
+        process.exit(1);
+      });
+    });
+
+    // Force exit after 30 seconds
+    setTimeout(() => {
+      console.error('Forced shutdown after 30s timeout.');
+      process.exit(1);
+    }, 30000);
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 // Start the application
