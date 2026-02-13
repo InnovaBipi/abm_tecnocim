@@ -37,17 +37,26 @@ export async function pollImapForReplies(): Promise<void> {
     let highestUid = lastUid;
 
     try {
-      // Fetch messages with UID > lastUid
-      const searchRange = lastUid > 0 ? `${lastUid + 1}:*` : '1:*';
+      // Search for messages with UID > lastUid
+      const searchResult = await client.search({ uid: lastUid > 0 ? `${lastUid + 1}:*` : '1:*' }, { uid: true });
 
-      for await (const message of client.fetch(searchRange, {
+      // search() can return false if no results
+      const uids = Array.isArray(searchResult) ? searchResult : [];
+
+      // Filter out UIDs <= lastUid (IMAP range semantics include the boundary)
+      const newUids = uids.filter((uid: number) => uid > lastUid);
+
+      if (newUids.length === 0) {
+        lock.release();
+        await client.logout();
+        return;
+      }
+
+      for await (const message of client.fetch(newUids, {
         uid: true,
         envelope: true,
         headers: ['in-reply-to', 'references', 'message-id'],
       })) {
-        // Skip if UID is not actually newer (IMAP range semantics)
-        if (message.uid <= lastUid) continue;
-
         if (message.uid > highestUid) {
           highestUid = message.uid;
         }
