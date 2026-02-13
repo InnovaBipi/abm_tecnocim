@@ -228,7 +228,12 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
         break;
 
       case 'opened':
-        // Update prospect - only log, don't change status
+        // Add +3 to lead_score (capped at 100)
+        await query(
+          `UPDATE prospects SET lead_score = LEAST(lead_score + 3, 100) WHERE id = ?`,
+          [prospectId]
+        );
+
         await query(
           `INSERT INTO prospect_activities (id, prospect_id, activity_type, title)
            VALUES (?, ?, 'email_opened', 'Email abierto')`,
@@ -236,13 +241,48 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
         );
         break;
 
-      case 'clicked':
+      case 'clicked': {
+        // Add +10 to lead_score (capped at 100)
+        await query(
+          `UPDATE prospects SET lead_score = LEAST(lead_score + 10, 100) WHERE id = ?`,
+          [prospectId]
+        );
+
+        // Check if prospect should be auto-upgraded to 'interested'
+        const clickedProspects = await query<any[]>(
+          'SELECT lead_score, status FROM prospects WHERE id = ?',
+          [prospectId]
+        );
+        if (clickedProspects.length > 0) {
+          const p = clickedProspects[0];
+          const earlyStages = ['new', 'enriched', 'qualified', 'contacted'];
+          if (p.lead_score >= 70 && earlyStages.includes(p.status)) {
+            await query(
+              `UPDATE prospects SET status = 'interested' WHERE id = ?`,
+              [prospectId]
+            );
+            await query(
+              `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
+               VALUES (?, ?, 'auto_qualified', 'Auto-calificado como interesado', ?)`,
+              [uuidv4(), prospectId, `Score ${p.lead_score} >= 70 tras click. Promocionado automáticamente.`]
+            );
+          }
+
+          // Insert score history record
+          await query(
+            `INSERT INTO prospect_score_history (id, prospect_id, score, score_breakdown)
+             VALUES (?, ?, ?, ?)`,
+            [uuidv4(), prospectId, p.lead_score, JSON.stringify({ trigger: 'email_clicked', increment: 10 })]
+          );
+        }
+
         await query(
           `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
            VALUES (?, ?, 'email_clicked', 'Link clicado', ?)`,
           [uuidv4(), prospectId, `Link: ${data.click?.link || 'unknown'}`]
         );
         break;
+      }
 
       case 'delivered':
         // Just record - no side effects beyond the event

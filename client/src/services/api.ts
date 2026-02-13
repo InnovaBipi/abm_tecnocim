@@ -271,6 +271,21 @@ export const dashboardApi = {
 
   getCampaignPerformance: () =>
     api.get('/dashboard/campaign-performance'),
+
+  getDeliverability: () =>
+    api.get('/dashboard/deliverability'),
+
+  getFunnel: () =>
+    api.get('/dashboard/funnel'),
+
+  getSequenceStepPerformance: () =>
+    api.get('/dashboard/sequence-step-performance'),
+
+  getEngagementTrends: () =>
+    api.get('/dashboard/engagement-trends'),
+
+  getHotProspects: () =>
+    api.get('/dashboard/hot-prospects'),
 };
 
 // ── Settings ──────────────────────────────────────────────────────────────────

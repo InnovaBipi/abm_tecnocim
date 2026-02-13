@@ -32,6 +32,12 @@ export interface EnvConfig {
   PERPLEXITY_API_KEY: string;
   FIRECRAWL_API_KEY: string;
 
+  // IMAP (reply detection)
+  OVH_IMAP_HOST: string;
+  OVH_IMAP_PORT: number;
+  OVH_EMAIL: string;
+  OVH_EMAIL_PASS: string;
+
   // Frontend
   FRONTEND_URL: string;
 }
@@ -72,6 +78,12 @@ export const config: EnvConfig = {
   GEMINI_API_KEY: getEnvVar('GEMINI_API_KEY', ''),
   PERPLEXITY_API_KEY: getEnvVar('PERPLEXITY_API_KEY', ''),
   FIRECRAWL_API_KEY: getEnvVar('FIRECRAWL_API_KEY', ''),
+
+  // IMAP (reply detection)
+  OVH_IMAP_HOST: getEnvVar('OVH_IMAP_HOST', ''),
+  OVH_IMAP_PORT: parseInt(getEnvVar('OVH_IMAP_PORT', '993'), 10),
+  OVH_EMAIL: getEnvVar('OVH_EMAIL', ''),
+  OVH_EMAIL_PASS: getEnvVar('OVH_EMAIL_PASS', ''),
 
   // Frontend
   FRONTEND_URL: getEnvVar('FRONTEND_URL', 'http://localhost:5173'),

@@ -12,6 +12,10 @@ import {
   Activity,
   Loader2,
   AlertCircle,
+  Shield,
+  Flame,
+  ArrowDown,
+  MousePointerClick,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -21,6 +25,8 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  BarChart,
+  Bar,
 } from 'recharts';
 
 interface StatCardProps {
@@ -81,20 +87,48 @@ export default function Dashboard() {
     queryFn: () => dashboardApi.getCampaignPerformance(),
   });
 
+  const { data: deliverabilityData, isLoading: deliverabilityLoading } = useQuery({
+    queryKey: ['dashboard', 'deliverability'],
+    queryFn: () => dashboardApi.getDeliverability(),
+  });
+
+  const { data: engagementData, isLoading: engagementLoading } = useQuery({
+    queryKey: ['dashboard', 'engagement-trends'],
+    queryFn: () => dashboardApi.getEngagementTrends(),
+  });
+
+  const { data: hotProspectsData, isLoading: hotProspectsLoading } = useQuery({
+    queryKey: ['dashboard', 'hot-prospects'],
+    queryFn: () => dashboardApi.getHotProspects(),
+  });
+
+  const { data: funnelData, isLoading: funnelLoading } = useQuery({
+    queryKey: ['dashboard', 'funnel'],
+    queryFn: () => dashboardApi.getFunnel(),
+  });
+
+  const { data: stepPerfData, isLoading: stepPerfLoading } = useQuery({
+    queryKey: ['dashboard', 'sequence-step-performance'],
+    queryFn: () => dashboardApi.getSequenceStepPerformance(),
+  });
+
   const stats = statsData?.data?.data;
   const recentActivity = activityData?.data?.data || [];
   const topProspects = topProspectsData?.data?.data || [];
   const campaignPerf = campaignPerfData?.data?.data || [];
+  const deliverability = deliverabilityData?.data?.data;
+  const engagementTrends = engagementData?.data?.data || [];
+  const hotProspects = hotProspectsData?.data?.data || [];
+  const funnel = funnelData?.data?.data;
+  const stepPerf = stepPerfData?.data?.data || [];
 
-  // Mock chart data (will be replaced by API data)
-  const emailChartData = stats?.emailsOverTime || [
-    { date: 'Ene', enviados: 120, abiertos: 89, respondidos: 24 },
-    { date: 'Feb', enviados: 150, abiertos: 112, respondidos: 35 },
-    { date: 'Mar', enviados: 180, abiertos: 140, respondidos: 42 },
-    { date: 'Abr', enviados: 220, abiertos: 165, respondidos: 55 },
-    { date: 'May', enviados: 280, abiertos: 210, respondidos: 72 },
-    { date: 'Jun', enviados: 310, abiertos: 248, respondidos: 88 },
-  ];
+  // Format engagement trends for chart
+  const chartData = engagementTrends.map((d: any) => ({
+    date: new Date(d.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }),
+    enviados: d.sent || 0,
+    abiertos: d.opened || 0,
+    respondidos: d.replied || 0,
+  }));
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -142,63 +176,260 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Charts and tables row */}
+      {/* Deliverability health cards */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <Shield className="h-5 w-5 text-primary-600" />
+          <h2 className="text-lg font-semibold text-slate-900">Salud de Entregabilidad</h2>
+        </div>
+        {deliverabilityLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <Card key={i} className="stat-card animate-pulse">
+                <div className="h-16 bg-slate-100 rounded" />
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard
+              title="Tasa de Entrega"
+              value={`${deliverability?.delivery_rate || 0}%`}
+              icon={<Mail className="h-5 w-5" />}
+              change={`${deliverability?.delivered || 0} de ${deliverability?.sent || 0}`}
+              changeType={
+                (deliverability?.delivery_rate || 0) >= 95
+                  ? 'positive'
+                  : (deliverability?.delivery_rate || 0) >= 80
+                  ? 'neutral'
+                  : 'negative'
+              }
+            />
+            <StatCard
+              title="Tasa de Rebote"
+              value={`${deliverability?.bounce_rate || 0}%`}
+              icon={<ArrowDown className="h-5 w-5" />}
+              change={`${deliverability?.bounced || 0} rebotados`}
+              changeType={(deliverability?.bounce_rate || 0) <= 2 ? 'positive' : 'negative'}
+            />
+            <StatCard
+              title="Quejas Spam"
+              value={`${deliverability?.complaint_rate || 0}%`}
+              icon={<AlertCircle className="h-5 w-5" />}
+              change={`${deliverability?.complaints || 0} quejas`}
+              changeType={(deliverability?.complaint_rate || 0) <= 0.1 ? 'positive' : 'negative'}
+            />
+            <StatCard
+              title="Warm-up"
+              value={
+                deliverability?.warmup?.phase === 'completed'
+                  ? 'Completado'
+                  : deliverability?.warmup?.phase === 'in_progress'
+                  ? `Dia ${deliverability?.warmup?.domain_age_days || 0}/30`
+                  : 'Sin iniciar'
+              }
+              icon={<Flame className="h-5 w-5" />}
+              change={
+                deliverability?.warmup?.phase === 'completed'
+                  ? 'Sin limite diario'
+                  : deliverability?.warmup?.phase === 'in_progress'
+                  ? 'Limites activos'
+                  : undefined
+              }
+              changeType={deliverability?.warmup?.phase === 'completed' ? 'positive' : 'neutral'}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Charts row: engagement trends + hot prospects */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Email chart - 2 columns */}
+        {/* Engagement trends chart - 2 columns */}
         <Card padding="none" className="lg:col-span-2">
           <div className="px-6 py-4 border-b border-slate-200">
             <div className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5 text-primary-600" />
-              <h3 className="font-semibold text-slate-900">Emails Enviados</h3>
+              <h3 className="font-semibold text-slate-900">Tendencia de Engagement</h3>
             </div>
-            <p className="text-sm text-slate-500 mt-0.5">Resumen de actividad de emails</p>
+            <p className="text-sm text-slate-500 mt-0.5">Ultimos 30 dias</p>
           </div>
           <div className="p-6">
-            <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={emailChartData}>
-                <defs>
-                  <linearGradient id="gradientEnviados" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gradientRespondidos" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#64748b' }} />
-                <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#fff',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="enviados"
-                  stroke="#4f46e5"
-                  fill="url(#gradientEnviados)"
-                  strokeWidth={2}
-                  name="Enviados"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="respondidos"
-                  stroke="#10b981"
-                  fill="url(#gradientRespondidos)"
-                  strokeWidth={2}
-                  name="Respondidos"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {engagementLoading ? (
+              <div className="flex items-center justify-center h-[280px]">
+                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+              </div>
+            ) : chartData.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-[280px] text-slate-400">
+                <AlertCircle className="h-8 w-8 mb-2" />
+                <p className="text-sm">Sin datos de engagement</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="gradientEnviados" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15} />
+                      <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="gradientRespondidos" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.15} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#64748b' }} />
+                  <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#fff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="enviados"
+                    stroke="#4f46e5"
+                    fill="url(#gradientEnviados)"
+                    strokeWidth={2}
+                    name="Enviados"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="abiertos"
+                    stroke="#f59e0b"
+                    fill="none"
+                    strokeWidth={2}
+                    name="Abiertos"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="respondidos"
+                    stroke="#10b981"
+                    fill="url(#gradientRespondidos)"
+                    strokeWidth={2}
+                    name="Respondidos"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </Card>
 
-        {/* Top prospects - 1 column */}
+        {/* Hot prospects panel - 1 column */}
+        <Card padding="none">
+          <div className="px-6 py-4 border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <Flame className="h-5 w-5 text-orange-500" />
+              <h3 className="font-semibold text-slate-900">Prospectos Calientes</h3>
+            </div>
+            <p className="text-sm text-slate-500 mt-0.5">Engagement en ultimas 48h</p>
+          </div>
+          <div className="divide-y divide-slate-100 max-h-[340px] overflow-y-auto scrollbar-thin">
+            {hotProspectsLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+              </div>
+            ) : hotProspects.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                <AlertCircle className="h-8 w-8 mb-2" />
+                <p className="text-sm">Sin actividad reciente</p>
+              </div>
+            ) : (
+              hotProspects.map((prospect: any, index: number) => (
+                <div key={prospect.id || index} className="flex items-center gap-3 px-6 py-3 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-orange-50 text-orange-500">
+                    <Flame className="h-4 w-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-900 truncate">
+                      {prospect.full_name || `${prospect.first_name || ''} ${prospect.last_name || ''}`.trim() || prospect.email}
+                    </p>
+                    <p className="text-xs text-slate-500 truncate">
+                      {prospect.company_name || '-'} &middot; {prospect.activity_count} acciones
+                    </p>
+                  </div>
+                  <span
+                    className={`inline-flex items-center justify-center w-10 h-10 rounded-lg text-sm font-bold ${getScoreColor(
+                      prospect.lead_score || 0
+                    )}`}
+                  >
+                    {prospect.lead_score || 0}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {/* Funnel + Top prospects row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Funnel visualization */}
+        <Card padding="none">
+          <div className="px-6 py-4 border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <ArrowDown className="h-5 w-5 text-primary-600" />
+              <h3 className="font-semibold text-slate-900">Embudo de Conversion</h3>
+            </div>
+            <p className="text-sm text-slate-500 mt-0.5">Progresion de estados</p>
+          </div>
+          <div className="p-6">
+            {funnelLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+              </div>
+            ) : !funnel?.funnel?.length ? (
+              <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                <AlertCircle className="h-8 w-8 mb-2" />
+                <p className="text-sm">Sin datos de embudo</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {funnel.funnel.map((stage: any, index: number) => {
+                  const maxCount = Math.max(...funnel.funnel.map((s: any) => s.count), 1);
+                  const barWidth = Math.max((stage.count / maxCount) * 100, 4);
+                  const stageLabels: Record<string, string> = {
+                    new: 'Nuevo', enriched: 'Enriquecido', qualified: 'Calificado',
+                    contacted: 'Contactado', replied: 'Respondido', interested: 'Interesado',
+                    meeting: 'Reunion', converted: 'Convertido',
+                  };
+
+                  return (
+                    <div key={stage.status} className="flex items-center gap-3">
+                      <div className="w-24 text-sm text-slate-600 text-right shrink-0">
+                        {stageLabels[stage.status] || stage.status}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-slate-100 rounded-full h-6 relative">
+                            <div
+                              className="bg-primary-500 h-6 rounded-full transition-all flex items-center justify-end pr-2"
+                              style={{ width: `${barWidth}%`, minWidth: '2rem' }}
+                            >
+                              <span className="text-xs font-medium text-white">{stage.count}</span>
+                            </div>
+                          </div>
+                          <span className="text-xs text-slate-400 w-12 text-right">
+                            {stage.percentage}%
+                          </span>
+                        </div>
+                        {index > 0 && stage.conversion_from_prev > 0 && (
+                          <p className="text-xs text-slate-400 mt-0.5 ml-1">
+                            {stage.conversion_from_prev}% conversion
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </Card>
+
+        {/* Top prospects */}
         <Card padding="none">
           <div className="px-6 py-4 border-b border-slate-200">
             <div className="flex items-center gap-2">
@@ -244,6 +475,72 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      {/* Sequence step performance table */}
+      <Card padding="none">
+        <div className="px-6 py-4 border-b border-slate-200">
+          <div className="flex items-center gap-2">
+            <MousePointerClick className="h-5 w-5 text-primary-600" />
+            <h3 className="font-semibold text-slate-900">Rendimiento por Paso de Secuencia</h3>
+          </div>
+          <p className="text-sm text-slate-500 mt-0.5">Open, click y reply rates por paso</p>
+        </div>
+        <div className="overflow-x-auto">
+          {stepPerfLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+            </div>
+          ) : stepPerf.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+              <AlertCircle className="h-8 w-8 mb-2" />
+              <p className="text-sm">Sin datos de secuencias</p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="text-left px-6 py-3 font-medium text-slate-500">Secuencia</th>
+                  <th className="text-center px-4 py-3 font-medium text-slate-500">Paso</th>
+                  <th className="text-center px-4 py-3 font-medium text-slate-500">Enviados</th>
+                  <th className="text-center px-4 py-3 font-medium text-slate-500">Open Rate</th>
+                  <th className="text-center px-4 py-3 font-medium text-slate-500">Click Rate</th>
+                  <th className="text-center px-4 py-3 font-medium text-slate-500">Reply Rate</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {stepPerf.map((row: any, index: number) => (
+                  <tr key={`${row.sequence_id}-${row.step_number}` || index} className="hover:bg-slate-50">
+                    <td className="px-6 py-3 text-slate-900 font-medium truncate max-w-[200px]">
+                      {row.sequence_name}
+                    </td>
+                    <td className="text-center px-4 py-3 text-slate-600">
+                      #{row.step_number}
+                    </td>
+                    <td className="text-center px-4 py-3 text-slate-600">
+                      {row.sent}
+                    </td>
+                    <td className="text-center px-4 py-3">
+                      <span className={row.open_rate >= 30 ? 'text-emerald-600 font-medium' : 'text-slate-600'}>
+                        {row.open_rate}%
+                      </span>
+                    </td>
+                    <td className="text-center px-4 py-3">
+                      <span className={row.click_rate >= 5 ? 'text-emerald-600 font-medium' : 'text-slate-600'}>
+                        {row.click_rate}%
+                      </span>
+                    </td>
+                    <td className="text-center px-4 py-3">
+                      <span className={row.reply_rate >= 5 ? 'text-emerald-600 font-medium' : 'text-slate-600'}>
+                        {row.reply_rate}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </Card>
 
       {/* Bottom row: recent activity + campaign performance */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

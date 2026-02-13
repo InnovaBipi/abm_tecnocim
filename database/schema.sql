@@ -423,3 +423,20 @@ INSERT INTO scoring_rules (id, name, category, field_name, operator, field_value
 
 INSERT INTO users (id, email, password, first_name, last_name, role) VALUES
 (UUID(), 'alfons.marques@camiacasa.cat', '$2b$10$placeholder_hash_change_on_first_run', 'Alfons', 'Marques', 'admin');
+
+-- ============================================
+-- IMAP SYNC STATE (for reply detection polling)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS imap_sync_state (
+    id          CHAR(36) PRIMARY KEY,
+    mailbox     VARCHAR(255) NOT NULL DEFAULT 'INBOX',
+    last_uid    INT UNSIGNED NOT NULL DEFAULT 0,
+    last_synced_at DATETIME,
+    UNIQUE KEY idx_imap_mailbox (mailbox)
+);
+
+INSERT IGNORE INTO imap_sync_state (id, mailbox, last_uid) VALUES (UUID(), 'INBOX', 0);
+
+-- Performance index for warm-up daily send counting
+CREATE INDEX idx_event_sent_today ON email_events (sequence_id, event_type, occurred_at);

@@ -5,6 +5,7 @@ import { processJobs, addJob } from './queue';
 import { sendSequenceEmail } from '../services/email';
 import { recalculateAllScores } from '../services/scoring';
 import { calculateOptimalSendTime, resolveProspectTimezone, isWithinSendWindow } from '../services/scheduling';
+import { pollImapForReplies } from '../services/imap';
 
 /**
  * Initialize all scheduled jobs using node-cron.
@@ -69,11 +70,80 @@ export function startScheduler(): void {
     }
   });
 
+  // =============================================
+  // Every 3 minutes: Poll IMAP for replies
+  // =============================================
+  cron.schedule('*/3 * * * *', async () => {
+    try {
+      await pollImapForReplies();
+    } catch (error: any) {
+      console.error('IMAP polling error:', error.message);
+    }
+  });
+
   console.log('Job scheduler started successfully.');
   console.log('  - Sequence emails: every 5 minutes');
   console.log('  - Job queue: every 5 minutes');
+  console.log('  - IMAP reply polling: every 3 minutes');
   console.log('  - Enrichments: every hour');
   console.log('  - Score recalculation: daily at 2 AM');
+}
+
+// =============================================
+// Warm-up & Daily Limit Helpers
+// =============================================
+
+/**
+ * Calculate the max daily sends based on domain age (warm-up curve).
+ * Domain age = days since first email_event of type 'sent'.
+ * Day 1-3: 5, Day 4-7: 15, Day 8-14: 30, Day 15-21: 50, Day 22-30: 100, Day 31+: no cap
+ */
+async function getWarmupDailyLimit(): Promise<number> {
+  const result = await query<any[]>(
+    `SELECT MIN(occurred_at) as first_sent
+     FROM email_events WHERE event_type = 'sent'`
+  );
+
+  if (!result[0]?.first_sent) {
+    // No emails ever sent — start of warm-up
+    return 5;
+  }
+
+  const firstSent = new Date(result[0].first_sent);
+  const now = new Date();
+  const domainAgeDays = Math.floor((now.getTime() - firstSent.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+  if (domainAgeDays <= 3) return 5;
+  if (domainAgeDays <= 7) return 15;
+  if (domainAgeDays <= 14) return 30;
+  if (domainAgeDays <= 21) return 50;
+  if (domainAgeDays <= 30) return 100;
+  return Infinity; // No cap after 30 days
+}
+
+/**
+ * Count emails sent today for a specific sequence.
+ */
+async function getSequenceSentToday(sequenceId: string): Promise<number> {
+  const result = await query<any[]>(
+    `SELECT COUNT(*) as count FROM email_events
+     WHERE sequence_id = ? AND event_type = 'sent'
+     AND DATE(occurred_at) = CURDATE()`,
+    [sequenceId]
+  );
+  return result[0]?.count || 0;
+}
+
+/**
+ * Count all emails sent today (across all sequences).
+ */
+async function getTotalSentToday(): Promise<number> {
+  const result = await query<any[]>(
+    `SELECT COUNT(*) as count FROM email_events
+     WHERE event_type = 'sent'
+     AND DATE(occurred_at) = CURDATE()`
+  );
+  return result[0]?.count || 0;
 }
 
 /**
@@ -98,6 +168,12 @@ async function processDueSequenceEmails(): Promise<void> {
   }
 
   console.log(`Processing ${dueEnrollments.length} due sequence email(s)...`);
+
+  // Cache warm-up limit and global counter at loop start
+  const warmupLimit = await getWarmupDailyLimit();
+  let globalSentToday = await getTotalSentToday();
+  // Cache per-sequence counters: sequenceId -> sentToday
+  const sequenceSentCache: Record<string, number> = {};
 
   for (const enrollment of dueEnrollments) {
     try {
@@ -195,6 +271,41 @@ async function processDueSequenceEmails(): Promise<void> {
         continue;
       }
 
+      // --- Warm-up & daily limit checks ---
+      // Check global warm-up limit
+      if (globalSentToday >= warmupLimit) {
+        const tomorrow = calculateOptimalSendTime(
+          new Date(Date.now() + 24 * 60 * 60 * 1000),
+          prospectTz,
+          seqSendWindow
+        );
+        await query(
+          'UPDATE sequence_enrollments SET next_send_at = ? WHERE id = ?',
+          [tomorrow, enrollment.id]
+        );
+        console.log(`Warm-up limit reached (${warmupLimit}/day). Rescheduled enrollment ${enrollment.id} to tomorrow.`);
+        continue;
+      }
+
+      // Check per-sequence daily_limit
+      const seqDailyLimit = settings.daily_limit || 50;
+      if (!(enrollment.sequence_id in sequenceSentCache)) {
+        sequenceSentCache[enrollment.sequence_id] = await getSequenceSentToday(enrollment.sequence_id);
+      }
+      if (sequenceSentCache[enrollment.sequence_id] >= seqDailyLimit) {
+        const tomorrow = calculateOptimalSendTime(
+          new Date(Date.now() + 24 * 60 * 60 * 1000),
+          prospectTz,
+          seqSendWindow
+        );
+        await query(
+          'UPDATE sequence_enrollments SET next_send_at = ? WHERE id = ?',
+          [tomorrow, enrollment.id]
+        );
+        console.log(`Sequence daily limit reached (${seqDailyLimit}/day) for sequence ${enrollment.sequence_id}. Rescheduled enrollment ${enrollment.id}.`);
+        continue;
+      }
+
       // Handle different step types
       if (step.step_type === 'email') {
         // Send the email
@@ -213,6 +324,10 @@ async function processDueSequenceEmails(): Promise<void> {
             step_number: step.step_number,
           }
         );
+
+        // Increment cached counters after successful send
+        globalSentToday++;
+        sequenceSentCache[enrollment.sequence_id] = (sequenceSentCache[enrollment.sequence_id] || 0) + 1;
       }
 
       // Calculate next step send time
