@@ -24,6 +24,17 @@ import {
   CheckCircle,
   XCircle,
   Send,
+  Target,
+  Lightbulb,
+  TrendingUp,
+  Star,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  Users,
+  DollarSign,
+  MapPin,
+  Sparkles,
 } from 'lucide-react';
 import { formatDateTime, formatRelativeDate, getScoreColor, getStatusColor } from '@/lib/utils';
 import toast from 'react-hot-toast';
@@ -43,6 +54,7 @@ export default function ProspectDetail() {
   const [activeTab, setActiveTab] = useState('info');
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, unknown>>({});
+  const [showFullResearch, setShowFullResearch] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['prospects', id],
@@ -351,44 +363,225 @@ export default function ProspectDetail() {
           }
 
           if (tab === 'enrichment') {
-            const enrichment = prospect.enrichment || prospect.enrichmentData;
+            const enrichment = prospect.enrichment_data || prospect.enrichment || prospect.enrichmentData;
+            const ai = enrichment?.ai_analysis;
+            const research = enrichment?.perplexity_research;
+            const sources = enrichment?.sources || [];
+            const enrichedAt = enrichment?.enriched_at;
+
             return (
-              <Card padding="md">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-slate-900">Datos de Enriquecimiento</h3>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    icon={<RefreshCw className="h-4 w-4" />}
-                    onClick={() => enrichMutation.mutate()}
-                    loading={enrichMutation.isPending}
-                  >
-                    Re-enriquecer
-                  </Button>
-                </div>
-                {!enrichment ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-                    <Globe className="h-8 w-8 mb-2" />
-                    <p className="text-sm">Sin datos de enriquecimiento</p>
+              <div className="space-y-4">
+                {/* Header card */}
+                <Card padding="md">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-lg font-semibold text-slate-900">Datos de Enriquecimiento</h3>
+                      {enrichedAt && (
+                        <span className="text-xs text-slate-400">
+                          Actualizado {formatRelativeDate(enrichedAt)}
+                        </span>
+                      )}
+                      {sources.length > 0 && (
+                        <div className="flex items-center gap-1.5">
+                          {sources.map((s: string) => (
+                            <span key={s} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
+                              {s}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <Button
                       variant="secondary"
                       size="sm"
-                      className="mt-3"
                       icon={<RefreshCw className="h-4 w-4" />}
                       onClick={() => enrichMutation.mutate()}
                       loading={enrichMutation.isPending}
                     >
-                      Enriquecer ahora
+                      Re-enriquecer
                     </Button>
                   </div>
-                ) : (
-                  <div className="bg-slate-50 rounded-lg p-4 overflow-x-auto">
-                    <pre className="text-xs text-slate-600 whitespace-pre-wrap">
-                      {JSON.stringify(enrichment, null, 2)}
-                    </pre>
-                  </div>
+
+                  {!enrichment ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                      <Globe className="h-8 w-8 mb-2" />
+                      <p className="text-sm">Sin datos de enriquecimiento</p>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="mt-3"
+                        icon={<RefreshCw className="h-4 w-4" />}
+                        onClick={() => enrichMutation.mutate()}
+                        loading={enrichMutation.isPending}
+                      >
+                        Enriquecer ahora
+                      </Button>
+                    </div>
+                  ) : !ai ? (
+                    <div className="bg-slate-50 rounded-lg p-4 overflow-x-auto">
+                      <pre className="text-xs text-slate-600 whitespace-pre-wrap">
+                        {JSON.stringify(enrichment, null, 2)}
+                      </pre>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Score + Relevance Banner */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div className="flex items-center gap-3 p-4 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200">
+                          <div className={`flex items-center justify-center w-12 h-12 rounded-xl text-lg font-bold ${
+                            (ai.investment_interest_score || 0) >= 8 ? 'bg-green-100 text-green-700' :
+                            (ai.investment_interest_score || 0) >= 5 ? 'bg-amber-100 text-amber-700' :
+                            'bg-slate-100 text-slate-600'
+                          }`}>
+                            {ai.investment_interest_score ?? '-'}
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium text-amber-700 uppercase tracking-wide">Interes Inversor</p>
+                            <p className="text-sm text-amber-900 font-semibold">
+                              {(ai.investment_interest_score || 0) >= 8 ? 'Muy alto' :
+                               (ai.investment_interest_score || 0) >= 6 ? 'Alto' :
+                               (ai.investment_interest_score || 0) >= 4 ? 'Medio' : 'Bajo'} ({ai.investment_interest_score}/10)
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 p-4 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200">
+                          <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-blue-100 text-blue-700">
+                            <Building2 className="h-6 w-6" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium text-blue-700 uppercase tracking-wide">Sector</p>
+                            <p className="text-sm text-blue-900 font-semibold">{ai.company_industry || '-'}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-green-50 border border-emerald-200">
+                          <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-emerald-100 text-emerald-700">
+                            <Users className="h-6 w-6" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium text-emerald-700 uppercase tracking-wide">Empleados</p>
+                            <p className="text-sm text-emerald-900 font-semibold">{ai.company_employee_count || '-'}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Company Description */}
+                      {ai.company_description && (
+                        <div className="mb-6">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Building2 className="h-4 w-4 text-slate-500" />
+                            <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Descripcion de la Empresa</h4>
+                          </div>
+                          <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 rounded-lg p-4">
+                            {ai.company_description}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Real Estate Relevance */}
+                      {ai.real_estate_relevance && (
+                        <div className="mb-6">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Target className="h-4 w-4 text-purple-500" />
+                            <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Relevancia Inmobiliaria</h4>
+                          </div>
+                          <p className="text-sm text-slate-600 leading-relaxed bg-purple-50 rounded-lg p-4 border border-purple-100">
+                            {ai.real_estate_relevance}
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </Card>
+
+                {/* Key Insights */}
+                {ai?.key_insights && ai.key_insights.length > 0 && (
+                  <Card padding="md">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Lightbulb className="h-5 w-5 text-amber-500" />
+                      <h3 className="text-lg font-semibold text-slate-900">Insights Clave</h3>
+                    </div>
+                    <div className="space-y-3">
+                      {ai.key_insights.map((insight: string, i: number) => (
+                        <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors">
+                          <Sparkles className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                          <p className="text-sm text-slate-700 leading-relaxed">{insight}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
                 )}
-              </Card>
+
+                {/* Recommended Approach */}
+                {ai?.recommended_approach && (
+                  <Card padding="md">
+                    <div className="flex items-center gap-2 mb-4">
+                      <TrendingUp className="h-5 w-5 text-green-500" />
+                      <h3 className="text-lg font-semibold text-slate-900">Estrategia Recomendada</h3>
+                    </div>
+                    <p className="text-sm text-slate-600 leading-relaxed bg-green-50 rounded-lg p-4 border border-green-100">
+                      {ai.recommended_approach}
+                    </p>
+                  </Card>
+                )}
+
+                {/* Perplexity Research */}
+                {research && (
+                  <Card padding="md">
+                    <button
+                      className="flex items-center justify-between w-full"
+                      onClick={() => setShowFullResearch(!showFullResearch)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-5 w-5 text-blue-500" />
+                        <h3 className="text-lg font-semibold text-slate-900">Investigacion Completa</h3>
+                        <span className="text-xs text-slate-400">(Perplexity AI)</span>
+                      </div>
+                      {showFullResearch ? (
+                        <ChevronUp className="h-5 w-5 text-slate-400" />
+                      ) : (
+                        <ChevronDown className="h-5 w-5 text-slate-400" />
+                      )}
+                    </button>
+                    {showFullResearch && (
+                      <div className="mt-4 prose prose-sm prose-slate max-w-none bg-slate-50 rounded-lg p-4 text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">
+                        {research}
+                      </div>
+                    )}
+                  </Card>
+                )}
+
+                {/* Extra AI fields */}
+                {ai && (ai.department || ai.seniority || ai.company_annual_revenue) && (
+                  <Card padding="md">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Star className="h-5 w-5 text-slate-400" />
+                      <h3 className="text-lg font-semibold text-slate-900">Datos Adicionales</h3>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {ai.department && (
+                        <div className="p-3 rounded-lg bg-slate-50">
+                          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Departamento</p>
+                          <p className="text-sm text-slate-800 mt-1 font-medium">{ai.department}</p>
+                        </div>
+                      )}
+                      {ai.seniority && (
+                        <div className="p-3 rounded-lg bg-slate-50">
+                          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Seniority</p>
+                          <p className="text-sm text-slate-800 mt-1 font-medium">{ai.seniority}</p>
+                        </div>
+                      )}
+                      {ai.company_annual_revenue && ai.company_annual_revenue !== 'Unknown' && (
+                        <div className="p-3 rounded-lg bg-slate-50">
+                          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Facturacion Anual</p>
+                          <p className="text-sm text-slate-800 mt-1 font-medium">{ai.company_annual_revenue}</p>
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                )}
+              </div>
             );
           }
 

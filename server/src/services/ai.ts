@@ -1,4 +1,5 @@
 import { config } from '../config/env';
+import { resolveProspectLanguage, type ProspectLanguage } from './scheduling';
 
 /**
  * Call Gemini API to generate content.
@@ -99,6 +100,25 @@ export async function searchWithPerplexity(queryText: string): Promise<string> {
 }
 
 /**
+ * Build the language instruction for the AI prompt based on resolved language.
+ */
+function getLanguageInstruction(language: ProspectLanguage): string {
+  switch (language) {
+    case 'catalan':
+      return `MANDATORY: Write the ENTIRE email (subject line AND body) in CATALAN (Català).
+Use natural Catalan: "Hola", "Bon dia", "Salutacions", "Atentament". Use proper Catalan grammar and vocabulary.
+The prospect is in Catalonia and expects communication in Catalan.`;
+    case 'spanish':
+      return `MANDATORY: Write the ENTIRE email (subject line AND body) in SPANISH (Español).
+Use natural Spanish: "Hola", "Buenos días", "Saludos cordiales", "Atentamente". Use proper Spanish grammar.
+The prospect is in a Spanish-speaking region.`;
+    case 'english':
+      return `MANDATORY: Write the ENTIRE email (subject line AND body) in ENGLISH.
+Use professional English. The prospect is international and English is the appropriate business language.`;
+  }
+}
+
+/**
  * Generate a personalized email using Gemini.
  */
 export async function generateEmail(
@@ -109,6 +129,8 @@ export async function generateEmail(
     company_name?: string;
     industry?: string;
     city?: string;
+    region?: string;
+    country?: string;
   },
   campaign: {
     name: string;
@@ -127,6 +149,9 @@ export async function generateEmail(
     ? 'This is the third email in the sequence. Be more direct and include a clear call to action.'
     : `This is email #${stepNumber} in the sequence. Be concise and create urgency.`;
 
+  const language = resolveProspectLanguage(prospect);
+  const languageInstruction = getLanguageInstruction(language);
+
   const prompt = `You are an email copywriter for CamiaCasa, a premium real estate company in Spain (Catalonia).
 
 Write a professional, personalized B2B email for the following prospect and campaign:
@@ -136,7 +161,7 @@ PROSPECT:
 - Title: ${prospect.title || 'Unknown'}
 - Company: ${prospect.company_name || 'Unknown'}
 - Industry: ${prospect.industry || 'Unknown'}
-- Location: ${prospect.city || 'Unknown'}
+- Location: ${prospect.city || 'Unknown'}, ${prospect.region || ''}, ${prospect.country || ''}
 
 CAMPAIGN / REAL ESTATE ASSET:
 - Campaign: ${campaign.name}
@@ -148,12 +173,14 @@ CAMPAIGN / REAL ESTATE ASSET:
 SEQUENCE CONTEXT:
 ${stepContext}
 
+LANGUAGE:
+${languageInstruction}
+
 INSTRUCTIONS:
 - Write in a professional but approachable tone
 - Personalize based on the prospect's role and company
 - Focus on value proposition and investment opportunity
 - Keep the email concise (150-250 words)
-- The email can be in English or Spanish based on the prospect's location
 - Do NOT use excessive exclamation marks or salesy language
 
 Return your response in this exact JSON format:
@@ -196,6 +223,7 @@ export async function generatePersonalizedSequence(
     company_name?: string;
     industry?: string;
     city?: string;
+    region?: string;
     country?: string;
     linkedin_url?: string;
   },
@@ -278,6 +306,13 @@ ${JSON.stringify(campaign.asset_details, null, 2)}
 `;
   }
 
+  const language = resolveProspectLanguage({
+    region: prospect.region,
+    country: prospect.country,
+    city: prospect.city,
+  });
+  const languageInstruction = getLanguageInstruction(language);
+
   const prompt = `You are a world-class B2B email strategist for CamiaCasa.
 
 SENDER INFO:
@@ -289,7 +324,7 @@ Your task: Generate a ${numSteps}-email personalized outreach sequence that conn
 - Name: ${prospect.first_name || ''} ${prospect.last_name || ''}
 - Title: ${prospect.title || 'Unknown'}
 - Company: ${prospect.company_name || 'Unknown'}
-- Location: ${prospect.city || 'Unknown'}, ${prospect.country || 'Unknown'}
+- Location: ${prospect.city || 'Unknown'}, ${prospect.region || ''}, ${prospect.country || 'Unknown'}
 - LinkedIn: ${prospect.linkedin_url || 'N/A'}
 ${enrichmentContext}
 
@@ -302,11 +337,14 @@ ${enrichmentContext}
 ${assetDetailsStr}
 ${existingStepsContext}
 
+===== LANGUAGE =====
+${languageInstruction}
+
 ===== CRITICAL INSTRUCTIONS =====
 1. DO NOT write generic "investment opportunity" emails. Use the enrichment data to create SPECIFIC connections between the prospect's business and this property.
 2. Reference their company's actual activities, growth, market position, or strategy where relevant.
 3. If the prospect's company is in hospitality/hotels, connect to their expansion pipeline. If in investment, connect to portfolio fit. If in real estate, connect to their market focus.
-4. Write in the prospect's likely language (English if they're international, Spanish/Catalan if from Spain).
+4. YOU MUST write the entire email (subject + body) in the language specified above. This is mandatory.
 5. Tone: professional, concise, knowledgeable. No salesy language. No exclamation marks. Sound like a peer, not a salesperson.
 6. Each email should have a distinct angle/hook, not just repeat the same pitch.
 7. Email 1: Personal connection + property introduction (why THIS property for THEIR business)

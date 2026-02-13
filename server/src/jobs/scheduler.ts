@@ -4,6 +4,7 @@ import { query } from '../config/database';
 import { processJobs, addJob } from './queue';
 import { sendSequenceEmail } from '../services/email';
 import { recalculateAllScores } from '../services/scoring';
+import { calculateOptimalSendTime, resolveProspectTimezone, isWithinSendWindow } from '../services/scheduling';
 
 /**
  * Initialize all scheduled jobs using node-cron.
@@ -163,6 +164,37 @@ async function processDueSequenceEmails(): Promise<void> {
 
       const step = steps[0];
 
+      // Get prospect details for timezone-aware scheduling
+      const prospects = await query<any[]>(
+        'SELECT timezone, country, city FROM prospects WHERE id = ?',
+        [enrollment.prospect_id]
+      );
+      const prospect = prospects.length > 0 ? prospects[0] : {};
+      const prospectTz = resolveProspectTimezone(prospect);
+
+      // Load sequence send_window
+      const seqRows = await query<any[]>(
+        'SELECT send_window FROM email_sequences WHERE id = ?',
+        [enrollment.sequence_id]
+      );
+      const seqSendWindow = seqRows.length > 0
+        ? (typeof seqRows[0].send_window === 'string'
+            ? (() => { try { return JSON.parse(seqRows[0].send_window); } catch { return undefined; } })()
+            : seqRows[0].send_window)
+        : undefined;
+
+      // Check if we're within the send window for this prospect
+      if (!isWithinSendWindow(prospectTz, seqSendWindow)) {
+        // Not in send window - reschedule to the next optimal time
+        const nextOptimal = calculateOptimalSendTime(new Date(), prospectTz, seqSendWindow);
+        await query(
+          'UPDATE sequence_enrollments SET next_send_at = ? WHERE id = ?',
+          [nextOptimal, enrollment.id]
+        );
+        console.log(`Rescheduled enrollment ${enrollment.id} to ${nextOptimal.toISOString()} (outside send window for ${prospectTz})`);
+        continue;
+      }
+
       // Handle different step types
       if (step.step_type === 'email') {
         // Send the email
@@ -192,10 +224,13 @@ async function processDueSequenceEmails(): Promise<void> {
       );
 
       if (nextStep.length > 0) {
-        // Calculate next send time based on step delay
-        const nextSendAt = new Date();
-        nextSendAt.setDate(nextSendAt.getDate() + (nextStep[0].delay_days || 0));
-        nextSendAt.setHours(nextSendAt.getHours() + (nextStep[0].delay_hours || 0));
+        // Calculate raw candidate time based on step delay
+        const rawNextSendAt = new Date();
+        rawNextSendAt.setDate(rawNextSendAt.getDate() + (nextStep[0].delay_days || 0));
+        rawNextSendAt.setHours(rawNextSendAt.getHours() + (nextStep[0].delay_hours || 0));
+
+        // Adjust to optimal send time for prospect's timezone (no weekends)
+        const nextSendAt = calculateOptimalSendTime(rawNextSendAt, prospectTz, seqSendWindow);
 
         await query(
           `UPDATE sequence_enrollments SET current_step = ?, next_send_at = ? WHERE id = ?`,

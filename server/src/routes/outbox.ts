@@ -226,7 +226,8 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
           email.subject,
           email.body_html,
           undefined,
-          fromAddress
+          fromAddress,
+          config.EMAIL_REPLY_TO
         );
 
         if (result.success) {

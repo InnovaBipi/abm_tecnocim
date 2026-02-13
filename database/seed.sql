@@ -87,7 +87,9 @@ INSERT INTO campaigns (id, name, description, asset_type, asset_location, asset_
 (UUID(), 'Nau Industrial Zona Franca', 'Venda de nau industrial de 2500m2 a la Zona Franca de Barcelona.', 'Industrial', 'Barcelona - Zona Franca', 3200000.00, 'outbound', 'active', '2026-01-01', '2026-06-30', @admin_id),
 (UUID(), 'Promocio Residencial Sitges', 'Nova promocio de 24 habitatges amb piscina comunitaria i vistes al mar a Sitges.', 'New Development', 'Sitges', 8500000.00, 'outbound', 'draft', '2026-03-01', '2026-12-31', @admin_id),
 (UUID(), 'Reactivacio Leads Q4 2025', 'Campanya de reactivacio de leads freds del Q4 2025 que no van respondre.', NULL, NULL, NULL, 'reactivation', 'active', '2026-02-01', '2026-02-28', @admin_id),
-(UUID(), 'Newsletter Inversors Febrer', 'Newsletter mensual per a inversors amb les noves oportunitats del mercat.', NULL, NULL, NULL, 'nurture', 'completed', '2026-02-01', '2026-02-07', @admin_id);
+(UUID(), 'Newsletter Inversors Febrer', 'Newsletter mensual per a inversors amb les noves oportunitats del mercat.', NULL, NULL, NULL, 'nurture', 'completed', '2026-02-01', '2026-02-07', @admin_id),
+(UUID(), 'Hotel Doha 138 Habitaciones 14.400m2', 'Hotel en Doha (Qatar). 14.400m2 de superficie construida. 138 habitaciones: 132 estandar y 6 suites de lujo. Cocina profesional, lugar de oracion y aparcamiento. Venta llave en mano. Precio: QR 170.000.000.', 'Hotel', 'Doha, Qatar', 39255000.00, 'outbound', 'draft', '2026-02-09', '2026-08-31', @admin_id),
+(UUID(), 'Hotel Doha 100 Habitaciones 12.925m2', 'Hotel en Doha (Qatar). 12.925m2 de superficie construida. 100 habitaciones: 90 estandar y 9 suites de lujo. Aparcamiento para 47 vehiculos. Venta llave en mano. Precio: QR 260.000.000.', 'Hotel', 'Doha, Qatar', 60019000.00, 'outbound', 'draft', '2026-02-09', '2026-08-31', @admin_id);
 
 -- Store campaign IDs
 SET @camp1 = (SELECT id FROM campaigns WHERE name = 'Atic Eixample Dret 450m2');
@@ -96,6 +98,38 @@ SET @camp3 = (SELECT id FROM campaigns WHERE name = 'Nau Industrial Zona Franca'
 SET @camp4 = (SELECT id FROM campaigns WHERE name = 'Promocio Residencial Sitges');
 SET @camp5 = (SELECT id FROM campaigns WHERE name = 'Reactivacio Leads Q4 2025');
 SET @camp6 = (SELECT id FROM campaigns WHERE name = 'Newsletter Inversors Febrer');
+SET @camp7 = (SELECT id FROM campaigns WHERE name = 'Hotel Doha 138 Habitaciones 14.400m2');
+SET @camp8 = (SELECT id FROM campaigns WHERE name = 'Hotel Doha 100 Habitaciones 12.925m2');
+
+-- Add asset_details JSON for Doha hotels
+UPDATE campaigns SET asset_details = JSON_OBJECT(
+    'total_rooms', 138,
+    'standard_rooms', 132,
+    'luxury_suites', 6,
+    'built_area_m2', 14400,
+    'features', JSON_ARRAY('cocina profesional', 'lugar de oracion', 'aparcamiento'),
+    'price_qar', 170000000,
+    'price_eur', 39255000,
+    'sale_type', 'llave en mano',
+    'currency', 'QAR',
+    'country', 'Qatar',
+    'city', 'Doha'
+) WHERE id = @camp7;
+
+UPDATE campaigns SET asset_details = JSON_OBJECT(
+    'total_rooms', 100,
+    'standard_rooms', 90,
+    'luxury_suites', 9,
+    'built_area_m2', 12925,
+    'features', JSON_ARRAY('aparcamiento para 47 vehiculos'),
+    'parking_spaces', 47,
+    'price_qar', 260000000,
+    'price_eur', 60019000,
+    'sale_type', 'llave en mano',
+    'currency', 'QAR',
+    'country', 'Qatar',
+    'city', 'Doha'
+) WHERE id = @camp8;
 
 -- ============================================
 -- CAMPAIGN PROSPECTS
@@ -284,4 +318,7 @@ INSERT INTO tags (id, name, color) VALUES
 (UUID(), 'Barcelona', '#2563eb'),
 (UUID(), 'Costa Brava', '#0d9488'),
 (UUID(), 'Hot Lead', '#ef4444'),
-(UUID(), 'VIP', '#f59e0b');
+(UUID(), 'VIP', '#f59e0b'),
+(UUID(), 'Hotel', '#9333ea'),
+(UUID(), 'Qatar', '#059669'),
+(UUID(), 'Doha', '#0284c7');

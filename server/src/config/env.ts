@@ -24,6 +24,7 @@ export interface EnvConfig {
   // Resend (Email)
   RESEND_API_KEY: string;
   EMAIL_FROM: string;
+  EMAIL_REPLY_TO: string;
 
   // AI / Enrichment
   GEMINI_API_KEY: string;
@@ -63,6 +64,7 @@ export const config: EnvConfig = {
   // Resend (Email)
   RESEND_API_KEY: getEnvVar('RESEND_API_KEY', ''),
   EMAIL_FROM: getEnvVar('EMAIL_FROM', 'noreply@camiacasa.cat'),
+  EMAIL_REPLY_TO: getEnvVar('EMAIL_REPLY_TO', 'alfons.marques@camiacasa.cat'),
 
   // AI / Enrichment
   GEMINI_API_KEY: getEnvVar('GEMINI_API_KEY', ''),

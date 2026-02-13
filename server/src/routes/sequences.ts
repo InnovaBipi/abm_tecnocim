@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { query, getConnection } from '../config/database';
 import { authenticate } from '../middleware/auth';
+import { calculateOptimalSendTime, resolveProspectTimezone } from '../services/scheduling';
 
 const router = Router();
 
@@ -488,6 +489,17 @@ router.post('/:id/enroll', async (req: Request, res: Response): Promise<void> =>
       [id]
     );
 
+    // Get sequence send_window for scheduling
+    const seqForWindow = await query<any[]>(
+      'SELECT send_window FROM email_sequences WHERE id = ?',
+      [id]
+    );
+    const seqSendWindow = seqForWindow.length > 0
+      ? (typeof seqForWindow[0].send_window === 'string'
+          ? (() => { try { return JSON.parse(seqForWindow[0].send_window); } catch { return undefined; } })()
+          : seqForWindow[0].send_window)
+      : undefined;
+
     const { prospect_ids } = validation.data;
     let enrolledCount = 0;
     let skippedCount = 0;
@@ -496,12 +508,23 @@ router.post('/:id/enroll', async (req: Request, res: Response): Promise<void> =>
       try {
         const enrollmentId = uuidv4();
 
-        // Calculate next send time based on first step delay
-        let nextSendAt = new Date();
+        // Get prospect timezone for smart scheduling
+        const prospectRows = await query<any[]>(
+          'SELECT timezone, country, city FROM prospects WHERE id = ?',
+          [prospectId]
+        );
+        const prospectData = prospectRows.length > 0 ? prospectRows[0] : {};
+        const prospectTz = resolveProspectTimezone(prospectData);
+
+        // Calculate raw next send time based on first step delay
+        let rawNextSendAt = new Date();
         if (firstStep.length > 0) {
-          nextSendAt.setDate(nextSendAt.getDate() + (firstStep[0].delay_days || 0));
-          nextSendAt.setHours(nextSendAt.getHours() + (firstStep[0].delay_hours || 0));
+          rawNextSendAt.setDate(rawNextSendAt.getDate() + (firstStep[0].delay_days || 0));
+          rawNextSendAt.setHours(rawNextSendAt.getHours() + (firstStep[0].delay_hours || 0));
         }
+
+        // Adjust to optimal send time (no weekends, best hour for prospect's timezone)
+        const nextSendAt = calculateOptimalSendTime(rawNextSendAt, prospectTz, seqSendWindow);
 
         await query(
           `INSERT INTO sequence_enrollments (id, sequence_id, prospect_id, current_step, status, next_send_at)
@@ -614,6 +637,128 @@ router.post('/:id/resume', async (req: Request, res: Response): Promise<void> =>
   }
 });
 
+// --- POST /:id/generate-personalized - Generate full personalized sequence with AI ---
+router.post('/:id/generate-personalized', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { prospect_id, num_steps } = req.body;
+
+    if (!prospect_id) {
+      res.status(400).json({ success: false, error: 'prospect_id is required.' });
+      return;
+    }
+
+    // Load sequence with campaign
+    const sequences = await query<any[]>(
+      `SELECT es.*, c.name as campaign_name, c.asset_type, c.asset_location,
+              c.asset_price, c.description as campaign_description, c.asset_details
+       FROM email_sequences es
+       LEFT JOIN campaigns c ON es.campaign_id = c.id
+       WHERE es.id = ?`,
+      [id]
+    );
+
+    if (sequences.length === 0) {
+      res.status(404).json({ success: false, error: 'Sequence not found.' });
+      return;
+    }
+
+    const sequence = sequences[0];
+
+    // Load existing steps as template reference
+    const existingSteps = await query<any[]>(
+      `SELECT step_number, subject, body_html, delay_days FROM sequence_steps
+       WHERE sequence_id = ? ORDER BY step_number ASC`,
+      [id]
+    );
+
+    // Load prospect with enrichment
+    const prospects = await query<any[]>(
+      `SELECT p.*, c.name as company_name, c.industry as company_industry,
+              c.employee_count, c.annual_revenue
+       FROM prospects p
+       LEFT JOIN companies c ON p.company_id = c.id
+       WHERE p.id = ?`,
+      [prospect_id]
+    );
+
+    if (prospects.length === 0) {
+      res.status(404).json({ success: false, error: 'Prospect not found.' });
+      return;
+    }
+
+    const prospect = prospects[0];
+
+    // Parse enrichment_data
+    let enrichment = null;
+    if (prospect.enrichment_data) {
+      enrichment = typeof prospect.enrichment_data === 'string'
+        ? JSON.parse(prospect.enrichment_data)
+        : prospect.enrichment_data;
+    }
+
+    // Parse asset_details
+    let assetDetails = null;
+    if (sequence.asset_details) {
+      assetDetails = typeof sequence.asset_details === 'string'
+        ? JSON.parse(sequence.asset_details)
+        : sequence.asset_details;
+    }
+
+    const { generatePersonalizedSequence } = await import('../services/ai');
+
+    const generatedSteps = await generatePersonalizedSequence(
+      {
+        first_name: prospect.first_name,
+        last_name: prospect.last_name,
+        title: prospect.title,
+        company_name: prospect.company_name,
+        industry: prospect.company_industry,
+        city: prospect.city,
+        region: prospect.region,
+        country: prospect.country,
+        linkedin_url: prospect.linkedin_url,
+      },
+      enrichment,
+      {
+        name: sequence.campaign_name || sequence.name,
+        description: sequence.campaign_description,
+        asset_type: sequence.asset_type,
+        asset_location: sequence.asset_location,
+        asset_price: sequence.asset_price ? parseFloat(sequence.asset_price) : undefined,
+        asset_details: assetDetails,
+      },
+      existingSteps,
+      num_steps || 4
+    );
+
+    res.json({
+      success: true,
+      data: {
+        prospect: {
+          id: prospect.id,
+          name: `${prospect.first_name || ''} ${prospect.last_name || ''}`.trim(),
+          email: prospect.email,
+          title: prospect.title,
+          company: prospect.company_name,
+        },
+        campaign: {
+          name: sequence.campaign_name,
+          asset_type: sequence.asset_type,
+          location: sequence.asset_location,
+        },
+        steps: generatedSteps,
+      },
+    });
+  } catch (error: any) {
+    console.error('Generate personalized sequence error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'An error occurred while generating the personalized sequence.',
+    });
+  }
+});
+
 // --- POST /:id/generate-step - Generate email content with AI ---
 router.post('/:id/generate-step', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -667,6 +812,8 @@ router.post('/:id/generate-step', async (req: Request, res: Response): Promise<v
         company_name: prospectData.company_name,
         industry: prospectData.company_industry,
         city: prospectData.city,
+        region: prospectData.region,
+        country: prospectData.country,
       },
       {
         name: sequence.campaign_name || sequence.name,

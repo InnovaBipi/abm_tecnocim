@@ -477,6 +477,7 @@ router.post('/:id/generate-emails', async (req: Request, res: Response): Promise
             company_name: prospect.company_name,
             industry: prospect.company_industry,
             city: prospect.city,
+            region: prospect.region,
             country: prospect.country,
             linkedin_url: prospect.linkedin_url,
           },

@@ -24,7 +24,8 @@ export async function sendEmail(
   subject: string,
   html: string,
   text?: string,
-  from?: string
+  from?: string,
+  replyTo?: string
 ): Promise<{ id: string; success: boolean }> {
   const client = getResendClient();
 
@@ -35,6 +36,7 @@ export async function sendEmail(
       subject,
       html,
       text: text || undefined,
+      replyTo: replyTo || config.EMAIL_REPLY_TO || undefined,
     });
 
     if (result.error) {
@@ -118,13 +120,17 @@ export async function sendSequenceEmail(
       ? `${sequence.from_name || 'CamiaCasa'} <${sequence.from_email}>`
       : config.EMAIL_FROM;
 
+    // Determine reply-to address
+    const replyToAddress = sequence?.reply_to || config.EMAIL_REPLY_TO || undefined;
+
     // Send via Resend
     const result = await sendEmail(
       prospect.email,
       personalizedSubject,
       personalizedHtml,
       personalizedText,
-      fromAddress
+      fromAddress,
+      replyToAddress
     );
 
     // Record the email event
