@@ -250,7 +250,7 @@ router.post('/:id/map', async (req: Request, res: Response): Promise<void> => {
 
     // Process import immediately (inline)
     const result = await processImportInline({
-      import_id: id,
+      import_id: id as string,
       file_path: importRecord.file_path,
       file_name: importRecord.file_name,
       column_mapping,

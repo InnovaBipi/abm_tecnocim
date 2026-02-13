@@ -183,7 +183,7 @@ export async function processImportInline(payload: {
 
     if (worksheet) {
       const headers: string[] = [];
-      worksheet.getRow(1).eachCell((cell, colNumber) => {
+      worksheet.getRow(1).eachCell((cell: any, colNumber: any) => {
         headers.push(String(cell.value || `Column ${colNumber}`));
       });
 

@@ -449,7 +449,7 @@ router.post('/:id/enrich', async (req: Request, res: Response): Promise<void> =>
 
     // Import enrichment service dynamically to avoid circular deps
     const { enrichProspect } = await import('../services/enrichment');
-    const result = await enrichProspect(id);
+    const result = await enrichProspect(id as string);
 
     if (!result.success) {
       res.status(500).json({
@@ -493,7 +493,7 @@ router.post('/:id/recalculate-score', async (req: Request, res: Response): Promi
     }
 
     const { calculateScore } = await import('../services/scoring');
-    const result = await calculateScore(id);
+    const result = await calculateScore(id as string);
 
     res.json({
       success: true,

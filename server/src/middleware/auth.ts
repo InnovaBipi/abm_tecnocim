@@ -128,7 +128,7 @@ export function generateToken(userId: string, email: string, role: string): stri
   return jwt.sign(
     { userId, email, role } as JwtPayload,
     config.JWT_SECRET,
-    { expiresIn: config.JWT_EXPIRES_IN }
+    { expiresIn: config.JWT_EXPIRES_IN } as jwt.SignOptions
   );
 }
 

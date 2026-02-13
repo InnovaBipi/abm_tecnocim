@@ -31,7 +31,7 @@ export async function scrapeUrl(url: string): Promise<string> {
     throw new Error(`Firecrawl API error (${response.status}): ${errorText}`);
   }
 
-  const data = await response.json();
+  const data: any = await response.json();
 
   if (!data.success) {
     throw new Error(`Firecrawl scrape failed: ${data.error || 'Unknown error'}`);

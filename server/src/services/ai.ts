@@ -36,7 +36,7 @@ export async function enrichWithGemini(prompt: string, options?: { temperature?:
     throw new Error(`Gemini API error (${response.status}): ${errorText}`);
   }
 
-  const data = await response.json();
+  const data: any = await response.json();
 
   // Extract text from Gemini response
   const candidates = data.candidates;
@@ -90,7 +90,7 @@ export async function searchWithPerplexity(queryText: string): Promise<string> {
     throw new Error(`Perplexity API error (${response.status}): ${errorText}`);
   }
 
-  const data = await response.json();
+  const data: any = await response.json();
 
   if (!data.choices || data.choices.length === 0) {
     throw new Error('No response from Perplexity API.');
