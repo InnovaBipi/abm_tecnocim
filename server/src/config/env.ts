@@ -23,6 +23,7 @@ export interface EnvConfig {
 
   // Resend (Email)
   RESEND_API_KEY: string;
+  RESEND_WEBHOOK_SECRET: string;
   EMAIL_FROM: string;
   EMAIL_REPLY_TO: string;
 
@@ -63,6 +64,7 @@ export const config: EnvConfig = {
 
   // Resend (Email)
   RESEND_API_KEY: getEnvVar('RESEND_API_KEY', ''),
+  RESEND_WEBHOOK_SECRET: getEnvVar('RESEND_WEBHOOK_SECRET', ''),
   EMAIL_FROM: getEnvVar('EMAIL_FROM', 'noreply@camiacasa.cat'),
   EMAIL_REPLY_TO: getEnvVar('EMAIL_REPLY_TO', 'alfons.marques@camiacasa.cat'),
 

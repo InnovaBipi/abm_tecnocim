@@ -49,8 +49,15 @@ async function main(): Promise<void> {
   // Request logging
   app.use(morgan(config.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-  // Body parsing
-  app.use(express.json({ limit: '10mb' }));
+  // Body parsing (capture raw body for webhook signature verification)
+  app.use(express.json({
+    limit: '10mb',
+    verify: (req: any, _res, buf) => {
+      if (req.originalUrl?.startsWith('/api/webhooks')) {
+        req.rawBody = buf.toString('utf8');
+      }
+    },
+  }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // Static file serving for uploads

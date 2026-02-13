@@ -1,32 +1,76 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
+import { config } from '../config/env';
 
 const router = Router();
 
 /**
+ * Verify Resend/Svix webhook signature.
+ * Returns true if valid (or if no secret configured - skip verification).
+ */
+function verifyWebhookSignature(req: Request): boolean {
+  const secret = config.RESEND_WEBHOOK_SECRET;
+  if (!secret) return true; // No secret configured, skip verification
+
+  const svixId = req.headers['svix-id'] as string;
+  const svixTimestamp = req.headers['svix-timestamp'] as string;
+  const svixSignature = req.headers['svix-signature'] as string;
+
+  if (!svixId || !svixTimestamp || !svixSignature) {
+    console.warn('Webhook missing svix headers');
+    return false;
+  }
+
+  // Reject timestamps older than 5 minutes (replay protection)
+  const now = Math.floor(Date.now() / 1000);
+  const ts = parseInt(svixTimestamp, 10);
+  if (isNaN(ts) || Math.abs(now - ts) > 300) {
+    console.warn('Webhook timestamp too old or invalid');
+    return false;
+  }
+
+  // Decode the secret: remove 'whsec_' prefix and base64-decode
+  const secretBytes = Buffer.from(secret.replace(/^whsec_/, ''), 'base64');
+
+  // Construct the signed content
+  const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+  const signedContent = `${svixId}.${svixTimestamp}.${rawBody}`;
+
+  // Compute expected signature
+  const expectedSignature = crypto
+    .createHmac('sha256', secretBytes)
+    .update(signedContent)
+    .digest('base64');
+
+  // The svix-signature header may contain multiple signatures (v1,xxx v1,yyy)
+  const signatures = svixSignature.split(' ');
+  for (const sig of signatures) {
+    const sigValue = sig.replace(/^v1,/, '');
+    if (crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(sigValue))) {
+      return true;
+    }
+  }
+
+  console.warn('Webhook signature verification failed');
+  return false;
+}
+
+/**
  * POST /api/webhooks/resend
  *
- * Handles Resend webhook events: delivered, opened, clicked, bounced,
- * complained, unsubscribed.
- *
- * Resend sends JSON payloads with:
- * {
- *   "type": "email.delivered" | "email.opened" | "email.clicked" | "email.bounced" | ...
- *   "data": {
- *     "email_id": "resend-email-id",
- *     "to": ["recipient@example.com"],
- *     "subject": "...",
- *     "created_at": "2026-02-13T...",
- *     ...
- *   }
- * }
- *
- * No authentication required (Resend calls this URL directly).
- * Validate via Resend webhook signing secret if configured.
+ * Handles Resend webhook events: delivered, opened, clicked, bounced, complained.
+ * Verifies Svix webhook signature when RESEND_WEBHOOK_SECRET is configured.
  */
 router.post('/resend', async (req: Request, res: Response): Promise<void> => {
   try {
+    // Verify webhook signature
+    if (!verifyWebhookSignature(req)) {
+      res.status(401).json({ error: 'Invalid webhook signature' });
+      return;
+    }
+
     const { type, data } = req.body;
 
     if (!type || !data) {
