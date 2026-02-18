@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { config } from '../config/env';
+import { calculateOptimalSendTime, resolveProspectTimezone } from '../services/scheduling';
 
 const router = Router();
 
@@ -91,15 +92,33 @@ router.get('/stats', async (_req: Request, res: Response): Promise<void> => {
   }
 });
 
-// --- PUT /:emailId/approve - Approve single email ---
+// --- PUT /:emailId/approve - Approve → Schedule single email ---
 router.put('/:emailId/approve', async (req: Request, res: Response): Promise<void> => {
   try {
     const { emailId } = req.params;
 
+    // Get email with prospect data for timezone calculation
+    const emails = await query<any[]>(
+      `SELECT ge.id, ge.status, p.timezone, p.country, p.city
+       FROM generated_emails ge
+       JOIN prospects p ON ge.prospect_id = p.id
+       WHERE ge.id = ? AND ge.status IN ('draft', 'rejected')`,
+      [emailId]
+    );
+
+    if (emails.length === 0) {
+      res.status(404).json({ success: false, error: 'Email no encontrado o no está en estado borrador.' });
+      return;
+    }
+
+    const prospect = emails[0];
+    const prospectTz = resolveProspectTimezone(prospect);
+    const scheduledFor = calculateOptimalSendTime(new Date(), prospectTz);
+
     await query(
-      `UPDATE generated_emails SET status = 'approved', approved_at = NOW(), approved_by = ?
+      `UPDATE generated_emails SET status = 'scheduled', approved_at = NOW(), approved_by = ?, scheduled_for = ?
        WHERE id = ? AND status IN ('draft', 'rejected')`,
-      [req.user!.id, emailId]
+      [req.user!.id, scheduledFor, emailId]
     );
 
     const updated = await query<any[]>('SELECT * FROM generated_emails WHERE id = ?', [emailId]);
@@ -117,8 +136,8 @@ router.put('/:emailId/reject', async (req: Request, res: Response): Promise<void
     const { emailId } = req.params;
 
     await query(
-      `UPDATE generated_emails SET status = 'rejected'
-       WHERE id = ? AND status IN ('draft', 'approved')`,
+      `UPDATE generated_emails SET status = 'rejected', scheduled_for = NULL
+       WHERE id = ? AND status IN ('draft', 'approved', 'scheduled')`,
       [emailId]
     );
 
@@ -131,7 +150,7 @@ router.put('/:emailId/reject', async (req: Request, res: Response): Promise<void
   }
 });
 
-// --- POST /bulk-approve - Bulk approve emails ---
+// --- POST /bulk-approve - Bulk approve → schedule emails ---
 router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> => {
   try {
     const { email_ids } = req.body;
@@ -141,16 +160,32 @@ router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    // Get emails with prospect timezone data
     const placeholders = email_ids.map(() => '?').join(',');
-    const result = await query<any>(
-      `UPDATE generated_emails SET status = 'approved', approved_at = NOW(), approved_by = ?
-       WHERE id IN (${placeholders}) AND status IN ('draft', 'rejected')`,
-      [req.user!.id, ...email_ids]
+    const emails = await query<any[]>(
+      `SELECT ge.id, p.timezone, p.country, p.city
+       FROM generated_emails ge
+       JOIN prospects p ON ge.prospect_id = p.id
+       WHERE ge.id IN (${placeholders}) AND ge.status IN ('draft', 'rejected')`,
+      email_ids
     );
+
+    let scheduled = 0;
+    for (const email of emails) {
+      const prospectTz = resolveProspectTimezone(email);
+      const scheduledFor = calculateOptimalSendTime(new Date(), prospectTz);
+
+      await query(
+        `UPDATE generated_emails SET status = 'scheduled', approved_at = NOW(), approved_by = ?, scheduled_for = ?
+         WHERE id = ? AND status IN ('draft', 'rejected')`,
+        [req.user!.id, scheduledFor, email.id]
+      );
+      scheduled++;
+    }
 
     res.json({
       success: true,
-      data: { message: `Approved ${result.affectedRows} email(s).`, count: result.affectedRows },
+      data: { message: `Programados ${scheduled} email(s).`, count: scheduled },
     });
   } catch (error: any) {
     console.error('Outbox bulk approve error:', error);
@@ -158,12 +193,12 @@ router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> 
   }
 });
 
-// --- POST /send - Send approved emails via Resend ---
+// --- POST /send - Force send scheduled emails via Resend ---
 router.post('/send', async (req: Request, res: Response): Promise<void> => {
   try {
     const { email_ids } = req.body;
 
-    // If email_ids provided, send only those. Otherwise, send all approved.
+    // If email_ids provided, send only those. Otherwise, send all scheduled.
     let emailsToSend: any[];
 
     if (email_ids && Array.isArray(email_ids) && email_ids.length > 0) {
@@ -175,7 +210,7 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
          FROM generated_emails ge
          JOIN prospects p ON ge.prospect_id = p.id
          JOIN campaigns cam ON ge.campaign_id = cam.id
-         WHERE ge.id IN (${placeholders}) AND ge.status = 'approved'`,
+         WHERE ge.id IN (${placeholders}) AND ge.status = 'scheduled'`,
         email_ids
       );
     } else {
@@ -186,13 +221,13 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
          FROM generated_emails ge
          JOIN prospects p ON ge.prospect_id = p.id
          JOIN campaigns cam ON ge.campaign_id = cam.id
-         WHERE ge.status = 'approved'
+         WHERE ge.status = 'scheduled'
          ORDER BY ge.campaign_id, ge.prospect_id, ge.step_number`
       );
     }
 
     if (emailsToSend.length === 0) {
-      res.json({ success: true, data: { message: 'No hay emails aprobados para enviar.', sent: 0, failed: 0 } });
+      res.json({ success: true, data: { message: 'No hay emails programados para enviar.', sent: 0, failed: 0 } });
       return;
     }
 
@@ -201,9 +236,18 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
     let sent = 0;
     let failed = 0;
     const results: any[] = [];
-    const fromAddress = `Alfons Marques <${config.EMAIL_FROM}>`;
+    // Build from address: if EMAIL_FROM already contains '<', use as-is; otherwise wrap it
+    const rawFrom = config.EMAIL_FROM || 'noreply@camiacasa.cat';
+    const fromAddress = rawFrom.includes('<') ? rawFrom : `Alfons Marques <${rawFrom}>`;
 
-    for (const email of emailsToSend) {
+    for (let idx = 0; idx < emailsToSend.length; idx++) {
+      const email = emailsToSend[idx];
+
+      // Rate limit: wait 600ms between sends (max ~1.6/sec, within Resend's 2/sec limit)
+      if (idx > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      }
+
       // Skip do_not_contact
       if (email.do_not_contact) {
         results.push({ id: email.id, status: 'skipped', reason: 'do_not_contact' });

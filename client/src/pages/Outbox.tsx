@@ -17,6 +17,8 @@ import {
   CheckCircle,
   AlertCircle,
   Eye,
+  CalendarClock,
+  Zap,
 } from 'lucide-react';
 import { formatRelativeDate } from '@/lib/utils';
 import toast from 'react-hot-toast';
@@ -57,8 +59,12 @@ export default function Outbox() {
 
   const approveMutation = useMutation({
     mutationFn: (emailId: string) => outboxApi.approve(emailId),
-    onSuccess: () => {
-      toast.success('Email aprobado');
+    onSuccess: (res) => {
+      const scheduledFor = res.data?.data?.scheduled_for;
+      const dateStr = scheduledFor
+        ? new Date(scheduledFor).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })
+        : '';
+      toast.success(dateStr ? `Email programado para ${dateStr}` : 'Email programado');
       queryClient.invalidateQueries({ queryKey: ['outbox'] });
     },
     onError: () => toast.error('Error al aprobar'),
@@ -75,8 +81,9 @@ export default function Outbox() {
 
   const bulkApproveMutation = useMutation({
     mutationFn: (ids: string[]) => outboxApi.bulkApprove(ids),
-    onSuccess: () => {
-      toast.success('Emails aprobados');
+    onSuccess: (res) => {
+      const count = res.data?.data?.count || 0;
+      toast.success(`${count} email(s) programados`);
       setSelectedIds([]);
       queryClient.invalidateQueries({ queryKey: ['outbox'] });
     },
@@ -97,10 +104,12 @@ export default function Outbox() {
   const stats = statsData?.data?.data;
   const emails: any[] = emailsData?.data?.data?.emails || [];
 
+  const scheduledCount = stats?.byStatus?.scheduled || 0;
+
   const filters = [
     { key: 'all', label: 'Todos', count: stats?.total || 0 },
     { key: 'draft', label: 'Pendientes', count: stats?.byStatus?.draft || 0 },
-    { key: 'approved', label: 'Aprobados', count: stats?.byStatus?.approved || 0 },
+    { key: 'scheduled', label: 'Programados', count: scheduledCount },
     { key: 'sent', label: 'Enviados', count: stats?.byStatus?.sent || 0 },
     { key: 'rejected', label: 'Rechazados', count: stats?.byStatus?.rejected || 0 },
   ];
@@ -129,17 +138,17 @@ export default function Outbox() {
               Aprobar Seleccionados ({selectedIds.length})
             </Button>
           )}
-          {(stats?.byStatus?.approved || 0) > 0 && (
+          {scheduledCount > 0 && (
             <Button
-              icon={<Send className="h-4 w-4" />}
+              icon={<Zap className="h-4 w-4" />}
               onClick={() => {
-                if (confirm(`Enviar ${stats.byStatus.approved} email(s) aprobados via Resend?`)) {
+                if (confirm(`Forzar envio inmediato de ${scheduledCount} email(s) programados?`)) {
                   sendMutation.mutate(undefined);
                 }
               }}
               loading={sendMutation.isPending}
             >
-              Enviar Aprobados ({stats.byStatus.approved})
+              Forzar Envio ({scheduledCount})
             </Button>
           )}
         </div>
@@ -162,11 +171,11 @@ export default function Outbox() {
           <p className="text-xl font-bold text-amber-600">{stats?.byStatus?.draft || 0}</p>
         </Card>
         <Card className="stat-card text-center">
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 text-blue-600 mx-auto mb-2">
-            <CheckCircle className="h-4 w-4" />
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 mx-auto mb-2">
+            <CalendarClock className="h-4 w-4" />
           </div>
-          <p className="text-xs text-slate-500">Aprobados</p>
-          <p className="text-xl font-bold text-blue-600">{stats?.byStatus?.approved || 0}</p>
+          <p className="text-xs text-slate-500">Programados</p>
+          <p className="text-xl font-bold text-indigo-600">{scheduledCount}</p>
         </Card>
         <Card className="stat-card text-center">
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 mx-auto mb-2">
@@ -291,7 +300,13 @@ export default function Outbox() {
                     <StatusBadge status={email.status} />
                   </TableCell>
                   <TableCell className="text-xs text-slate-500">
-                    {formatRelativeDate(email.created_at)}
+                    {email.status === 'scheduled' && email.scheduled_for ? (
+                      <span className="text-indigo-600" title={new Date(email.scheduled_for).toLocaleString('es-ES')}>
+                        {new Date(email.scheduled_for).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}
+                      </span>
+                    ) : (
+                      formatRelativeDate(email.created_at)
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
@@ -306,25 +321,25 @@ export default function Outbox() {
                         <button
                           onClick={() => approveMutation.mutate(email.id)}
                           className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors"
-                          title="Aprobar"
+                          title="Aprobar y programar"
                         >
                           <Check className="h-4 w-4" />
                         </button>
                       )}
-                      {email.status === 'approved' && (
+                      {email.status === 'scheduled' && (
                         <button
                           onClick={() => {
-                            if (confirm(`Enviar a ${email.prospect_email}?`)) {
+                            if (confirm(`Forzar envio a ${email.prospect_email}?`)) {
                               sendMutation.mutate([email.id]);
                             }
                           }}
                           className="p-1.5 rounded-lg text-primary-600 hover:bg-primary-50 transition-colors"
-                          title="Enviar"
+                          title="Forzar envio"
                         >
-                          <Send className="h-4 w-4" />
+                          <Zap className="h-4 w-4" />
                         </button>
                       )}
-                      {(email.status === 'draft' || email.status === 'approved') && (
+                      {(email.status === 'draft' || email.status === 'scheduled') && (
                         <button
                           onClick={() => rejectMutation.mutate(email.id)}
                           className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
@@ -396,10 +411,13 @@ export default function Outbox() {
             {/* Actions */}
             <div className="flex items-center justify-between pt-4 border-t border-slate-200">
               <span className="text-xs text-slate-400">
-                Creado {formatRelativeDate(previewEmail.created_at)}
+                {previewEmail.status === 'scheduled' && previewEmail.scheduled_for
+                  ? `Programado: ${new Date(previewEmail.scheduled_for).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}`
+                  : `Creado ${formatRelativeDate(previewEmail.created_at)}`
+                }
               </span>
               <div className="flex gap-2">
-                {(previewEmail.status === 'draft' || previewEmail.status === 'approved') && (
+                {(previewEmail.status === 'draft' || previewEmail.status === 'scheduled') && (
                   <Button
                     size="sm"
                     variant="secondary"
@@ -424,19 +442,19 @@ export default function Outbox() {
                     Aprobar
                   </Button>
                 )}
-                {previewEmail.status === 'approved' && (
+                {previewEmail.status === 'scheduled' && (
                   <Button
                     size="sm"
-                    icon={<Send className="h-4 w-4" />}
+                    icon={<Zap className="h-4 w-4" />}
                     onClick={() => {
-                      if (confirm(`Enviar este email a ${previewEmail.prospect_email}?`)) {
+                      if (confirm(`Forzar envio de este email a ${previewEmail.prospect_email}?`)) {
                         sendMutation.mutate([previewEmail.id]);
                         setPreviewEmail(null);
                       }
                     }}
                     loading={sendMutation.isPending}
                   >
-                    Enviar
+                    Forzar Envio
                   </Button>
                 )}
               </div>

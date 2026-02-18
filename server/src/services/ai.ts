@@ -310,6 +310,7 @@ ${JSON.stringify(campaign.asset_details, null, 2)}
     region: prospect.region,
     country: prospect.country,
     city: prospect.city,
+    title: prospect.title,
   });
   const languageInstruction = getLanguageInstruction(language);
 

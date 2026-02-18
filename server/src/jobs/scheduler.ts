@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 import { processJobs, addJob } from './queue';
-import { sendSequenceEmail } from '../services/email';
+import { sendEmail, sendSequenceEmail } from '../services/email';
 import { recalculateAllScores } from '../services/scoring';
 import { calculateOptimalSendTime, resolveProspectTimezone, isWithinSendWindow } from '../services/scheduling';
 import { pollImapForReplies } from '../services/imap';
@@ -71,6 +71,17 @@ export function startScheduler(): void {
   });
 
   // =============================================
+  // Every 2 minutes: Process scheduled outbox emails
+  // =============================================
+  cron.schedule('*/2 * * * *', async () => {
+    try {
+      await processScheduledOutboxEmails();
+    } catch (error: any) {
+      console.error('Scheduled outbox processing error:', error.message);
+    }
+  });
+
+  // =============================================
   // Every 3 minutes: Poll IMAP for replies
   // =============================================
   cron.schedule('*/3 * * * *', async () => {
@@ -84,6 +95,7 @@ export function startScheduler(): void {
   console.log('Job scheduler started successfully.');
   console.log('  - Sequence emails: every 5 minutes');
   console.log('  - Job queue: every 5 minutes');
+  console.log('  - Scheduled outbox: every 2 minutes');
   console.log('  - IMAP reply polling: every 3 minutes');
   console.log('  - Enrichments: every hour');
   console.log('  - Score recalculation: daily at 2 AM');
@@ -308,6 +320,11 @@ async function processDueSequenceEmails(): Promise<void> {
 
       // Handle different step types
       if (step.step_type === 'email') {
+        // Rate limit: wait 600ms before sending (max ~1.6/sec, within Resend's 2/sec limit)
+        if (globalSentToday > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 600));
+        }
+
         // Send the email
         await sendSequenceEmail(
           {
@@ -369,6 +386,144 @@ async function processDueSequenceEmails(): Promise<void> {
         [uuidv4(), enrollment.prospect_id, `Error: ${error.message}`]
       );
     }
+  }
+}
+
+/**
+ * Process scheduled outbox emails whose scheduled_for time has arrived.
+ * Sends up to 20 emails per cycle with 600ms delay between sends.
+ */
+async function processScheduledOutboxEmails(): Promise<void> {
+  const emailsToSend = await query<any[]>(
+    `SELECT ge.*, p.email as prospect_email, p.first_name, p.last_name, p.full_name,
+            p.title as prospect_title, p.do_not_contact,
+            cam.name as campaign_name
+     FROM generated_emails ge
+     JOIN prospects p ON ge.prospect_id = p.id
+     JOIN campaigns cam ON ge.campaign_id = cam.id
+     WHERE ge.status = 'scheduled' AND ge.scheduled_for <= NOW()
+     ORDER BY ge.scheduled_for ASC
+     LIMIT 20`
+  );
+
+  if (emailsToSend.length === 0) {
+    return;
+  }
+
+  console.log(`Processing ${emailsToSend.length} scheduled outbox email(s)...`);
+
+  // Check warm-up limit
+  const warmupLimit = await getWarmupDailyLimit();
+  let globalSentToday = await getTotalSentToday();
+
+  // Build from address
+  const { config: envConfig } = await import('../config/env');
+  const rawFrom = envConfig.EMAIL_FROM || 'noreply@camiacasa.cat';
+  const fromAddress = rawFrom.includes('<') ? rawFrom : `Alfons Marques <${rawFrom}>`;
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const email of emailsToSend) {
+    // Check global warm-up limit
+    if (globalSentToday >= warmupLimit) {
+      console.log(`Warm-up limit reached (${warmupLimit}/day). Stopping scheduled outbox processing.`);
+      break;
+    }
+
+    // Rate limit: wait 600ms between sends
+    if (sent > 0 || failed > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+
+    // Skip do_not_contact
+    if (email.do_not_contact) {
+      console.log(`Skipping scheduled email ${email.id} - do_not_contact`);
+      await query(
+        `UPDATE generated_emails SET status = 'rejected',
+         metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'do_not_contact')
+         WHERE id = ?`,
+        [email.id]
+      );
+      continue;
+    }
+
+    // Check suppression list
+    const suppressed = await query<any[]>(
+      'SELECT id FROM suppression_list WHERE email = ?',
+      [email.prospect_email]
+    );
+    if (suppressed.length > 0) {
+      console.log(`Skipping scheduled email ${email.id} - suppressed`);
+      await query(
+        `UPDATE generated_emails SET status = 'rejected',
+         metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'suppressed')
+         WHERE id = ?`,
+        [email.id]
+      );
+      continue;
+    }
+
+    try {
+      const result = await sendEmail(
+        email.prospect_email,
+        email.subject,
+        email.body_html,
+        undefined,
+        fromAddress,
+        envConfig.EMAIL_REPLY_TO
+      );
+
+      if (result.success) {
+        await query(
+          `UPDATE generated_emails SET status = 'sent', sent_at = NOW(),
+           metadata = JSON_SET(COALESCE(metadata, '{}'), '$.resend_id', ?)
+           WHERE id = ?`,
+          [result.id, email.id]
+        );
+
+        await query(
+          `UPDATE prospects SET last_contacted = NOW(),
+           status = CASE WHEN status IN ('new', 'enriched', 'qualified') THEN 'contacted' ELSE status END
+           WHERE id = ?`,
+          [email.prospect_id]
+        );
+
+        await query(
+          `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
+           VALUES (?, ?, 'email_sent', ?, ?)`,
+          [
+            uuidv4(),
+            email.prospect_id,
+            `Email enviado (programado): Paso ${email.step_number}`,
+            `Asunto: ${email.subject} | Propiedad: ${email.campaign_name}`,
+          ]
+        );
+
+        sent++;
+        globalSentToday++;
+      } else {
+        failed++;
+        await query(
+          `UPDATE generated_emails SET status = 'bounced',
+           metadata = JSON_SET(COALESCE(metadata, '{}'), '$.error', 'Send failed')
+           WHERE id = ?`,
+          [email.id]
+        );
+      }
+    } catch (sendError: any) {
+      failed++;
+      await query(
+        `UPDATE generated_emails SET status = 'bounced',
+         metadata = JSON_SET(COALESCE(metadata, '{}'), '$.error', ?)
+         WHERE id = ?`,
+        [sendError.message || 'Unknown error', email.id]
+      );
+    }
+  }
+
+  if (sent > 0 || failed > 0) {
+    console.log(`Scheduled outbox: sent ${sent}, failed ${failed}`);
   }
 }
 

@@ -278,22 +278,37 @@ const SPANISH_COUNTRIES = [
   'puerto rico',
 ];
 
+// Keywords in prospect title that indicate an international role → default to English
+const INTERNATIONAL_TITLE_KEYWORDS = [
+  'international', 'europe', 'global', 'worldwide', 'emea',
+  'apac', 'latam', 'americas', 'asia', 'africa', 'middle east',
+  'cross-border', 'overseas',
+];
+
 /**
  * Resolve the preferred email language for a prospect based on their location.
  *
  * Rules:
- * - Region is Catalunya (or city is in Catalonia) → 'catalan'
- * - Country is Spain (or other Spanish-speaking) → 'spanish'
- * - Everything else → 'english'
+ * 0. International roles (title contains "International", "Europe", "Global", etc.) → 'english'
+ * 1. Region is Catalunya (or city is in Catalonia) → 'catalan'
+ * 2. Country is Spain (or other Spanish-speaking) → 'spanish'
+ * 3. Everything else → 'english'
  */
 export function resolveProspectLanguage(prospect: {
   region?: string;
   country?: string;
   city?: string;
+  title?: string;
 }): ProspectLanguage {
   const region = (prospect.region || '').toLowerCase().trim();
   const country = (prospect.country || '').toLowerCase().trim();
   const city = (prospect.city || '').toLowerCase().trim();
+  const title = (prospect.title || '').toLowerCase().trim();
+
+  // 0. International roles always get English
+  if (title && INTERNATIONAL_TITLE_KEYWORDS.some(kw => title.includes(kw))) {
+    return 'english';
+  }
 
   // 1. Check if region is Catalan-speaking
   if (CATALAN_REGIONS.some(r => region.includes(r))) {

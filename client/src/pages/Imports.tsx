@@ -12,9 +12,13 @@ import {
   CheckCircle,
   XCircle,
   Loader2,
-  AlertCircle,
   ArrowRight,
   RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  Users,
+  AlertTriangle,
+  Check,
 } from 'lucide-react';
 import { formatDateTime, formatNumber, getStatusColor } from '@/lib/utils';
 import toast from 'react-hot-toast';
@@ -49,12 +53,83 @@ interface UploadResult {
   suggested_mappings?: Record<string, string>;
 }
 
+interface DuplicateDetail {
+  email: string;
+  first_name: string;
+  row_number: number;
+  type: 'db' | 'file';
+}
+
+interface DuplicateCheckResult {
+  total_rows: number;
+  valid_new: number;
+  duplicates_in_db: number;
+  duplicates_in_file: number;
+  invalid_no_email: number;
+  duplicate_details: DuplicateDetail[];
+}
+
+type WizardStep = 1 | 2 | 3 | 4;
+
+const STEP_LABELS = [
+  { num: 1, label: 'Subir Archivo' },
+  { num: 2, label: 'Mapeo de Columnas' },
+  { num: 3, label: 'Revision de Duplicados' },
+  { num: 4, label: 'Importacion' },
+];
+
+function Stepper({ currentStep }: { currentStep: WizardStep }) {
+  return (
+    <div className="flex items-center justify-between mb-8">
+      {STEP_LABELS.map((step, idx) => {
+        const isCompleted = currentStep > step.num;
+        const isCurrent = currentStep === step.num;
+        return (
+          <div key={step.num} className="flex items-center flex-1 last:flex-none">
+            <div className="flex items-center gap-2">
+              <div
+                className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold transition-colors ${
+                  isCompleted
+                    ? 'bg-emerald-500 text-white'
+                    : isCurrent
+                    ? 'bg-primary-600 text-white'
+                    : 'bg-slate-200 text-slate-500'
+                }`}
+              >
+                {isCompleted ? <Check className="h-4 w-4" /> : step.num}
+              </div>
+              <span
+                className={`text-sm font-medium hidden sm:inline ${
+                  isCurrent ? 'text-primary-700' : isCompleted ? 'text-emerald-600' : 'text-slate-400'
+                }`}
+              >
+                {step.label}
+              </span>
+            </div>
+            {idx < STEP_LABELS.length - 1 && (
+              <div
+                className={`flex-1 h-0.5 mx-3 ${
+                  currentStep > step.num ? 'bg-emerald-400' : 'bg-slate-200'
+                }`}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Imports() {
   const queryClient = useQueryClient();
+  const [wizardStep, setWizardStep] = useState<WizardStep>(1);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
   const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
+  const [duplicateCheck, setDuplicateCheck] = useState<DuplicateCheckResult | null>(null);
   const [importProgress, setImportProgress] = useState<number | null>(null);
+  const [importResult, setImportResult] = useState<{ imported: number; skipped: number; errors: number } | null>(null);
+  const [showDuplicateDetails, setShowDuplicateDetails] = useState(false);
 
   // Import history
   const { data: historyData, isLoading: historyLoading } = useQuery({
@@ -71,7 +146,6 @@ export default function Imports() {
 
       // Use server-suggested mappings or auto-map
       const autoMapping: Record<string, string> = result.suggested_mappings || {};
-      // If no server suggestions, do basic auto-mapping
       if (Object.keys(autoMapping).length === 0) {
         const columns = result.columns || [];
         columns.forEach((col: string) => {
@@ -93,7 +167,7 @@ export default function Imports() {
         });
       }
       setColumnMapping(autoMapping);
-
+      setWizardStep(2);
       toast.success(`Archivo cargado: ${result.total_rows || 0} filas detectadas`);
     },
     onError: () => {
@@ -101,45 +175,40 @@ export default function Imports() {
     },
   });
 
-  // Map columns mutation
-  const mapMutation = useMutation({
-    mutationFn: () => importsApi.map(uploadResult!.import_id, columnMapping),
-    onSuccess: () => {
-      setImportProgress(0);
-      // Poll for status
-      const interval = setInterval(async () => {
-        try {
-          const res = await importsApi.getStatus(uploadResult!.import_id);
-          const status = res.data?.data || res.data;
-          if (status.progress !== undefined) {
-            setImportProgress(status.progress);
-          }
-          if (status.status === 'completed' || status.progress >= 100) {
-            clearInterval(interval);
-            setImportProgress(100);
-            toast.success(`Importacion completada: ${status.imported || 0} registros importados`);
-            queryClient.invalidateQueries({ queryKey: ['imports'] });
-            setTimeout(() => {
-              setUploadResult(null);
-              setColumnMapping({});
-              setImportProgress(null);
-            }, 2000);
-          }
-          if (status.status === 'error' || status.status === 'failed') {
-            clearInterval(interval);
-            setImportProgress(null);
-            toast.error('Error durante la importacion');
-          }
-        } catch {
-          clearInterval(interval);
-          setImportProgress(null);
-        }
-      }, 1000);
+  // Check duplicates mutation
+  const checkDuplicatesMutation = useMutation({
+    mutationFn: () => importsApi.checkDuplicates(uploadResult!.import_id, columnMapping),
+    onSuccess: (response) => {
+      const result = response.data?.data || response.data;
+      setDuplicateCheck(result);
+      setWizardStep(3);
     },
     onError: () => {
+      toast.error('Error al verificar duplicados.');
+    },
+  });
+
+  // Map columns (import) mutation
+  const mapMutation = useMutation({
+    mutationFn: () => importsApi.map(uploadResult!.import_id, columnMapping),
+    onSuccess: (response) => {
+      const result = response.data?.data || response.data;
+      setImportResult({ imported: result.imported || 0, skipped: result.skipped || 0, errors: result.errors || 0 });
+      setImportProgress(100);
+      toast.success(`Importacion completada: ${result.imported || 0} registros importados`);
+      queryClient.invalidateQueries({ queryKey: ['imports'] });
+    },
+    onError: () => {
+      setImportProgress(null);
       toast.error('Error al iniciar la importacion');
     },
   });
+
+  const handleStartImport = () => {
+    setWizardStep(4);
+    setImportProgress(0);
+    mapMutation.mutate();
+  };
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -165,7 +234,20 @@ export default function Imports() {
     }
   };
 
+  const resetWizard = () => {
+    setWizardStep(1);
+    setUploadResult(null);
+    setColumnMapping({});
+    setDuplicateCheck(null);
+    setImportProgress(null);
+    setImportResult(null);
+    setShowDuplicateDetails(false);
+  };
+
   const imports = historyData?.data?.data?.imports || historyData?.data?.data || [];
+
+  const hasEmailMapping = Object.values(columnMapping).includes('email');
+  const isInWizard = wizardStep > 1 || uploadMutation.isPending;
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -175,8 +257,11 @@ export default function Imports() {
         <p className="text-slate-500 mt-1">Importa prospectos desde archivos CSV o Excel</p>
       </div>
 
-      {/* Upload area or mapping */}
-      {!uploadResult ? (
+      {/* Wizard area */}
+      {isInWizard && <Stepper currentStep={wizardStep} />}
+
+      {/* Step 1: Upload */}
+      {wizardStep === 1 && (
         <Card padding="none">
           <div
             className={`relative border-2 border-dashed rounded-xl p-12 text-center transition-colors ${
@@ -222,7 +307,10 @@ export default function Imports() {
             )}
           </div>
         </Card>
-      ) : (
+      )}
+
+      {/* Step 2: Column Mapping */}
+      {wizardStep === 2 && uploadResult && (
         <Card padding="none">
           <div className="px-6 py-4 border-b border-slate-200">
             <div className="flex items-center justify-between">
@@ -232,36 +320,11 @@ export default function Imports() {
                   {uploadResult.total_rows} filas detectadas - Asigna cada columna al campo correspondiente
                 </p>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setUploadResult(null);
-                  setColumnMapping({});
-                }}
-              >
+              <Button variant="ghost" size="sm" onClick={resetWizard}>
                 Cancelar
               </Button>
             </div>
           </div>
-
-          {/* Import progress */}
-          {importProgress !== null && (
-            <div className="px-6 py-4 bg-primary-50 border-b border-primary-100">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-primary-700">
-                  {importProgress >= 100 ? 'Importacion completada' : 'Importando...'}
-                </span>
-                <span className="text-sm font-bold text-primary-700">{Math.round(importProgress)}%</span>
-              </div>
-              <div className="w-full bg-primary-200 rounded-full h-2">
-                <div
-                  className="bg-primary-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${importProgress}%` }}
-                />
-              </div>
-            </div>
-          )}
 
           {/* Column mapping */}
           <div className="p-6 space-y-3">
@@ -318,23 +381,217 @@ export default function Imports() {
             </div>
           )}
 
-          {/* Action */}
-          <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setUploadResult(null);
-                setColumnMapping({});
-              }}
-            >
+          {/* Actions */}
+          <div className="px-6 py-4 border-t border-slate-200 flex justify-between">
+            <Button variant="secondary" onClick={resetWizard}>
               Cancelar
             </Button>
             <Button
-              onClick={() => mapMutation.mutate()}
-              loading={mapMutation.isPending}
-              disabled={importProgress !== null || !Object.values(columnMapping).some((v) => v)}
+              onClick={() => checkDuplicatesMutation.mutate()}
+              loading={checkDuplicatesMutation.isPending}
+              disabled={!hasEmailMapping}
             >
-              Iniciar Importacion
+              {hasEmailMapping ? 'Verificar Duplicados' : 'Mapea el campo Email para continuar'}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Step 3: Duplicate Review */}
+      {wizardStep === 3 && duplicateCheck && (
+        <Card padding="none">
+          <div className="px-6 py-4 border-b border-slate-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-slate-900">Revision de Duplicados</h3>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Revisa el resumen antes de importar
+                </p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={resetWizard}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+
+          {/* Summary cards */}
+          <div className="p-6 grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* New contacts */}
+            <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Users className="h-5 w-5 text-emerald-600" />
+                <span className="text-sm font-medium text-emerald-700">Contactos Nuevos</span>
+              </div>
+              <p className="text-3xl font-bold text-emerald-700">{formatNumber(duplicateCheck.valid_new)}</p>
+              <p className="text-xs text-emerald-600 mt-1">Se importaran</p>
+            </div>
+
+            {/* DB duplicates */}
+            <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+                <span className="text-sm font-medium text-amber-700">Duplicados en BD</span>
+              </div>
+              <p className="text-3xl font-bold text-amber-700">{formatNumber(duplicateCheck.duplicates_in_db)}</p>
+              <p className="text-xs text-amber-600 mt-1">Se omitiran</p>
+            </div>
+
+            {/* File duplicates */}
+            <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+                <span className="text-sm font-medium text-amber-700">Duplicados en Archivo</span>
+              </div>
+              <p className="text-3xl font-bold text-amber-700">{formatNumber(duplicateCheck.duplicates_in_file)}</p>
+              <p className="text-xs text-amber-600 mt-1">Se importara solo 1 de cada uno</p>
+            </div>
+
+            {/* Invalid */}
+            <div className="rounded-xl border-2 border-red-200 bg-red-50 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <XCircle className="h-5 w-5 text-red-500" />
+                <span className="text-sm font-medium text-red-700">Sin Email / Invalidos</span>
+              </div>
+              <p className="text-3xl font-bold text-red-700">{formatNumber(duplicateCheck.invalid_no_email)}</p>
+              <p className="text-xs text-red-600 mt-1">Se omitiran</p>
+            </div>
+          </div>
+
+          {/* Duplicate details expandable */}
+          {duplicateCheck.duplicate_details.length > 0 && (
+            <div className="px-6 pb-4">
+              <button
+                onClick={() => setShowDuplicateDetails(!showDuplicateDetails)}
+                className="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
+              >
+                {showDuplicateDetails ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+                Ver detalle de duplicados ({duplicateCheck.duplicate_details.length})
+              </button>
+
+              {showDuplicateDetails && (
+                <div className="mt-3 border border-slate-200 rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-medium text-slate-600">Fila</th>
+                        <th className="px-4 py-2 text-left font-medium text-slate-600">Email</th>
+                        <th className="px-4 py-2 text-left font-medium text-slate-600">Nombre</th>
+                        <th className="px-4 py-2 text-left font-medium text-slate-600">Tipo</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {duplicateCheck.duplicate_details.slice(0, 100).map((d, i) => (
+                        <tr key={i} className="hover:bg-slate-50">
+                          <td className="px-4 py-2 text-slate-500">#{d.row_number}</td>
+                          <td className="px-4 py-2 text-slate-700">{d.email}</td>
+                          <td className="px-4 py-2 text-slate-600">{d.first_name || '-'}</td>
+                          <td className="px-4 py-2">
+                            <Badge className={d.type === 'db' ? 'bg-amber-100 text-amber-700' : 'bg-orange-100 text-orange-700'}>
+                              {d.type === 'db' ? 'Ya existe en BD' : 'Repetido en archivo'}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {duplicateCheck.duplicate_details.length > 100 && (
+                    <div className="px-4 py-2 bg-slate-50 text-xs text-slate-500 text-center">
+                      Mostrando 100 de {duplicateCheck.duplicate_details.length} duplicados
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="px-6 py-4 border-t border-slate-200 flex justify-between">
+            <Button variant="secondary" onClick={() => setWizardStep(2)}>
+              Volver al Mapeo
+            </Button>
+            <Button onClick={handleStartImport} disabled={duplicateCheck.valid_new === 0}>
+              {duplicateCheck.valid_new > 0
+                ? `Importar ${formatNumber(duplicateCheck.valid_new)} contactos nuevos`
+                : 'No hay contactos nuevos para importar'}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Step 4: Import Progress / Result */}
+      {wizardStep === 4 && (
+        <Card padding="none">
+          <div className="px-6 py-4 border-b border-slate-200">
+            <h3 className="font-semibold text-slate-900">
+              {importProgress !== null && importProgress >= 100 ? 'Importacion Completada' : 'Importando...'}
+            </h3>
+          </div>
+
+          <div className="p-6">
+            {/* Progress bar */}
+            {importProgress !== null && importProgress < 100 && (
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-primary-700">Procesando registros...</span>
+                  <Loader2 className="h-4 w-4 animate-spin text-primary-600" />
+                </div>
+                <div className="w-full bg-primary-100 rounded-full h-3">
+                  <div
+                    className="bg-primary-600 h-3 rounded-full transition-all duration-500 animate-pulse"
+                    style={{ width: '60%' }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Result */}
+            {importResult && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-full bg-emerald-100">
+                    <CheckCircle className="h-6 w-6 text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-lg font-semibold text-slate-900">Importacion finalizada</p>
+                    <p className="text-sm text-slate-500">Los contactos fueron procesados exitosamente</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-4 text-center">
+                    <p className="text-2xl font-bold text-emerald-700">{formatNumber(importResult.imported)}</p>
+                    <p className="text-sm text-emerald-600">Importados</p>
+                  </div>
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-center">
+                    <p className="text-2xl font-bold text-amber-700">{formatNumber(importResult.skipped)}</p>
+                    <p className="text-sm text-amber-600">Omitidos</p>
+                  </div>
+                  <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-center">
+                    <p className="text-2xl font-bold text-red-700">{formatNumber(importResult.errors)}</p>
+                    <p className="text-sm text-red-600">Errores</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Loading state while mutation is pending */}
+            {mapMutation.isPending && !importResult && (
+              <div className="flex flex-col items-center py-8">
+                <Loader2 className="h-10 w-10 animate-spin text-primary-600 mb-4" />
+                <p className="text-slate-600 font-medium">Importando contactos...</p>
+                <p className="text-sm text-slate-400 mt-1">Esto puede tomar unos segundos</p>
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="px-6 py-4 border-t border-slate-200 flex justify-end">
+            <Button onClick={resetWizard} disabled={mapMutation.isPending}>
+              Nueva Importacion
             </Button>
           </div>
         </Card>

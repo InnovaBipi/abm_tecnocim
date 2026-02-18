@@ -276,6 +276,147 @@ router.post('/:id/map', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// --- POST /:id/check-duplicates - Check for duplicates before importing ---
+router.post('/:id/check-duplicates', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { column_mapping } = req.body;
+
+    if (!column_mapping || typeof column_mapping !== 'object') {
+      res.status(400).json({ success: false, error: 'Column mapping is required.' });
+      return;
+    }
+
+    // Verify import exists and is in mapping status
+    const imports = await query<any[]>('SELECT * FROM imports WHERE id = ?', [id]);
+    if (imports.length === 0) {
+      res.status(404).json({ success: false, error: 'Import not found.' });
+      return;
+    }
+
+    const importRecord = imports[0];
+    if (importRecord.status !== 'mapping') {
+      res.status(400).json({
+        success: false,
+        error: `Import is in '${importRecord.status}' status. Check-duplicates is only allowed in 'mapping' status.`,
+      });
+      return;
+    }
+
+    // Parse the file
+    const ext = path.extname(importRecord.file_path).toLowerCase();
+    let rows: Record<string, any>[] = [];
+
+    if (ext === '.csv' || ext === '.txt') {
+      const fileContent = fs.readFileSync(importRecord.file_path, 'utf-8');
+      const parseResult = Papa.parse(fileContent, { header: true, skipEmptyLines: true });
+      rows = parseResult.data as Record<string, any>[];
+    } else if (ext === '.xlsx' || ext === '.xls') {
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.readFile(importRecord.file_path);
+      const worksheet = workbook.worksheets[0];
+      if (worksheet) {
+        const headers: string[] = [];
+        worksheet.getRow(1).eachCell((cell: any, colNumber: any) => {
+          headers.push(String(cell.value || `Column ${colNumber}`));
+        });
+        for (let i = 2; i <= worksheet.rowCount; i++) {
+          const row = worksheet.getRow(i);
+          const rowData: Record<string, any> = {};
+          headers.forEach((header, index) => {
+            rowData[header] = row.getCell(index + 1).value;
+          });
+          rows.push(rowData);
+        }
+      }
+    }
+
+    // Apply mapping and extract emails
+    const emailColumnEntry = Object.entries(column_mapping).find(([, target]) => target === 'email');
+    const firstNameEntry = Object.entries(column_mapping).find(([, target]) => target === 'first_name');
+    const lastNameEntry = Object.entries(column_mapping).find(([, target]) => target === 'last_name');
+
+    const emailCol = emailColumnEntry ? emailColumnEntry[0] : null;
+    const firstNameCol = firstNameEntry ? firstNameEntry[0] : null;
+    const lastNameCol = lastNameEntry ? lastNameEntry[0] : null;
+
+    const rowsWithEmail: { email: string; first_name: string; row_number: number }[] = [];
+    const rowsWithoutEmail: number[] = [];
+    const emailSeenInFile = new Map<string, number>(); // email -> first row_number
+    const duplicatesInFile: { email: string; first_name: string; row_number: number }[] = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const rawRow = rows[i];
+      const email = emailCol ? String(rawRow[emailCol] || '').trim().toLowerCase() : '';
+      const firstName = firstNameCol ? String(rawRow[firstNameCol] || '').trim() : '';
+      const lastName = lastNameCol ? String(rawRow[lastNameCol] || '').trim() : '';
+      const displayName = [firstName, lastName].filter(Boolean).join(' ') || '';
+
+      if (!email || !email.includes('@')) {
+        rowsWithoutEmail.push(i + 1);
+        continue;
+      }
+
+      if (emailSeenInFile.has(email)) {
+        duplicatesInFile.push({ email, first_name: displayName, row_number: i + 1 });
+        continue;
+      }
+
+      emailSeenInFile.set(email, i + 1);
+      rowsWithEmail.push({ email, first_name: displayName, row_number: i + 1 });
+    }
+
+    // Check which emails already exist in the database
+    const duplicatesInDb: { email: string; first_name: string; row_number: number }[] = [];
+    const validNew: { email: string; first_name: string; row_number: number }[] = [];
+
+    if (rowsWithEmail.length > 0) {
+      // Query in batches of 500
+      const batchSize = 500;
+      const existingEmails = new Set<string>();
+
+      for (let i = 0; i < rowsWithEmail.length; i += batchSize) {
+        const batch = rowsWithEmail.slice(i, i + batchSize);
+        const placeholders = batch.map(() => '?').join(',');
+        const results = await query<any[]>(
+          `SELECT email FROM prospects WHERE email IN (${placeholders})`,
+          batch.map((r) => r.email)
+        );
+        results.forEach((r: any) => existingEmails.add(r.email.toLowerCase()));
+      }
+
+      for (const row of rowsWithEmail) {
+        if (existingEmails.has(row.email)) {
+          duplicatesInDb.push(row);
+        } else {
+          validNew.push(row);
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        total_rows: rows.length,
+        valid_new: validNew.length,
+        duplicates_in_db: duplicatesInDb.length,
+        duplicates_in_file: duplicatesInFile.length,
+        invalid_no_email: rowsWithoutEmail.length,
+        duplicate_details: [
+          ...duplicatesInDb.map((d) => ({ ...d, type: 'db' as const })),
+          ...duplicatesInFile.map((d) => ({ ...d, type: 'file' as const })),
+        ],
+      },
+    });
+  } catch (error: any) {
+    console.error('Check duplicates error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'An error occurred while checking for duplicates.',
+    });
+  }
+});
+
 // --- GET /:id - Import status and progress ---
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {

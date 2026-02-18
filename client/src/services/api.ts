@@ -250,6 +250,9 @@ export const importsApi = {
   map: (importId: string, mapping: Record<string, string>) =>
     api.post(`/imports/${importId}/map`, { column_mapping: mapping }),
 
+  checkDuplicates: (importId: string, mapping: Record<string, string>) =>
+    api.post(`/imports/${importId}/check-duplicates`, { column_mapping: mapping }),
+
   getStatus: (importId: string) =>
     api.get(`/imports/${importId}`),
 

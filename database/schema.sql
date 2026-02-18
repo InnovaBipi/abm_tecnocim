@@ -267,6 +267,7 @@ CREATE TABLE generated_emails (
     approved_at     DATETIME,
     approved_by     CHAR(36),
     sent_at         DATETIME,
+    scheduled_for   DATETIME,
     metadata        JSON,
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -274,6 +275,7 @@ CREATE TABLE generated_emails (
     KEY idx_ge_campaign (campaign_id, status),
     KEY idx_ge_prospect (prospect_id),
     KEY idx_ge_status (status),
+    KEY idx_ge_scheduled (status, scheduled_for),
     CONSTRAINT fk_ge_campaign FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
     CONSTRAINT fk_ge_prospect FOREIGN KEY (prospect_id) REFERENCES prospects(id) ON DELETE CASCADE,
     CONSTRAINT fk_ge_approver FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL
