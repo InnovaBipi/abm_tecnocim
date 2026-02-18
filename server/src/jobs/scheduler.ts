@@ -423,11 +423,15 @@ async function processScheduledOutboxEmails(): Promise<void> {
 
   let sent = 0;
   let failed = 0;
+  const results: Array<{ name: string; email: string; subject: string; campaign: string; step: number; status: 'sent' | 'failed' | 'skipped'; reason?: string }> = [];
 
   for (const email of emailsToSend) {
+    const prospectName = email.full_name || `${email.first_name || ''} ${email.last_name || ''}`.trim() || email.prospect_email;
+
     // Check global warm-up limit
     if (globalSentToday >= warmupLimit) {
       console.log(`Warm-up limit reached (${warmupLimit}/day). Stopping scheduled outbox processing.`);
+      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: `Limite warm-up alcanzado (${warmupLimit}/dia)` });
       break;
     }
 
@@ -445,6 +449,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
          WHERE id = ?`,
         [email.id]
       );
+      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: 'do_not_contact' });
       continue;
     }
 
@@ -461,6 +466,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
          WHERE id = ?`,
         [email.id]
       );
+      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: 'lista de supresion' });
       continue;
     }
 
@@ -502,6 +508,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
 
         sent++;
         globalSentToday++;
+        results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'sent' });
       } else {
         failed++;
         await query(
@@ -510,6 +517,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
            WHERE id = ?`,
           [email.id]
         );
+        results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'failed', reason: 'Envio fallido' });
       }
     } catch (sendError: any) {
       failed++;
@@ -519,12 +527,106 @@ async function processScheduledOutboxEmails(): Promise<void> {
          WHERE id = ?`,
         [sendError.message || 'Unknown error', email.id]
       );
+      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'failed', reason: sendError.message || 'Error desconocido' });
     }
   }
 
   if (sent > 0 || failed > 0) {
     console.log(`Scheduled outbox: sent ${sent}, failed ${failed}`);
   }
+
+  // Send notification email to Alfons with results
+  if (results.length > 0) {
+    try {
+      await sendOutboxNotification(results, sent, failed, fromAddress);
+    } catch (notifError: any) {
+      console.error('Failed to send outbox notification:', notifError.message);
+    }
+  }
+}
+
+const NOTIFICATION_EMAIL = 'alfons.marques@camiacasa.cat';
+
+/**
+ * Send a summary notification email after processing scheduled outbox emails.
+ */
+async function sendOutboxNotification(
+  results: Array<{ name: string; email: string; subject: string; campaign: string; step: number; status: string; reason?: string }>,
+  sent: number,
+  failed: number,
+  fromAddress: string
+): Promise<void> {
+  const skipped = results.filter(r => r.status === 'skipped').length;
+  const now = new Date().toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Madrid' });
+
+  const sentRows = results.filter(r => r.status === 'sent')
+    .map(r => `<tr><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">✅</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0"><strong>${r.name}</strong><br><span style="color:#64748b;font-size:12px">${r.email}</span></td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${r.subject}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:center">${r.step}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${r.campaign}</td></tr>`)
+    .join('');
+
+  const failedRows = results.filter(r => r.status === 'failed')
+    .map(r => `<tr><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">❌</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0"><strong>${r.name}</strong><br><span style="color:#64748b;font-size:12px">${r.email}</span></td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${r.subject}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:center">${r.step}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;color:#dc2626">${r.reason}</td></tr>`)
+    .join('');
+
+  const skippedRows = results.filter(r => r.status === 'skipped')
+    .map(r => `<tr><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">⏭️</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0"><strong>${r.name}</strong><br><span style="color:#64748b;font-size:12px">${r.email}</span></td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${r.subject}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:center">${r.step}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;color:#d97706">${r.reason}</td></tr>`)
+    .join('');
+
+  const statusEmoji = failed > 0 ? '⚠️' : '✅';
+  const statusText = failed > 0 ? `${sent} enviados, ${failed} fallidos` : `${sent} enviados correctamente`;
+
+  const html = `
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:700px;margin:0 auto">
+  <div style="background:#1e293b;color:white;padding:20px 24px;border-radius:8px 8px 0 0">
+    <h2 style="margin:0;font-size:18px">${statusEmoji} Outbox: ${statusText}</h2>
+    <p style="margin:4px 0 0;font-size:13px;color:#94a3b8">${now}</p>
+  </div>
+  <div style="background:#f8fafc;padding:20px 24px;border:1px solid #e2e8f0;border-top:none">
+    <div style="display:flex;gap:16px;margin-bottom:20px">
+      <div style="background:white;padding:12px 20px;border-radius:8px;border:1px solid #e2e8f0;text-align:center;flex:1">
+        <div style="font-size:24px;font-weight:bold;color:#059669">${sent}</div>
+        <div style="font-size:12px;color:#64748b">Enviados</div>
+      </div>
+      <div style="background:white;padding:12px 20px;border-radius:8px;border:1px solid #e2e8f0;text-align:center;flex:1">
+        <div style="font-size:24px;font-weight:bold;color:#dc2626">${failed}</div>
+        <div style="font-size:12px;color:#64748b">Fallidos</div>
+      </div>
+      <div style="background:white;padding:12px 20px;border-radius:8px;border:1px solid #e2e8f0;text-align:center;flex:1">
+        <div style="font-size:24px;font-weight:bold;color:#d97706">${skipped}</div>
+        <div style="font-size:12px;color:#64748b">Omitidos</div>
+      </div>
+    </div>
+    ${sentRows ? `
+    <h3 style="font-size:14px;color:#059669;margin:16px 0 8px">Enviados correctamente</h3>
+    <table style="width:100%;border-collapse:collapse;background:white;border-radius:6px;font-size:13px;border:1px solid #e2e8f0">
+      <tr style="background:#f1f5f9"><th style="padding:8px 12px;text-align:left;width:30px"></th><th style="padding:8px 12px;text-align:left">Prospecto</th><th style="padding:8px 12px;text-align:left">Asunto</th><th style="padding:8px 12px;text-align:center;width:50px">Paso</th><th style="padding:8px 12px;text-align:left">Propiedad</th></tr>
+      ${sentRows}
+    </table>` : ''}
+    ${failedRows ? `
+    <h3 style="font-size:14px;color:#dc2626;margin:16px 0 8px">Fallidos</h3>
+    <table style="width:100%;border-collapse:collapse;background:white;border-radius:6px;font-size:13px;border:1px solid #e2e8f0">
+      <tr style="background:#fef2f2"><th style="padding:8px 12px;text-align:left;width:30px"></th><th style="padding:8px 12px;text-align:left">Prospecto</th><th style="padding:8px 12px;text-align:left">Asunto</th><th style="padding:8px 12px;text-align:center;width:50px">Paso</th><th style="padding:8px 12px;text-align:left">Error</th></tr>
+      ${failedRows}
+    </table>` : ''}
+    ${skippedRows ? `
+    <h3 style="font-size:14px;color:#d97706;margin:16px 0 8px">Omitidos</h3>
+    <table style="width:100%;border-collapse:collapse;background:white;border-radius:6px;font-size:13px;border:1px solid #e2e8f0">
+      <tr style="background:#fffbeb"><th style="padding:8px 12px;text-align:left;width:30px"></th><th style="padding:8px 12px;text-align:left">Prospecto</th><th style="padding:8px 12px;text-align:left">Asunto</th><th style="padding:8px 12px;text-align:center;width:50px">Paso</th><th style="padding:8px 12px;text-align:left">Motivo</th></tr>
+      ${skippedRows}
+    </table>` : ''}
+  </div>
+  <div style="padding:12px 24px;font-size:11px;color:#94a3b8;text-align:center;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
+    CamiaCasa ABM — Notificacion automatica del scheduler
+  </div>
+</div>`;
+
+  await sendEmail(
+    NOTIFICATION_EMAIL,
+    `${statusEmoji} Outbox: ${statusText}`,
+    html,
+    undefined,
+    fromAddress
+  );
+  console.log('Outbox notification sent to', NOTIFICATION_EMAIL);
 }
 
 /**
