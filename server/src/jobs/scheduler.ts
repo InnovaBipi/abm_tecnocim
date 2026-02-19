@@ -394,6 +394,7 @@ async function processDueSequenceEmails(): Promise<void> {
  * Sends up to 20 emails per cycle with 600ms delay between sends.
  */
 async function processScheduledOutboxEmails(): Promise<void> {
+  // Only send step N if step N-1 for the same prospect+campaign is already 'sent' (or it's step 1)
   const emailsToSend = await query<any[]>(
     `SELECT ge.*, p.email as prospect_email, p.first_name, p.last_name, p.full_name,
             p.title as prospect_title, p.do_not_contact,
@@ -402,6 +403,13 @@ async function processScheduledOutboxEmails(): Promise<void> {
      JOIN prospects p ON ge.prospect_id = p.id
      JOIN campaigns cam ON ge.campaign_id = cam.id
      WHERE ge.status = 'scheduled' AND ge.scheduled_for <= NOW()
+       AND (ge.step_number = 1 OR EXISTS (
+         SELECT 1 FROM generated_emails prev
+         WHERE prev.prospect_id = ge.prospect_id
+           AND prev.campaign_id = ge.campaign_id
+           AND prev.step_number = ge.step_number - 1
+           AND prev.status = 'sent'
+       ))
      ORDER BY ge.scheduled_for ASC
      LIMIT 20`
   );
@@ -535,8 +543,8 @@ async function processScheduledOutboxEmails(): Promise<void> {
     console.log(`Scheduled outbox: sent ${sent}, failed ${failed}`);
   }
 
-  // Send notification email to Alfons with results
-  if (results.length > 0) {
+  // Send notification email to Alfons only when actual sends or failures occurred
+  if (sent > 0 || failed > 0) {
     try {
       await sendOutboxNotification(results, sent, failed, fromAddress);
     } catch (notifError: any) {

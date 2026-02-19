@@ -99,7 +99,7 @@ router.put('/:emailId/approve', async (req: Request, res: Response): Promise<voi
 
     // Get email with prospect data for timezone calculation
     const emails = await query<any[]>(
-      `SELECT ge.id, ge.status, p.timezone, p.country, p.city
+      `SELECT ge.id, ge.status, ge.delay_days, ge.step_number, p.timezone, p.country, p.city
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id
        WHERE ge.id = ? AND ge.status IN ('draft', 'rejected')`,
@@ -113,7 +113,13 @@ router.put('/:emailId/approve', async (req: Request, res: Response): Promise<voi
 
     const prospect = emails[0];
     const prospectTz = resolveProspectTimezone(prospect);
-    const scheduledFor = calculateOptimalSendTime(new Date(), prospectTz);
+    // Add delay_days so step 2/3/4 are staggered into the future
+    const baseDate = new Date();
+    const delayDays = prospect.delay_days || 0;
+    if (delayDays > 0) {
+      baseDate.setDate(baseDate.getDate() + delayDays);
+    }
+    const scheduledFor = calculateOptimalSendTime(baseDate, prospectTz);
 
     await query(
       `UPDATE generated_emails SET status = 'scheduled', approved_at = NOW(), approved_by = ?, scheduled_for = ?
@@ -160,10 +166,10 @@ router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // Get emails with prospect timezone data
+    // Get emails with prospect timezone data and delay_days
     const placeholders = email_ids.map(() => '?').join(',');
     const emails = await query<any[]>(
-      `SELECT ge.id, p.timezone, p.country, p.city
+      `SELECT ge.id, ge.delay_days, ge.step_number, p.timezone, p.country, p.city
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id
        WHERE ge.id IN (${placeholders}) AND ge.status IN ('draft', 'rejected')`,
@@ -173,7 +179,13 @@ router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> 
     let scheduled = 0;
     for (const email of emails) {
       const prospectTz = resolveProspectTimezone(email);
-      const scheduledFor = calculateOptimalSendTime(new Date(), prospectTz);
+      // Add delay_days so step 2/3/4 are staggered into the future
+      const baseDate = new Date();
+      const delayDays = email.delay_days || 0;
+      if (delayDays > 0) {
+        baseDate.setDate(baseDate.getDate() + delayDays);
+      }
+      const scheduledFor = calculateOptimalSendTime(baseDate, prospectTz);
 
       await query(
         `UPDATE generated_emails SET status = 'scheduled', approved_at = NOW(), approved_by = ?, scheduled_for = ?
