@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuthStore } from '@/stores/authStore';
+import { useAuthStore, type TenantOption } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Home, Mail, Lock } from 'lucide-react';
+import { Home, Mail, Lock, Building2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [tenantOptions, setTenantOptions] = useState<TenantOption[] | null>(null);
+  const [selectedTenant, setSelectedTenant] = useState<string | null>(null);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -25,16 +27,30 @@ export default function Login() {
       return;
     }
 
+    // If tenant selection is shown, require a selection
+    if (tenantOptions && !selectedTenant) {
+      toast.error('Selecciona una cuenta para continuar');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await login(email, password);
+      await login(email, password, selectedTenant || undefined);
       toast.success('Inicio de sesion exitoso');
       navigate(from, { replace: true });
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } } };
-      const message = err?.response?.data?.message || 'Error al iniciar sesion. Verifica tus credenciales.';
-      toast.error(message);
+      const err = error as { response?: { data?: { error?: string; tenants?: TenantOption[] } } };
+
+      // Handle multiple tenants response
+      if (err?.response?.data?.error === 'multiple_tenants' && err?.response?.data?.tenants) {
+        setTenantOptions(err.response.data.tenants);
+        setSelectedTenant(null);
+        toast('Selecciona la cuenta a la que quieres acceder', { icon: '\u2139\uFE0F' });
+      } else {
+        const message = err?.response?.data?.error || 'Error al iniciar sesion. Verifica tus credenciales.';
+        toast.error(message);
+      }
     } finally {
       setLoading(false);
     }
@@ -63,7 +79,7 @@ export default function Login() {
               type="email"
               placeholder="tu@email.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => { setEmail(e.target.value); setTenantOptions(null); setSelectedTenant(null); }}
               icon={<Mail className="h-4 w-4" />}
               autoComplete="email"
               required
@@ -80,13 +96,37 @@ export default function Login() {
               required
             />
 
+            {/* Tenant selection (shown when user has accounts in multiple tenants) */}
+            {tenantOptions && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-slate-700">Selecciona tu cuenta</label>
+                <div className="space-y-2">
+                  {tenantOptions.map((t) => (
+                    <button
+                      key={t.slug}
+                      type="button"
+                      onClick={() => setSelectedTenant(t.slug)}
+                      className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-colors text-left ${
+                        selectedTenant === t.slug
+                          ? 'border-primary-500 bg-primary-50'
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <Building2 className="h-5 w-5 text-slate-400 shrink-0" />
+                      <span className="font-medium text-slate-900">{t.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <Button
               type="submit"
               className="w-full"
               size="lg"
               loading={loading}
             >
-              Iniciar Sesion
+              {tenantOptions ? 'Acceder' : 'Iniciar Sesion'}
             </Button>
           </form>
         </div>

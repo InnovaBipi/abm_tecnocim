@@ -3,8 +3,9 @@ import { authApi } from '@/services/api';
 
 interface User {
   id: string;
-  name: string;
   email: string;
+  first_name: string;
+  last_name: string;
   role: string;
 }
 
@@ -50,13 +51,19 @@ export interface Tenant {
   config: TenantConfig;
 }
 
+export interface TenantOption {
+  slug: string;
+  name: string;
+  logo_url?: string;
+}
+
 interface AuthState {
   user: User | null;
   tenant: Tenant | null;
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, tenant_slug?: string) => Promise<void>;
   logout: () => void;
   loadUser: () => Promise<void>;
 }
@@ -78,8 +85,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: !!localStorage.getItem('token'),
   isLoading: false,
 
-  login: async (email: string, password: string) => {
-    const response = await authApi.login(email, password);
+  login: async (email: string, password: string, tenant_slug?: string) => {
+    const response = await authApi.login(email, password, tenant_slug);
     const { token, user, tenant } = response.data.data;
 
     localStorage.setItem('token', token);

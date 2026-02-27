@@ -128,7 +128,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
               t.config as tenant_config, t.is_active as tenant_is_active
        FROM users u
        JOIN tenants t ON u.tenant_id = t.id
-       WHERE u.email = ?`,
+       WHERE u.email = ? AND t.is_active = TRUE`,
       [email]
     );
 
@@ -140,7 +140,36 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const user = users[0];
+    // If user exists in multiple tenants, check if tenant_slug was provided to disambiguate
+    let user: any;
+    if (users.length > 1) {
+      const tenantSlug = req.body.tenant_slug;
+      if (tenantSlug) {
+        user = users.find((u: any) => u.tenant_slug === tenantSlug);
+        if (!user) {
+          res.status(401).json({
+            success: false,
+            error: 'Invalid email or password.',
+          });
+          return;
+        }
+      } else {
+        // Return list of available tenants so frontend can ask user to choose
+        // Don't verify password yet — just signal that disambiguation is needed
+        res.status(409).json({
+          success: false,
+          error: 'multiple_tenants',
+          tenants: users.map((u: any) => ({
+            slug: u.tenant_slug,
+            name: u.tenant_name,
+            logo_url: u.tenant_logo_url,
+          })),
+        });
+        return;
+      }
+    } else {
+      user = users[0];
+    }
 
     if (!user.is_active) {
       res.status(403).json({
@@ -228,10 +257,17 @@ router.get('/me', authenticate, async (req: Request, res: Response): Promise<voi
     // Get full tenant info
     const tenant = await getTenantConfig(req.user!.tenantId);
 
+    const u = users[0];
     res.json({
       success: true,
       data: {
-        ...users[0],
+        user: {
+          id: u.id,
+          email: u.email,
+          first_name: u.first_name,
+          last_name: u.last_name,
+          role: u.role,
+        },
         tenant: tenant ? {
           id: tenant.id,
           name: tenant.name,

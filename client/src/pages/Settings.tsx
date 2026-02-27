@@ -32,7 +32,8 @@ export default function Settings() {
 
   // Profile form
   const [profileForm, setProfileForm] = useState({
-    name: user?.name || '',
+    first_name: user?.first_name || '',
+    last_name: user?.last_name || '',
     email: user?.email || '',
   });
   const [passwordForm, setPasswordForm] = useState({
@@ -232,9 +233,14 @@ export default function Settings() {
           <form onSubmit={handleProfileSubmit} className="space-y-4 max-w-lg">
             <Input
               label="Nombre"
-              value={profileForm.name}
-              onChange={(e) => setProfileForm((f) => ({ ...f, name: e.target.value }))}
+              value={profileForm.first_name}
+              onChange={(e) => setProfileForm((f) => ({ ...f, first_name: e.target.value }))}
               icon={<User className="h-4 w-4" />}
+            />
+            <Input
+              label="Apellido"
+              value={profileForm.last_name}
+              onChange={(e) => setProfileForm((f) => ({ ...f, last_name: e.target.value }))}
             />
             <Input
               label="Correo Electronico"
