@@ -288,25 +288,29 @@ const INTERNATIONAL_TITLE_KEYWORDS = [
 /**
  * Resolve the preferred email language for a prospect based on their location.
  *
- * Rules:
+ * When defaultLanguage is not provided (CamiaCasa-style):
  * 0. International roles (title contains "International", "Europe", "Global", etc.) → 'english'
  * 1. Region is Catalunya (or city is in Catalonia) → 'catalan'
  * 2. Country is Spain (or other Spanish-speaking) → 'spanish'
  * 3. Everything else → 'english'
+ *
+ * When defaultLanguage is provided (e.g. 'spanish' for Technova):
+ * 1. Region is Catalunya (or city is in Catalonia) → 'catalan'
+ * 2. Everything else → defaultLanguage
  */
 export function resolveProspectLanguage(prospect: {
   region?: string;
   country?: string;
   city?: string;
   title?: string;
-}): ProspectLanguage {
+}, defaultLanguage?: ProspectLanguage): ProspectLanguage {
   const region = (prospect.region || '').toLowerCase().trim();
   const country = (prospect.country || '').toLowerCase().trim();
   const city = (prospect.city || '').toLowerCase().trim();
   const title = (prospect.title || '').toLowerCase().trim();
 
-  // 0. International roles always get English
-  if (title && INTERNATIONAL_TITLE_KEYWORDS.some(kw => title.includes(kw))) {
+  // 0. International roles get English (only when no defaultLanguage override)
+  if (!defaultLanguage && title && INTERNATIONAL_TITLE_KEYWORDS.some(kw => title.includes(kw))) {
     return 'english';
   }
 
@@ -318,6 +322,11 @@ export function resolveProspectLanguage(prospect: {
   // 2. Check if city is in Catalonia
   if (CATALAN_CITIES.some(c => city.includes(c) || city === c)) {
     return 'catalan';
+  }
+
+  // If tenant specifies a default language, use it for everyone else
+  if (defaultLanguage) {
+    return defaultLanguage;
   }
 
   // 3. Check if country is Spanish-speaking

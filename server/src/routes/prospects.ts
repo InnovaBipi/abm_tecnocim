@@ -57,8 +57,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const allowedSortColumns = ['created_at', 'updated_at', 'lead_score', 'first_name', 'last_name', 'email', 'status'];
     const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at';
 
-    let whereClauses: string[] = [];
-    let params: any[] = [];
+    let whereClauses: string[] = ['p.tenant_id = ?'];
+    let params: any[] = [req.user!.tenantId];
 
     // Full-text search
     if (search && search.trim()) {
@@ -92,7 +92,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       params.push(companyId);
     }
 
-    const whereSQL = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+    const whereSQL = 'WHERE ' + whereClauses.join(' AND ');
 
     // Count total matching records
     const countResult = await query<any[]>(
@@ -144,8 +144,8 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
               c.website_url as company_website, c.employee_count as company_employee_count
        FROM prospects p
        LEFT JOIN companies c ON p.company_id = c.id
-       WHERE p.id = ?`,
-      [id]
+       WHERE p.id = ? AND p.tenant_id = ?`,
+      [id, req.user!.tenantId]
     );
 
     if (prospects.length === 0) {
@@ -207,10 +207,10 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const data = validation.data;
     const id = uuidv4();
 
-    // Check for duplicate email
+    // Check for duplicate email in this tenant
     const existing = await query<any[]>(
-      'SELECT id FROM prospects WHERE email = ?',
-      [data.email]
+      'SELECT id FROM prospects WHERE email = ? AND tenant_id = ?',
+      [data.email, req.user!.tenantId]
     );
 
     if (existing.length > 0) {
@@ -222,12 +222,13 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     }
 
     await query(
-      `INSERT INTO prospects (id, email, first_name, last_name, title, seniority, department,
+      `INSERT INTO prospects (id, tenant_id, email, first_name, last_name, title, seniority, department,
        phone, linkedin_url, city, region, country, timezone, company_id, status, source,
        source_detail, custom_fields)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
+        req.user!.tenantId,
         data.email,
         data.first_name || null,
         data.last_name || null,
@@ -286,8 +287,8 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Check if prospect exists
-    const existing = await query<any[]>('SELECT id FROM prospects WHERE id = ?', [id]);
+    // Check if prospect exists in this tenant
+    const existing = await query<any[]>('SELECT id FROM prospects WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (existing.length === 0) {
       res.status(404).json({
         success: false,
@@ -341,10 +342,10 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    params.push(id);
+    params.push(id, req.user!.tenantId);
 
     await query(
-      `UPDATE prospects SET ${setClauses.join(', ')} WHERE id = ?`,
+      `UPDATE prospects SET ${setClauses.join(', ')} WHERE id = ? AND tenant_id = ?`,
       params
     );
 
@@ -375,7 +376,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
 
-    const existing = await query<any[]>('SELECT id FROM prospects WHERE id = ?', [id]);
+    const existing = await query<any[]>('SELECT id FROM prospects WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (existing.length === 0) {
       res.status(404).json({
         success: false,
@@ -384,7 +385,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    await query('DELETE FROM prospects WHERE id = ?', [id]);
+    await query('DELETE FROM prospects WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
 
     res.json({
       success: true,
@@ -416,8 +417,8 @@ router.post('/bulk-delete', async (req: Request, res: Response): Promise<void> =
     const placeholders = ids.map(() => '?').join(', ');
 
     const result = await query<any>(
-      `DELETE FROM prospects WHERE id IN (${placeholders})`,
-      ids
+      `DELETE FROM prospects WHERE id IN (${placeholders}) AND tenant_id = ?`,
+      [...ids, req.user!.tenantId]
     );
 
     res.json({
@@ -441,7 +442,7 @@ router.post('/:id/enrich', async (req: Request, res: Response): Promise<void> =>
   try {
     const { id } = req.params;
 
-    const existing = await query<any[]>('SELECT id, email, first_name FROM prospects WHERE id = ?', [id]);
+    const existing = await query<any[]>('SELECT id, email, first_name FROM prospects WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (existing.length === 0) {
       res.status(404).json({ success: false, error: 'Prospect not found.' });
       return;
@@ -486,7 +487,7 @@ router.post('/:id/recalculate-score', async (req: Request, res: Response): Promi
   try {
     const { id } = req.params;
 
-    const existing = await query<any[]>('SELECT id FROM prospects WHERE id = ?', [id]);
+    const existing = await query<any[]>('SELECT id FROM prospects WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (existing.length === 0) {
       res.status(404).json({ success: false, error: 'Prospect not found.' });
       return;
@@ -531,8 +532,8 @@ router.post('/bulk-add-campaign', async (req: Request, res: Response): Promise<v
 
     const { ids, campaign_id } = validation.data;
 
-    // Verify campaign exists
-    const campaign = await query<any[]>('SELECT id FROM campaigns WHERE id = ?', [campaign_id]);
+    // Verify campaign exists in this tenant
+    const campaign = await query<any[]>('SELECT id FROM campaigns WHERE id = ? AND tenant_id = ?', [campaign_id, req.user!.tenantId]);
     if (campaign.length === 0) {
       res.status(404).json({ success: false, error: 'Campaign not found.' });
       return;

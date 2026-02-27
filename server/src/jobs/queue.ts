@@ -153,8 +153,10 @@ export async function processImportInline(payload: {
   column_mapping: Record<string, string>;
   default_tags: string[];
   user_id: string;
+  tenant_id?: string;
 }): Promise<{ imported: number; skipped: number; errors: number }> {
   const { import_id, file_path, column_mapping } = payload;
+  const tenantId = payload.tenant_id || 'tenant-camiacasa-0001';
   const fs = await import('fs');
   const path = await import('path');
 
@@ -226,10 +228,10 @@ export async function processImportInline(payload: {
         continue;
       }
 
-      // Check for existing prospect (deduplication by email)
+      // Check for existing prospect (deduplication by email within tenant)
       const existing = await query<any[]>(
-        'SELECT id FROM prospects WHERE email = ?',
-        [mappedData.email]
+        'SELECT id FROM prospects WHERE email = ? AND tenant_id = ?',
+        [mappedData.email, tenantId]
       );
 
       if (existing.length > 0) {
@@ -245,18 +247,19 @@ export async function processImportInline(payload: {
       // Handle company: if company_name is provided, find or create
       let companyId: string | null = null;
       if (mappedData.company_name || mappedData.domain) {
-        const companyResult = await findOrCreateCompany(mappedData);
+        const companyResult = await findOrCreateCompany(mappedData, tenantId);
         companyId = companyResult;
       }
 
       // Create prospect
       const prospectId = uuidv4();
       await query(
-        `INSERT INTO prospects (id, email, first_name, last_name, title, seniority, department,
+        `INSERT INTO prospects (id, tenant_id, email, first_name, last_name, title, seniority, department,
          phone, linkedin_url, city, region, country, company_id, source, source_detail)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'csv_import', ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'csv_import', ?)`,
         [
           prospectId,
+          tenantId,
           mappedData.email,
           mappedData.first_name || null,
           mappedData.last_name || null,
@@ -314,32 +317,43 @@ export async function processImportInline(payload: {
 /**
  * Find an existing company by domain/name or create a new one.
  */
-async function findOrCreateCompany(data: Record<string, any>): Promise<string> {
+async function findOrCreateCompany(data: Record<string, any>, tenantId?: string): Promise<string> {
   // Try to find by domain first
   if (data.domain) {
-    const existing = await query<any[]>(
-      'SELECT id FROM companies WHERE domain = ?',
-      [data.domain]
-    );
+    const existing = tenantId
+      ? await query<any[]>(
+          'SELECT id FROM companies WHERE domain = ? AND tenant_id = ?',
+          [data.domain, tenantId]
+        )
+      : await query<any[]>(
+          'SELECT id FROM companies WHERE domain = ?',
+          [data.domain]
+        );
     if (existing.length > 0) return existing[0].id;
   }
 
   // Try to find by name
   if (data.company_name) {
-    const existing = await query<any[]>(
-      'SELECT id FROM companies WHERE name = ?',
-      [data.company_name]
-    );
+    const existing = tenantId
+      ? await query<any[]>(
+          'SELECT id FROM companies WHERE name = ? AND tenant_id = ?',
+          [data.company_name, tenantId]
+        )
+      : await query<any[]>(
+          'SELECT id FROM companies WHERE name = ?',
+          [data.company_name]
+        );
     if (existing.length > 0) return existing[0].id;
   }
 
   // Create new company
   const companyId = uuidv4();
   await query(
-    `INSERT INTO companies (id, name, domain, industry, website_url, city, region, country)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO companies (id, tenant_id, name, domain, industry, website_url, city, region, country)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       companyId,
+      tenantId || null,
       data.company_name || data.domain || 'Unknown',
       data.domain || null,
       data.industry || null,

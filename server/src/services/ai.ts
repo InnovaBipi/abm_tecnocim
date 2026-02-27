@@ -1,6 +1,33 @@
 import { config } from '../config/env';
 import { resolveProspectLanguage, type ProspectLanguage } from './scheduling';
 
+/** Tenant-specific context for AI email generation. */
+export interface TenantAIContext {
+  company_name: string;
+  sender_name: string;
+  company_description: string;
+  industry_context: string;
+  contact_email?: string;
+  contact_phone?: string;
+  entity_label?: string;        // e.g. "property", "programa"
+  entity_label_plural?: string; // e.g. "properties", "programas"
+  email_style?: string;         // tone/style instructions for AI
+  key_differentiators?: string; // unique selling points to weave in
+  default_language?: 'spanish' | 'catalan' | 'english'; // override language resolution
+}
+
+/** Default CamiaCasa context (backwards compatibility). */
+const DEFAULT_TENANT_CONTEXT: TenantAIContext = {
+  company_name: 'CamiaCasa',
+  sender_name: 'Alfons Marques',
+  company_description: 'Agencia inmobiliaria profesional en Sant Vicenç dels Horts (Baix Llobregat, Catalunya). +15 años de experiencia, +64 municipios. Especializados en compra-venta, gestión de patrimonio, inversión inmobiliaria, personal shopping inmobiliario y valoraciones profesionales.',
+  industry_context: 'real estate investment',
+  contact_email: 'alfons.marques@camiacasa.cat',
+  contact_phone: '+34 614 378 560',
+  entity_label: 'property',
+  entity_label_plural: 'properties',
+};
+
 /**
  * Call Gemini API to generate content.
  */
@@ -55,7 +82,7 @@ export async function enrichWithGemini(prompt: string, options?: { temperature?:
 /**
  * Call Perplexity API for web-informed search/research.
  */
-export async function searchWithPerplexity(queryText: string): Promise<string> {
+export async function searchWithPerplexity(queryText: string, systemPrompt?: string): Promise<string> {
   if (!config.PERPLEXITY_API_KEY) {
     throw new Error('PERPLEXITY_API_KEY is not configured.');
   }
@@ -73,7 +100,7 @@ export async function searchWithPerplexity(queryText: string): Promise<string> {
       messages: [
         {
           role: 'system',
-          content: 'You are a research assistant specializing in real estate and business intelligence. Provide concise, factual information.',
+          content: systemPrompt || 'You are a research assistant specializing in business intelligence. Provide concise, factual information.',
         },
         {
           role: 'user',
@@ -120,6 +147,7 @@ Use professional English. The prospect is international and English is the appro
 
 /**
  * Generate a personalized email using Gemini.
+ * Accepts optional tenantContext for multi-tenant branding.
  */
 export async function generateEmail(
   prospect: {
@@ -139,8 +167,12 @@ export async function generateEmail(
     asset_price?: number;
     description?: string;
   },
-  stepNumber: number
+  stepNumber: number,
+  tenantContext?: TenantAIContext
 ): Promise<{ subject: string; body: string }> {
+  const ctx = tenantContext || DEFAULT_TENANT_CONTEXT;
+  const entityLabel = ctx.entity_label || 'property';
+
   const stepContext = stepNumber === 1
     ? 'This is the initial outreach email. Be warm and introductory.'
     : stepNumber === 2
@@ -149,10 +181,13 @@ export async function generateEmail(
     ? 'This is the third email in the sequence. Be more direct and include a clear call to action.'
     : `This is email #${stepNumber} in the sequence. Be concise and create urgency.`;
 
-  const language = resolveProspectLanguage(prospect);
+  const language = resolveProspectLanguage(prospect, ctx.default_language);
   const languageInstruction = getLanguageInstruction(language);
 
-  const prompt = `You are an email copywriter for CamiaCasa, a premium real estate company in Spain (Catalonia).
+  const prompt = `You are an email copywriter for ${ctx.company_name}.
+
+SENDER INFO:
+${ctx.company_description}
 
 Write a professional, personalized B2B email for the following prospect and campaign:
 
@@ -163,10 +198,10 @@ PROSPECT:
 - Industry: ${prospect.industry || 'Unknown'}
 - Location: ${prospect.city || 'Unknown'}, ${prospect.region || ''}, ${prospect.country || ''}
 
-CAMPAIGN / REAL ESTATE ASSET:
+CAMPAIGN / ${entityLabel.toUpperCase()}:
 - Campaign: ${campaign.name}
-- Asset Type: ${campaign.asset_type || 'Premium property'}
-- Location: ${campaign.asset_location || 'Catalonia, Spain'}
+- Type: ${campaign.asset_type || `Premium ${entityLabel}`}
+- Location: ${campaign.asset_location || 'Spain'}
 - Price: ${campaign.asset_price ? `${campaign.asset_price.toLocaleString()}` : 'Upon request'}
 - Details: ${campaign.description || ''}
 
@@ -179,9 +214,12 @@ ${languageInstruction}
 INSTRUCTIONS:
 - Write in a professional but approachable tone
 - Personalize based on the prospect's role and company
-- Focus on value proposition and investment opportunity
+- Focus on value proposition relevant to ${ctx.industry_context}
 - Keep the email concise (150-250 words)
 - Do NOT use excessive exclamation marks or salesy language
+- Sender is ${ctx.sender_name} from ${ctx.company_name}
+${ctx.email_style ? `\nSTYLE:\n${ctx.email_style}` : ''}
+${ctx.key_differentiators ? `\nKEY DIFFERENTIATORS (weave naturally into the email):\n${ctx.key_differentiators}` : ''}
 
 Return your response in this exact JSON format:
 {
@@ -197,7 +235,7 @@ Return your response in this exact JSON format:
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       return {
-        subject: parsed.subject || 'Investment Opportunity from CamiaCasa',
+        subject: parsed.subject || `Opportunity from ${ctx.company_name}`,
         body: parsed.body || result,
       };
     }
@@ -206,7 +244,7 @@ Return your response in this exact JSON format:
   }
 
   return {
-    subject: 'Investment Opportunity from CamiaCasa',
+    subject: `Opportunity from ${ctx.company_name}`,
     body: result,
   };
 }
@@ -214,6 +252,7 @@ Return your response in this exact JSON format:
 /**
  * Generate a full personalized email sequence using Gemini.
  * Uses enrichment data + campaign details to create hyper-personalized emails.
+ * Accepts optional tenantContext for multi-tenant branding.
  */
 export async function generatePersonalizedSequence(
   prospect: {
@@ -233,10 +272,13 @@ export async function generatePersonalizedSequence(
       company_description?: string;
       recommended_approach?: string;
       real_estate_relevance?: string;
+      business_relevance?: string;
       investment_interest_score?: number;
       company_industry?: string;
       company_employee_count?: string;
       company_annual_revenue?: string;
+      suggested_use_cases?: string[];
+      pain_points?: string[];
     };
     perplexity_research?: string;
   } | null,
@@ -254,13 +296,17 @@ export async function generatePersonalizedSequence(
     body_html?: string;
     delay_days?: number;
   }>,
-  numSteps: number = 4
+  numSteps: number = 4,
+  tenantContext?: TenantAIContext
 ): Promise<Array<{
   step_number: number;
   subject: string;
   body_html: string;
   delay_days: number;
 }>> {
+  const ctx = tenantContext || DEFAULT_TENANT_CONTEXT;
+  const entityLabel = ctx.entity_label || 'property';
+  const entityLabelPlural = ctx.entity_label_plural || 'properties';
   const ai = enrichment?.ai_analysis;
   const research = enrichment?.perplexity_research;
 
@@ -273,11 +319,13 @@ ENRICHMENT DATA (from AI research on this prospect):
 - Industry: ${ai.company_industry || 'Unknown'}
 - Employees: ${ai.company_employee_count || 'Unknown'}
 - Annual Revenue: ${ai.company_annual_revenue || 'Unknown'}
-- Real Estate Relevance: ${ai.real_estate_relevance || 'Unknown'}
+- Business Relevance: ${ai.business_relevance || ai.real_estate_relevance || 'Unknown'}
 - Investment Interest Score: ${ai.investment_interest_score || 'Unknown'}/10
 - Recommended Approach: ${ai.recommended_approach || 'Unknown'}
 - Key Insights:
-${(ai.key_insights || []).map((k, i) => `  ${i + 1}. ${k}`).join('\n')}
+${(ai.key_insights || []).map((k: string, i: number) => `  ${i + 1}. ${k}`).join('\n')}
+${(ai.suggested_use_cases && ai.suggested_use_cases.length > 0) ? `- Suggested Use Cases for This Company:\n${ai.suggested_use_cases.map((uc: string, i: number) => `  ${i + 1}. ${uc}`).join('\n')}` : ''}
+${(ai.pain_points && ai.pain_points.length > 0) ? `- Pain Points / Challenges:\n${ai.pain_points.map((pp: string, i: number) => `  ${i + 1}. ${pp}`).join('\n')}` : ''}
 `;
   }
 
@@ -301,7 +349,7 @@ ${existingSteps.map(s => `  Step ${s.step_number} (day ${s.delay_days || 0}): Su
   let assetDetailsStr = '';
   if (campaign.asset_details) {
     assetDetailsStr = `
-ASSET DETAILS (JSON):
+${entityLabel.toUpperCase()} DETAILS (JSON):
 ${JSON.stringify(campaign.asset_details, null, 2)}
 `;
   }
@@ -311,15 +359,17 @@ ${JSON.stringify(campaign.asset_details, null, 2)}
     country: prospect.country,
     city: prospect.city,
     title: prospect.title,
-  });
+  }, ctx.default_language);
   const languageInstruction = getLanguageInstruction(language);
 
-  const prompt = `You are a world-class B2B email strategist for CamiaCasa.
+  const contactInfo = [ctx.contact_email, ctx.contact_phone].filter(Boolean).join(' | ');
+
+  const prompt = `You are a world-class B2B email strategist for ${ctx.company_name}.
 
 SENDER INFO:
-CamiaCasa - Agencia inmobiliaria profesional en Sant Vicenç dels Horts (Baix Llobregat, Catalunya). +15 años de experiencia, +64 municipios. Especializados en compra-venta, gestión de patrimonio, inversión inmobiliaria, personal shopping inmobiliario y valoraciones profesionales. Misión: democratizar herramientas profesionales inmobiliarias para particulares. Contacto: alfons.marques@camiacasa.cat | +34 614 378 560.
+${ctx.company_description}${contactInfo ? ` Contacto: ${contactInfo}.` : ''}
 
-Your task: Generate a ${numSteps}-email personalized outreach sequence that connects THIS SPECIFIC PROSPECT with THIS SPECIFIC PROPERTY in a compelling, non-generic way.
+Your task: Generate a ${numSteps}-email personalized outreach sequence that connects THIS SPECIFIC PROSPECT with THIS SPECIFIC ${entityLabel.toUpperCase()} in a compelling, non-generic way.
 
 ===== PROSPECT =====
 - Name: ${prospect.first_name || ''} ${prospect.last_name || ''}
@@ -329,9 +379,9 @@ Your task: Generate a ${numSteps}-email personalized outreach sequence that conn
 - LinkedIn: ${prospect.linkedin_url || 'N/A'}
 ${enrichmentContext}
 
-===== PROPERTY / CAMPAIGN =====
+===== ${entityLabel.toUpperCase()} / CAMPAIGN =====
 - Campaign: ${campaign.name}
-- Asset Type: ${campaign.asset_type || 'Premium property'}
+- Type: ${campaign.asset_type || `Premium ${entityLabel}`}
 - Location: ${campaign.asset_location || 'Spain'}
 - Price: ${campaign.asset_price ? new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(campaign.asset_price) : 'Upon request'}
 - Description: ${campaign.description || ''}
@@ -342,18 +392,21 @@ ${existingStepsContext}
 ${languageInstruction}
 
 ===== CRITICAL INSTRUCTIONS =====
-1. DO NOT write generic "investment opportunity" emails. Use the enrichment data to create SPECIFIC connections between the prospect's business and this property.
+1. DO NOT write generic emails. Use the enrichment data to create SPECIFIC connections between the prospect's business and this ${entityLabel}.
 2. Reference their company's actual activities, growth, market position, or strategy where relevant.
-3. If the prospect's company is in hospitality/hotels, connect to their expansion pipeline. If in investment, connect to portfolio fit. If in real estate, connect to their market focus.
+3. Adapt the angle to the prospect's industry and how it connects to ${ctx.industry_context}.
 4. YOU MUST write the entire email (subject + body) in the language specified above. This is mandatory.
 5. Tone: professional, concise, knowledgeable. No salesy language. No exclamation marks. Sound like a peer, not a salesperson.
 6. Each email should have a distinct angle/hook, not just repeat the same pitch.
-7. Email 1: Personal connection + property introduction (why THIS property for THEIR business)
-8. Email 2: Value/data angle (market data, financial projections, strategic fit)
-9. Email 3: Social proof or urgency (other interest, timing, exclusive access)
+7. Email 1: Personal connection + propose a SPECIFIC USE CASE relevant to the prospect's company (based on what we know about their business from the enrichment data). Explain concretely how our service solves a real challenge they face.
+8. Email 2: Value/data angle — dig deeper into a SECOND specific use case or pain point. Reference their actual industry dynamics, market position, or operational challenges.
+9. Email 3: Social proof or urgency (mention relevant clients/cases, timing, exclusive access)
 10. Email 4: Soft close (brief, respectful, open door)
 11. Keep each email 100-200 words. Shorter is better.
-12. Sender is Alfons Marques from CamiaCasa.
+12. Sender is ${ctx.sender_name} from ${ctx.company_name}.
+13. IMPORTANT: If enrichment data includes "Suggested Use Cases" or "Pain Points", USE THEM. Propose concrete, specific use cases that demonstrate you understand the prospect's business. Do NOT be vague — the more specific and relevant the use case, the better.
+${ctx.email_style ? `\nSTYLE GUIDE:\n${ctx.email_style}` : ''}
+${ctx.key_differentiators ? `\nKEY DIFFERENTIATORS (weave naturally, do not list them all in every email):\n${ctx.key_differentiators}` : ''}
 
 Return ONLY a JSON array with exactly ${numSteps} objects. No markdown, no explanation, just the JSON:
 [

@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { query } from '../config/database';
 import { authenticate } from '../middleware/auth';
+import { getTenantConfig, buildTenantAIContext } from '../middleware/tenant';
 
 const router = Router();
 
@@ -41,8 +42,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const campaignType = req.query.campaign_type as string;
     const search = req.query.search as string;
 
-    let whereClauses: string[] = [];
-    let params: any[] = [];
+    let whereClauses: string[] = ['cam.tenant_id = ?'];
+    let params: any[] = [req.user!.tenantId];
 
     if (status) {
       whereClauses.push('cam.status = ?');
@@ -60,7 +61,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       params.push(pattern, pattern);
     }
 
-    const whereSQL = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+    const whereSQL = 'WHERE ' + whereClauses.join(' AND ');
 
     // Count
     const countResult = await query<any[]>(
@@ -116,8 +117,8 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params;
 
     const campaigns = await query<any[]>(
-      'SELECT * FROM campaigns WHERE id = ?',
-      [id]
+      'SELECT * FROM campaigns WHERE id = ? AND tenant_id = ?',
+      [id, req.user!.tenantId]
     );
 
     if (campaigns.length === 0) {
@@ -198,11 +199,12 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const id = uuidv4();
 
     await query(
-      `INSERT INTO campaigns (id, name, description, asset_type, asset_location, asset_price,
+      `INSERT INTO campaigns (id, tenant_id, name, description, asset_type, asset_location, asset_price,
        asset_details, campaign_type, status, start_date, end_date, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
+        req.user!.tenantId,
         data.name,
         data.description || null,
         data.asset_type || null,
@@ -247,7 +249,7 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const existing = await query<any[]>('SELECT id FROM campaigns WHERE id = ?', [id]);
+    const existing = await query<any[]>('SELECT id FROM campaigns WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (existing.length === 0) {
       res.status(404).json({
         success: false,
@@ -293,9 +295,10 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
     }
 
     params.push(id);
+    params.push(req.user!.tenantId);
 
     await query(
-      `UPDATE campaigns SET ${setClauses.join(', ')} WHERE id = ?`,
+      `UPDATE campaigns SET ${setClauses.join(', ')} WHERE id = ? AND tenant_id = ?`,
       params
     );
 
@@ -319,7 +322,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
 
-    const existing = await query<any[]>('SELECT id FROM campaigns WHERE id = ?', [id]);
+    const existing = await query<any[]>('SELECT id FROM campaigns WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (existing.length === 0) {
       res.status(404).json({
         success: false,
@@ -328,7 +331,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    await query('DELETE FROM campaigns WHERE id = ?', [id]);
+    await query('DELETE FROM campaigns WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
 
     res.json({
       success: true,
@@ -359,7 +362,7 @@ router.post('/:id/prospects', async (req: Request, res: Response): Promise<void>
     }
 
     // Verify campaign exists
-    const campaign = await query<any[]>('SELECT id FROM campaigns WHERE id = ?', [id]);
+    const campaign = await query<any[]>('SELECT id FROM campaigns WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (campaign.length === 0) {
       res.status(404).json({
         success: false,
@@ -420,7 +423,7 @@ router.post('/:id/generate-emails', async (req: Request, res: Response): Promise
     }
 
     // Load campaign
-    const campaigns = await query<any[]>('SELECT * FROM campaigns WHERE id = ?', [id]);
+    const campaigns = await query<any[]>('SELECT * FROM campaigns WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (campaigns.length === 0) {
       res.status(404).json({ success: false, error: 'Campaign not found.' });
       return;
@@ -446,6 +449,10 @@ router.post('/:id/generate-emails', async (req: Request, res: Response): Promise
 
     const { generatePersonalizedSequence } = await import('../services/ai');
 
+    // Build tenant AI context
+    const tenant = await getTenantConfig(req.user!.tenantId);
+    const tenantAIContext = tenant ? buildTenantAIContext(tenant) : undefined;
+
     const results: any[] = [];
 
     for (const prospectId of prospect_ids) {
@@ -455,8 +462,8 @@ router.post('/:id/generate-emails', async (req: Request, res: Response): Promise
                 c.employee_count, c.annual_revenue
          FROM prospects p
          LEFT JOIN companies c ON p.company_id = c.id
-         WHERE p.id = ?`,
-        [prospectId]
+         WHERE p.id = ? AND p.tenant_id = ?`,
+        [prospectId, req.user!.tenantId]
       );
 
       if (prospects.length === 0) continue;
@@ -491,18 +498,19 @@ router.post('/:id/generate-emails', async (req: Request, res: Response): Promise
             asset_details: assetDetails,
           },
           existingSteps,
-          num_steps
+          num_steps,
+          tenantAIContext
         );
 
         // Save generated emails to DB
         for (const step of generatedSteps) {
           const emailId = uuidv4();
           await query(
-            `INSERT INTO generated_emails (id, campaign_id, prospect_id, step_number, subject, body_html, delay_days, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'draft')
+            `INSERT INTO generated_emails (id, tenant_id, campaign_id, prospect_id, step_number, subject, body_html, delay_days, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')
              ON DUPLICATE KEY UPDATE subject = VALUES(subject), body_html = VALUES(body_html),
              delay_days = VALUES(delay_days), status = 'draft', updated_at = NOW()`,
-            [emailId, id, prospectId, step.step_number, step.subject, step.body_html, step.delay_days]
+            [emailId, req.user!.tenantId, id, prospectId, step.step_number, step.subject, step.body_html, step.delay_days]
           );
         }
 
@@ -543,8 +551,8 @@ router.get('/:id/generated-emails', async (req: Request, res: Response): Promise
     const status = req.query.status as string;
     const prospectId = req.query.prospect_id as string;
 
-    let whereClauses = ['ge.campaign_id = ?'];
-    let params: any[] = [id];
+    let whereClauses = ['ge.campaign_id = ?', 'ge.tenant_id = ?'];
+    let params: any[] = [id, req.user!.tenantId];
 
     if (status) {
       whereClauses.push('ge.status = ?');
@@ -616,8 +624,8 @@ router.put('/:id/generated-emails/:emailId', async (req: Request, res: Response)
     const { subject, body_html } = req.body;
 
     const existing = await query<any[]>(
-      'SELECT id FROM generated_emails WHERE id = ? AND campaign_id = ?',
-      [emailId, id]
+      'SELECT id FROM generated_emails WHERE id = ? AND campaign_id = ? AND tenant_id = ?',
+      [emailId, id, req.user!.tenantId]
     );
 
     if (existing.length === 0) {
@@ -668,8 +676,8 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
     const placeholders = email_ids.map(() => '?').join(',');
     await query(
       `UPDATE generated_emails SET status = 'approved', approved_at = NOW(), approved_by = ?
-       WHERE id IN (${placeholders}) AND campaign_id = ? AND status IN ('draft', 'rejected')`,
-      [req.user!.id, ...email_ids, id]
+       WHERE id IN (${placeholders}) AND campaign_id = ? AND tenant_id = ? AND status IN ('draft', 'rejected')`,
+      [req.user!.id, ...email_ids, id, req.user!.tenantId]
     );
 
     res.json({ success: true, data: { message: `Approved ${email_ids.length} email(s).` } });
@@ -693,8 +701,8 @@ router.post('/:id/reject-emails', async (req: Request, res: Response): Promise<v
     const placeholders = email_ids.map(() => '?').join(',');
     await query(
       `UPDATE generated_emails SET status = 'rejected'
-       WHERE id IN (${placeholders}) AND campaign_id = ? AND status IN ('draft', 'approved')`,
-      [...email_ids, id]
+       WHERE id IN (${placeholders}) AND campaign_id = ? AND tenant_id = ? AND status IN ('draft', 'approved')`,
+      [...email_ids, id, req.user!.tenantId]
     );
 
     res.json({ success: true, data: { message: `Rejected ${email_ids.length} email(s).` } });

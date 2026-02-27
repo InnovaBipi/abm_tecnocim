@@ -21,22 +21,16 @@ export interface EnvConfig {
   JWT_SECRET: string;
   JWT_EXPIRES_IN: string;
 
-  // Resend (Email)
+  // Resend (Email) - global fallback; per-tenant config takes priority
   RESEND_API_KEY: string;
   RESEND_WEBHOOK_SECRET: string;
   EMAIL_FROM: string;
   EMAIL_REPLY_TO: string;
 
-  // AI / Enrichment
+  // AI / Enrichment (global, shared across tenants)
   GEMINI_API_KEY: string;
   PERPLEXITY_API_KEY: string;
   FIRECRAWL_API_KEY: string;
-
-  // IMAP (reply detection)
-  OVH_IMAP_HOST: string;
-  OVH_IMAP_PORT: number;
-  OVH_EMAIL: string;
-  OVH_EMAIL_PASS: string;
 
   // Frontend
   FRONTEND_URL: string;
@@ -68,22 +62,16 @@ export const config: EnvConfig = {
   JWT_SECRET: getEnvVar('JWT_SECRET', 'change-me-in-production'),
   JWT_EXPIRES_IN: getEnvVar('JWT_EXPIRES_IN', '7d'),
 
-  // Resend (Email)
+  // Resend (Email) - global fallback; per-tenant config in tenants.config takes priority
   RESEND_API_KEY: getEnvVar('RESEND_API_KEY', ''),
   RESEND_WEBHOOK_SECRET: getEnvVar('RESEND_WEBHOOK_SECRET', ''),
-  EMAIL_FROM: getEnvVar('EMAIL_FROM', 'noreply@camiacasa.cat'),
-  EMAIL_REPLY_TO: getEnvVar('EMAIL_REPLY_TO', 'alfons.marques@camiacasa.cat'),
+  EMAIL_FROM: getEnvVar('EMAIL_FROM', 'noreply@example.com'),
+  EMAIL_REPLY_TO: getEnvVar('EMAIL_REPLY_TO', ''),
 
-  // AI / Enrichment
+  // AI / Enrichment (global, shared across tenants)
   GEMINI_API_KEY: getEnvVar('GEMINI_API_KEY', ''),
   PERPLEXITY_API_KEY: getEnvVar('PERPLEXITY_API_KEY', ''),
   FIRECRAWL_API_KEY: getEnvVar('FIRECRAWL_API_KEY', ''),
-
-  // IMAP (reply detection)
-  OVH_IMAP_HOST: getEnvVar('OVH_IMAP_HOST', ''),
-  OVH_IMAP_PORT: parseInt(getEnvVar('OVH_IMAP_PORT', '993'), 10),
-  OVH_EMAIL: getEnvVar('OVH_EMAIL', ''),
-  OVH_EMAIL_PASS: getEnvVar('OVH_EMAIL_PASS', ''),
 
   // Frontend
   FRONTEND_URL: getEnvVar('FRONTEND_URL', 'http://localhost:5173'),

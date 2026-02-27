@@ -103,35 +103,37 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Find the original email event by resend_email_id to get prospect/sequence context
+    // Find the original email event by resend_email_id to get prospect/sequence/tenant context
     const originalEvents = await query<any[]>(
-      `SELECT prospect_id, sequence_id, enrollment_id, step_id
+      `SELECT prospect_id, sequence_id, enrollment_id, step_id, tenant_id
        FROM email_events
        WHERE resend_email_id = ?
        LIMIT 1`,
       [resendEmailId]
     );
 
-    // Also check generated_emails for outbox-sent emails
     let prospectId: string | null = null;
     let sequenceId: string | null = null;
     let enrollmentId: string | null = null;
     let stepId: string | null = null;
+    let tenantId: string | null = null;
 
     if (originalEvents.length > 0) {
       prospectId = originalEvents[0].prospect_id;
       sequenceId = originalEvents[0].sequence_id;
       enrollmentId = originalEvents[0].enrollment_id;
       stepId = originalEvents[0].step_id;
+      tenantId = originalEvents[0].tenant_id;
     } else {
-      // Try to find prospect by email
+      // Try to find prospect by email (could be any tenant)
       if (recipientEmail) {
         const prospects = await query<any[]>(
-          'SELECT id FROM prospects WHERE email = ? LIMIT 1',
+          'SELECT id, tenant_id FROM prospects WHERE email = ? LIMIT 1',
           [recipientEmail]
         );
         if (prospects.length > 0) {
           prospectId = prospects[0].id;
+          tenantId = prospects[0].tenant_id;
         }
       }
     }
@@ -144,11 +146,12 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
 
     // Record the event
     await query(
-      `INSERT INTO email_events (id, enrollment_id, prospect_id, sequence_id, step_id,
+      `INSERT INTO email_events (id, tenant_id, enrollment_id, prospect_id, sequence_id, step_id,
        event_type, resend_email_id, subject, link_clicked, user_agent, ip_address, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         uuidv4(),
+        tenantId,
         enrollmentId,
         prospectId,
         sequenceId,
@@ -167,11 +170,11 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
     switch (eventType) {
       case 'bounced':
         // Add to suppression list
-        if (recipientEmail) {
+        if (recipientEmail && tenantId) {
           await query(
-            `INSERT IGNORE INTO suppression_list (id, email, reason, source)
-             VALUES (?, ?, 'bounced', 'resend_webhook')`,
-            [uuidv4(), recipientEmail]
+            `INSERT IGNORE INTO suppression_list (id, tenant_id, email, reason, source)
+             VALUES (?, ?, ?, 'bounced', 'resend_webhook')`,
+            [uuidv4(), tenantId, recipientEmail]
           );
         }
 
@@ -199,11 +202,11 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
 
       case 'complaint':
         // Spam complaint - add to suppression and mark do_not_contact
-        if (recipientEmail) {
+        if (recipientEmail && tenantId) {
           await query(
-            `INSERT IGNORE INTO suppression_list (id, email, reason, source)
-             VALUES (?, ?, 'complaint', 'resend_webhook')`,
-            [uuidv4(), recipientEmail]
+            `INSERT IGNORE INTO suppression_list (id, tenant_id, email, reason, source)
+             VALUES (?, ?, ?, 'complaint', 'resend_webhook')`,
+            [uuidv4(), tenantId, recipientEmail]
           );
         }
 

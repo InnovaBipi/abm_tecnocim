@@ -36,10 +36,12 @@ export async function calculateScore(prospectId: string): Promise<{
   }
 
   const prospect = prospects[0];
+  const tenantId = prospect.tenant_id;
 
-  // Load active scoring rules
+  // Load active scoring rules (scoped to tenant)
   const rules = await query<ScoringRule[]>(
-    'SELECT * FROM scoring_rules WHERE is_active = TRUE ORDER BY category, points DESC'
+    'SELECT * FROM scoring_rules WHERE is_active = TRUE AND tenant_id = ? ORDER BY category, points DESC',
+    [tenantId]
   );
 
   // Load engagement data
@@ -113,9 +115,9 @@ export async function calculateScore(prospectId: string): Promise<{
 
   // Save score history
   await query(
-    `INSERT INTO prospect_score_history (id, prospect_id, score, score_breakdown)
-     VALUES (?, ?, ?, ?)`,
-    [uuidv4(), prospectId, totalScore, JSON.stringify(breakdown)]
+    `INSERT INTO prospect_score_history (id, prospect_id, score, score_breakdown, tenant_id)
+     VALUES (?, ?, ?, ?, ?)`,
+    [uuidv4(), prospectId, totalScore, JSON.stringify(breakdown), tenantId]
   );
 
   return { score: totalScore, breakdown };
@@ -193,17 +195,19 @@ function evaluateRule(rule: ScoringRule, data: Record<string, any>): boolean {
  * Recalculate lead scores for all active prospects.
  * Intended to be run as a scheduled job.
  */
-export async function recalculateAllScores(): Promise<{
+export async function recalculateAllScores(tenantId?: string): Promise<{
   processed: number;
   errors: number;
 }> {
   console.log('Starting batch score recalculation...');
 
-  const prospects = await query<any[]>(
-    `SELECT id FROM prospects
+  const baseQuery = `SELECT id FROM prospects
      WHERE status NOT IN ('unsubscribed', 'bounced')
-     AND do_not_contact = FALSE`
-  );
+     AND do_not_contact = FALSE`;
+
+  const prospects = tenantId
+    ? await query<any[]>(baseQuery + ' AND tenant_id = ?', [tenantId])
+    : await query<any[]>(baseQuery);
 
   let processed = 0;
   let errors = 0;

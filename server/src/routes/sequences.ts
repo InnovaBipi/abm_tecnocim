@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { query, getConnection } from '../config/database';
 import { authenticate } from '../middleware/auth';
+import { getTenantConfig, buildTenantAIContext } from '../middleware/tenant';
 import { calculateOptimalSendTime, resolveProspectTimezone } from '../services/scheduling';
 
 const router = Router();
@@ -64,8 +65,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const status = req.query.status as string;
     const campaignId = req.query.campaign_id as string;
 
-    let whereClauses: string[] = [];
-    let params: any[] = [];
+    let whereClauses: string[] = ['es.tenant_id = ?'];
+    let params: any[] = [req.user!.tenantId];
 
     if (status) {
       whereClauses.push('es.status = ?');
@@ -77,7 +78,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       params.push(campaignId);
     }
 
-    const whereSQL = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+    const whereSQL = 'WHERE ' + whereClauses.join(' AND ');
 
     const countResult = await query<any[]>(
       `SELECT COUNT(*) as total FROM email_sequences es ${whereSQL}`,
@@ -129,8 +130,8 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
       `SELECT es.*, c.name as campaign_name
        FROM email_sequences es
        LEFT JOIN campaigns c ON es.campaign_id = c.id
-       WHERE es.id = ?`,
-      [id]
+       WHERE es.id = ? AND es.tenant_id = ?`,
+      [id, req.user!.tenantId]
     );
 
     if (sequences.length === 0) {
@@ -224,11 +225,12 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const id = uuidv4();
 
     await query(
-      `INSERT INTO email_sequences (id, campaign_id, name, description, from_name, from_email,
+      `INSERT INTO email_sequences (id, tenant_id, campaign_id, name, description, from_name, from_email,
        reply_to, send_window, settings, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
+        req.user!.tenantId,
         data.campaign_id || null,
         data.name,
         data.description || null,
@@ -271,7 +273,7 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const existing = await query<any[]>('SELECT id FROM email_sequences WHERE id = ?', [id]);
+    const existing = await query<any[]>('SELECT id FROM email_sequences WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (existing.length === 0) {
       res.status(404).json({
         success: false,
@@ -318,10 +320,10 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    params.push(id);
+    params.push(id, req.user!.tenantId);
 
     await query(
-      `UPDATE email_sequences SET ${setClauses.join(', ')} WHERE id = ?`,
+      `UPDATE email_sequences SET ${setClauses.join(', ')} WHERE id = ? AND tenant_id = ?`,
       params
     );
 
@@ -345,7 +347,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
 
-    const existing = await query<any[]>('SELECT id FROM email_sequences WHERE id = ?', [id]);
+    const existing = await query<any[]>('SELECT id FROM email_sequences WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (existing.length === 0) {
       res.status(404).json({
         success: false,
@@ -354,7 +356,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    await query('DELETE FROM email_sequences WHERE id = ?', [id]);
+    await query('DELETE FROM email_sequences WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
 
     res.json({
       success: true,
@@ -385,7 +387,7 @@ router.post('/:id/steps', async (req: Request, res: Response): Promise<void> => 
     }
 
     // Verify sequence exists
-    const sequence = await query<any[]>('SELECT id FROM email_sequences WHERE id = ?', [id]);
+    const sequence = await query<any[]>('SELECT id FROM email_sequences WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (sequence.length === 0) {
       res.status(404).json({
         success: false,
@@ -471,8 +473,8 @@ router.post('/:id/enroll', async (req: Request, res: Response): Promise<void> =>
 
     // Verify sequence exists and is active or draft
     const sequences = await query<any[]>(
-      'SELECT id, status FROM email_sequences WHERE id = ?',
-      [id]
+      'SELECT id, status FROM email_sequences WHERE id = ? AND tenant_id = ?',
+      [id, req.user!.tenantId]
     );
 
     if (sequences.length === 0) {
@@ -571,7 +573,7 @@ router.post('/:id/pause', async (req: Request, res: Response): Promise<void> => 
   try {
     const { id } = req.params;
 
-    const existing = await query<any[]>('SELECT id, status FROM email_sequences WHERE id = ?', [id]);
+    const existing = await query<any[]>('SELECT id, status FROM email_sequences WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (existing.length === 0) {
       res.status(404).json({
         success: false,
@@ -580,7 +582,7 @@ router.post('/:id/pause', async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    await query('UPDATE email_sequences SET status = ? WHERE id = ?', ['paused', id]);
+    await query('UPDATE email_sequences SET status = ? WHERE id = ? AND tenant_id = ?', ['paused', id, req.user!.tenantId]);
 
     // Pause all active enrollments
     await query(
@@ -606,7 +608,7 @@ router.post('/:id/resume', async (req: Request, res: Response): Promise<void> =>
   try {
     const { id } = req.params;
 
-    const existing = await query<any[]>('SELECT id, status FROM email_sequences WHERE id = ?', [id]);
+    const existing = await query<any[]>('SELECT id, status FROM email_sequences WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (existing.length === 0) {
       res.status(404).json({
         success: false,
@@ -615,7 +617,7 @@ router.post('/:id/resume', async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    await query('UPDATE email_sequences SET status = ? WHERE id = ?', ['active', id]);
+    await query('UPDATE email_sequences SET status = ? WHERE id = ? AND tenant_id = ?', ['active', id, req.user!.tenantId]);
 
     // Resume paused enrollments and recalculate next_send_at
     await query(
@@ -654,8 +656,8 @@ router.post('/:id/generate-personalized', async (req: Request, res: Response): P
               c.asset_price, c.description as campaign_description, c.asset_details
        FROM email_sequences es
        LEFT JOIN campaigns c ON es.campaign_id = c.id
-       WHERE es.id = ?`,
-      [id]
+       WHERE es.id = ? AND es.tenant_id = ?`,
+      [id, req.user!.tenantId]
     );
 
     if (sequences.length === 0) {
@@ -678,8 +680,8 @@ router.post('/:id/generate-personalized', async (req: Request, res: Response): P
               c.employee_count, c.annual_revenue
        FROM prospects p
        LEFT JOIN companies c ON p.company_id = c.id
-       WHERE p.id = ?`,
-      [prospect_id]
+       WHERE p.id = ? AND p.tenant_id = ?`,
+      [prospect_id, req.user!.tenantId]
     );
 
     if (prospects.length === 0) {
@@ -707,6 +709,10 @@ router.post('/:id/generate-personalized', async (req: Request, res: Response): P
 
     const { generatePersonalizedSequence } = await import('../services/ai');
 
+    // Build tenant AI context
+    const tenant = await getTenantConfig(req.user!.tenantId);
+    const tenantAIContext = tenant ? buildTenantAIContext(tenant) : undefined;
+
     const generatedSteps = await generatePersonalizedSequence(
       {
         first_name: prospect.first_name,
@@ -729,7 +735,8 @@ router.post('/:id/generate-personalized', async (req: Request, res: Response): P
         asset_details: assetDetails,
       },
       existingSteps,
-      num_steps || 4
+      num_steps || 4,
+      tenantAIContext
     );
 
     res.json({
@@ -771,8 +778,8 @@ router.post('/:id/generate-step', async (req: Request, res: Response): Promise<v
               c.asset_price, c.description as campaign_description
        FROM email_sequences es
        LEFT JOIN campaigns c ON es.campaign_id = c.id
-       WHERE es.id = ?`,
-      [id]
+       WHERE es.id = ? AND es.tenant_id = ?`,
+      [id, req.user!.tenantId]
     );
 
     if (sequences.length === 0) {
@@ -794,8 +801,8 @@ router.post('/:id/generate-step', async (req: Request, res: Response): Promise<v
         `SELECT p.*, c.name as company_name, c.industry as company_industry
          FROM prospects p
          LEFT JOIN companies c ON p.company_id = c.id
-         WHERE p.id = ?`,
-        [prospect_id]
+         WHERE p.id = ? AND p.tenant_id = ?`,
+        [prospect_id, req.user!.tenantId]
       );
       if (prospects.length > 0) {
         prospectData = prospects[0];
@@ -803,6 +810,10 @@ router.post('/:id/generate-step', async (req: Request, res: Response): Promise<v
     }
 
     const { generateEmail } = await import('../services/ai');
+
+    // Build tenant AI context
+    const tenantForAI = await getTenantConfig(req.user!.tenantId);
+    const tenantAICtx = tenantForAI ? buildTenantAIContext(tenantForAI) : undefined;
 
     const result = await generateEmail(
       {
@@ -822,7 +833,8 @@ router.post('/:id/generate-step', async (req: Request, res: Response): Promise<v
         asset_price: sequence.asset_price,
         description: sequence.campaign_description,
       },
-      step_number || 1
+      step_number || 1,
+      tenantAICtx
     );
 
     res.json({

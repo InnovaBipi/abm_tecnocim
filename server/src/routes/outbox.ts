@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 import { authenticate } from '../middleware/auth';
-import { config } from '../config/env';
+import { getTenantConfig } from '../middleware/tenant';
 import { calculateOptimalSendTime, resolveProspectTimezone } from '../services/scheduling';
 
 const router = Router();
@@ -18,8 +18,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
     const offset = (page - 1) * limit;
 
-    let whereClauses: string[] = [];
-    let params: any[] = [];
+    let whereClauses: string[] = ['ge.tenant_id = ?'];
+    let params: any[] = [req.user!.tenantId];
 
     if (status) {
       whereClauses.push('ge.status = ?');
@@ -31,7 +31,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       params.push(campaignId);
     }
 
-    const whereSQL = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+    const whereSQL = 'WHERE ' + whereClauses.join(' AND ');
 
     const countResult = await query<any[]>(
       `SELECT COUNT(*) as total FROM generated_emails ge ${whereSQL}`,
@@ -66,14 +66,16 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 });
 
 // --- GET /stats - Counts by status ---
-router.get('/stats', async (_req: Request, res: Response): Promise<void> => {
+router.get('/stats', async (req: Request, res: Response): Promise<void> => {
   try {
     const stats = await query<any[]>(
-      `SELECT status, COUNT(*) as count FROM generated_emails GROUP BY status`
+      `SELECT status, COUNT(*) as count FROM generated_emails WHERE tenant_id = ? GROUP BY status`,
+      [req.user!.tenantId]
     );
 
     const totalResult = await query<any[]>(
-      `SELECT COUNT(*) as total FROM generated_emails`
+      `SELECT COUNT(*) as total FROM generated_emails WHERE tenant_id = ?`,
+      [req.user!.tenantId]
     );
 
     res.json({
@@ -102,8 +104,8 @@ router.put('/:emailId/approve', async (req: Request, res: Response): Promise<voi
       `SELECT ge.id, ge.status, ge.delay_days, ge.step_number, p.timezone, p.country, p.city
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id
-       WHERE ge.id = ? AND ge.status IN ('draft', 'rejected')`,
-      [emailId]
+       WHERE ge.id = ? AND ge.tenant_id = ? AND ge.status IN ('draft', 'rejected')`,
+      [emailId, req.user!.tenantId]
     );
 
     if (emails.length === 0) {
@@ -123,8 +125,8 @@ router.put('/:emailId/approve', async (req: Request, res: Response): Promise<voi
 
     await query(
       `UPDATE generated_emails SET status = 'scheduled', approved_at = NOW(), approved_by = ?, scheduled_for = ?
-       WHERE id = ? AND status IN ('draft', 'rejected')`,
-      [req.user!.id, scheduledFor, emailId]
+       WHERE id = ? AND tenant_id = ? AND status IN ('draft', 'rejected')`,
+      [req.user!.id, scheduledFor, emailId, req.user!.tenantId]
     );
 
     const updated = await query<any[]>('SELECT * FROM generated_emails WHERE id = ?', [emailId]);
@@ -143,8 +145,8 @@ router.put('/:emailId/reject', async (req: Request, res: Response): Promise<void
 
     await query(
       `UPDATE generated_emails SET status = 'rejected', scheduled_for = NULL
-       WHERE id = ? AND status IN ('draft', 'approved', 'scheduled')`,
-      [emailId]
+       WHERE id = ? AND tenant_id = ? AND status IN ('draft', 'approved', 'scheduled')`,
+      [emailId, req.user!.tenantId]
     );
 
     const updated = await query<any[]>('SELECT * FROM generated_emails WHERE id = ?', [emailId]);
@@ -172,8 +174,8 @@ router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> 
       `SELECT ge.id, ge.delay_days, ge.step_number, p.timezone, p.country, p.city
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id
-       WHERE ge.id IN (${placeholders}) AND ge.status IN ('draft', 'rejected')`,
-      email_ids
+       WHERE ge.id IN (${placeholders}) AND ge.tenant_id = ? AND ge.status IN ('draft', 'rejected')`,
+      [...email_ids, req.user!.tenantId]
     );
 
     let scheduled = 0;
@@ -222,8 +224,8 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
          FROM generated_emails ge
          JOIN prospects p ON ge.prospect_id = p.id
          JOIN campaigns cam ON ge.campaign_id = cam.id
-         WHERE ge.id IN (${placeholders}) AND ge.status = 'scheduled'`,
-        email_ids
+         WHERE ge.id IN (${placeholders}) AND ge.tenant_id = ? AND ge.status = 'scheduled'`,
+        [...email_ids, req.user!.tenantId]
       );
     } else {
       emailsToSend = await query<any[]>(
@@ -233,8 +235,9 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
          FROM generated_emails ge
          JOIN prospects p ON ge.prospect_id = p.id
          JOIN campaigns cam ON ge.campaign_id = cam.id
-         WHERE ge.status = 'scheduled'
-         ORDER BY ge.campaign_id, ge.prospect_id, ge.step_number`
+         WHERE ge.tenant_id = ? AND ge.status = 'scheduled'
+         ORDER BY ge.campaign_id, ge.prospect_id, ge.step_number`,
+        [req.user!.tenantId]
       );
     }
 
@@ -248,9 +251,13 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
     let sent = 0;
     let failed = 0;
     const results: any[] = [];
-    // Build from address: if EMAIL_FROM already contains '<', use as-is; otherwise wrap it
-    const rawFrom = config.EMAIL_FROM || 'noreply@camiacasa.cat';
-    const fromAddress = rawFrom.includes('<') ? rawFrom : `Alfons Marques <${rawFrom}>`;
+    // Build from address from tenant config
+    const tenant = await getTenantConfig(req.user!.tenantId);
+    const tenantEmail = tenant?.config?.email;
+    const rawFrom = tenantEmail?.from_email || 'noreply@example.com';
+    const fromName = tenantEmail?.from_name || 'ABM Platform';
+    const fromAddress = `${fromName} <${rawFrom}>`;
+    const replyTo = tenantEmail?.reply_to || undefined;
 
     for (let idx = 0; idx < emailsToSend.length; idx++) {
       const email = emailsToSend[idx];
@@ -266,10 +273,10 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
         continue;
       }
 
-      // Check suppression list
+      // Check suppression list (per-tenant)
       const suppressed = await query<any[]>(
-        'SELECT id FROM suppression_list WHERE email = ?',
-        [email.prospect_email]
+        'SELECT id FROM suppression_list WHERE email = ? AND tenant_id = ?',
+        [email.prospect_email, req.user!.tenantId]
       );
       if (suppressed.length > 0) {
         results.push({ id: email.id, status: 'skipped', reason: 'suppressed' });
@@ -283,7 +290,7 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
           email.body_html,
           undefined,
           fromAddress,
-          config.EMAIL_REPLY_TO
+          replyTo
         );
 
         if (result.success) {

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { campaignsApi } from '@/services/api';
+import { useAuthStore } from '@/stores/authStore';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -31,7 +32,7 @@ const statusFilterOptions = [
   { value: 'completed', label: 'Completado' },
 ];
 
-const assetTypeOptions = [
+const DEFAULT_ASSET_TYPE_OPTIONS = [
   { value: 'property', label: 'Propiedad' },
   { value: 'development', label: 'Desarrollo' },
   { value: 'land', label: 'Terreno' },
@@ -47,6 +48,15 @@ const statusOptions = [
 export default function Campaigns() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const tenant = useAuthStore((s) => s.tenant);
+
+  const entityLabel = tenant?.config?.entity?.type_label || 'Propiedad';
+  const entityLabelPlural = tenant?.config?.entity?.type_label_plural || 'Propiedades';
+
+  // Use tenant-specific entity fields for asset types, or fall back to defaults
+  const assetTypeOptions = tenant?.config?.entity?.fields?.length
+    ? tenant.config.entity.fields.map((f) => ({ value: f.name, label: f.label }))
+    : DEFAULT_ASSET_TYPE_OPTIONS;
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');

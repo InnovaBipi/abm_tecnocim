@@ -164,10 +164,11 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
     const importId = uuidv4();
 
     await query(
-      `INSERT INTO imports (id, file_name, file_path, file_size, status, total_rows, created_by)
-       VALUES (?, ?, ?, ?, 'mapping', ?, ?)`,
+      `INSERT INTO imports (id, tenant_id, file_name, file_path, file_size, status, total_rows, created_by)
+       VALUES (?, ?, ?, ?, ?, 'mapping', ?, ?)`,
       [
         importId,
+        req.user!.tenantId,
         req.file.originalname,
         req.file.path,
         req.file.size,
@@ -215,8 +216,8 @@ router.post('/:id/map', async (req: Request, res: Response): Promise<void> => {
 
     // Verify import exists and is in mapping status
     const imports = await query<any[]>(
-      'SELECT * FROM imports WHERE id = ?',
-      [id]
+      'SELECT * FROM imports WHERE id = ? AND tenant_id = ?',
+      [id, req.user!.tenantId]
     );
 
     if (imports.length === 0) {
@@ -240,11 +241,12 @@ router.post('/:id/map', async (req: Request, res: Response): Promise<void> => {
     // Save column mapping
     await query(
       `UPDATE imports SET column_mapping = ?, default_tags = ?, status = 'pending', started_at = NOW()
-       WHERE id = ?`,
+       WHERE id = ? AND tenant_id = ?`,
       [
         JSON.stringify(column_mapping),
         default_tags ? JSON.stringify(default_tags) : null,
         id,
+        req.user!.tenantId,
       ]
     );
 
@@ -256,6 +258,7 @@ router.post('/:id/map', async (req: Request, res: Response): Promise<void> => {
       column_mapping,
       default_tags: default_tags || [],
       user_id: req.user!.id,
+      tenant_id: req.user!.tenantId,
     });
 
     res.json({
@@ -288,7 +291,7 @@ router.post('/:id/check-duplicates', async (req: Request, res: Response): Promis
     }
 
     // Verify import exists and is in mapping status
-    const imports = await query<any[]>('SELECT * FROM imports WHERE id = ?', [id]);
+    const imports = await query<any[]>('SELECT * FROM imports WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (imports.length === 0) {
       res.status(404).json({ success: false, error: 'Import not found.' });
       return;
@@ -379,8 +382,8 @@ router.post('/:id/check-duplicates', async (req: Request, res: Response): Promis
         const batch = rowsWithEmail.slice(i, i + batchSize);
         const placeholders = batch.map(() => '?').join(',');
         const results = await query<any[]>(
-          `SELECT email FROM prospects WHERE email IN (${placeholders})`,
-          batch.map((r) => r.email)
+          `SELECT email FROM prospects WHERE email IN (${placeholders}) AND tenant_id = ?`,
+          [...batch.map((r) => r.email), req.user!.tenantId]
         );
         results.forEach((r: any) => existingEmails.add(r.email.toLowerCase()));
       }
@@ -423,8 +426,8 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params;
 
     const imports = await query<any[]>(
-      'SELECT * FROM imports WHERE id = ?',
-      [id]
+      'SELECT * FROM imports WHERE id = ? AND tenant_id = ?',
+      [id, req.user!.tenantId]
     );
 
     if (imports.length === 0) {
@@ -465,16 +468,17 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 25));
     const offset = (page - 1) * limit;
 
-    const countResult = await query<any[]>('SELECT COUNT(*) as total FROM imports');
+    const countResult = await query<any[]>('SELECT COUNT(*) as total FROM imports WHERE tenant_id = ?', [req.user!.tenantId]);
     const total = countResult[0].total;
 
     const imports = await query<any[]>(
       `SELECT id, file_name, file_size, status, total_rows, processed_rows,
               imported_rows, skipped_rows, error_rows, started_at, completed_at, created_at
        FROM imports
+       WHERE tenant_id = ?
        ORDER BY created_at DESC
        LIMIT ? OFFSET ?`,
-      [limit, offset]
+      [req.user!.tenantId, limit, offset]
     );
 
     res.json({

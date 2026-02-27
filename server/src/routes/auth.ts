@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { query } from '../config/database';
 import { authenticate, generateToken, hashPassword, comparePassword } from '../middleware/auth';
+import { getTenantConfig, getTenantBySlug } from '../middleware/tenant';
 
 const router = Router();
 
@@ -13,6 +14,7 @@ const registerSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters'),
   first_name: z.string().min(1, 'First name is required'),
   last_name: z.string().min(1, 'Last name is required'),
+  tenant_slug: z.string().min(1, 'Tenant slug is required'),
 });
 
 const loginSchema = z.object({
@@ -33,12 +35,22 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const { email, password, first_name, last_name } = validation.data;
+    const { email, password, first_name, last_name, tenant_slug } = validation.data;
 
-    // Check if user already exists
+    // Resolve tenant by slug
+    const tenant = await getTenantBySlug(tenant_slug);
+    if (!tenant) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid tenant.',
+      });
+      return;
+    }
+
+    // Check if user already exists in this tenant
     const existing = await query<any[]>(
-      'SELECT id FROM users WHERE email = ?',
-      [email]
+      'SELECT id FROM users WHERE email = ? AND tenant_id = ?',
+      [email, tenant.id]
     );
 
     if (existing.length > 0) {
@@ -54,13 +66,13 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     const userId = uuidv4();
 
     await query(
-      `INSERT INTO users (id, email, password, first_name, last_name, role)
-       VALUES (?, ?, ?, ?, ?, 'member')`,
-      [userId, email, hashedPassword, first_name, last_name]
+      `INSERT INTO users (id, tenant_id, email, password, first_name, last_name, role)
+       VALUES (?, ?, ?, ?, ?, ?, 'member')`,
+      [userId, tenant.id, email, hashedPassword, first_name, last_name]
     );
 
-    // Generate JWT
-    const token = generateToken(userId, email, 'member');
+    // Generate JWT with tenantId
+    const token = generateToken(userId, email, 'member', tenant.id);
 
     res.status(201).json({
       success: true,
@@ -72,6 +84,15 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
           first_name,
           last_name,
           role: 'member',
+        },
+        tenant: {
+          id: tenant.id,
+          name: tenant.name,
+          slug: tenant.slug,
+          logo_url: tenant.logo_url,
+          primary_color: tenant.primary_color,
+          secondary_color: tenant.secondary_color,
+          config: tenant.config,
         },
       },
     });
@@ -99,9 +120,15 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     const { email, password } = validation.data;
 
-    // Find user by email
+    // Find user by email, JOIN with tenant
     const users = await query<any[]>(
-      'SELECT id, email, password, first_name, last_name, role, is_active FROM users WHERE email = ?',
+      `SELECT u.id, u.email, u.password, u.first_name, u.last_name, u.role, u.is_active, u.tenant_id,
+              t.name as tenant_name, t.slug as tenant_slug, t.logo_url as tenant_logo_url,
+              t.primary_color as tenant_primary_color, t.secondary_color as tenant_secondary_color,
+              t.config as tenant_config, t.is_active as tenant_is_active
+       FROM users u
+       JOIN tenants t ON u.tenant_id = t.id
+       WHERE u.email = ?`,
       [email]
     );
 
@@ -123,6 +150,14 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    if (!user.tenant_is_active) {
+      res.status(403).json({
+        success: false,
+        error: 'Tenant is deactivated. Please contact support.',
+      });
+      return;
+    }
+
     // Verify password
     const isValid = await comparePassword(password, user.password);
     if (!isValid) {
@@ -136,8 +171,12 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     // Update last login
     await query('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
 
-    // Generate JWT
-    const token = generateToken(user.id, user.email, user.role);
+    // Generate JWT with tenantId
+    const token = generateToken(user.id, user.email, user.role, user.tenant_id);
+
+    const tenantConfig = typeof user.tenant_config === 'string'
+      ? JSON.parse(user.tenant_config)
+      : user.tenant_config;
 
     res.json({
       success: true,
@@ -149,6 +188,15 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
           first_name: user.first_name,
           last_name: user.last_name,
           role: user.role,
+        },
+        tenant: {
+          id: user.tenant_id,
+          name: user.tenant_name,
+          slug: user.tenant_slug,
+          logo_url: user.tenant_logo_url,
+          primary_color: user.tenant_primary_color,
+          secondary_color: user.tenant_secondary_color,
+          config: tenantConfig,
         },
       },
     });
@@ -165,8 +213,8 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 router.get('/me', authenticate, async (req: Request, res: Response): Promise<void> => {
   try {
     const users = await query<any[]>(
-      'SELECT id, email, first_name, last_name, role, is_active, last_login, created_at FROM users WHERE id = ?',
-      [req.user!.id]
+      'SELECT id, email, first_name, last_name, role, is_active, last_login, created_at, tenant_id FROM users WHERE id = ? AND tenant_id = ?',
+      [req.user!.id, req.user!.tenantId]
     );
 
     if (users.length === 0) {
@@ -177,9 +225,23 @@ router.get('/me', authenticate, async (req: Request, res: Response): Promise<voi
       return;
     }
 
+    // Get full tenant info
+    const tenant = await getTenantConfig(req.user!.tenantId);
+
     res.json({
       success: true,
-      data: users[0],
+      data: {
+        ...users[0],
+        tenant: tenant ? {
+          id: tenant.id,
+          name: tenant.name,
+          slug: tenant.slug,
+          logo_url: tenant.logo_url,
+          primary_color: tenant.primary_color,
+          secondary_color: tenant.secondary_color,
+          config: tenant.config,
+        } : null,
+      },
     });
   } catch (error: any) {
     console.error('Get current user error:', error);

@@ -11,6 +11,7 @@ declare global {
         id: string;
         email: string;
         role: string;
+        tenantId: string;
       };
     }
   }
@@ -20,6 +21,7 @@ interface JwtPayload {
   userId: string;
   email: string;
   role: string;
+  tenantId: string;
   iat?: number;
   exp?: number;
 }
@@ -48,6 +50,7 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
       id: decoded.userId,
       email: decoded.email,
       role: decoded.role,
+      tenantId: decoded.tenantId,
     };
 
     next();
@@ -87,6 +90,7 @@ export function optionalAuth(req: Request, res: Response, next: NextFunction): v
       id: decoded.userId,
       email: decoded.email,
       role: decoded.role,
+      tenantId: decoded.tenantId,
     };
   } catch {
     // Token is invalid but we allow the request to continue without user
@@ -124,9 +128,9 @@ export function requireRole(...roles: string[]) {
 /**
  * Generate a JWT token for a user.
  */
-export function generateToken(userId: string, email: string, role: string): string {
+export function generateToken(userId: string, email: string, role: string, tenantId: string): string {
   return jwt.sign(
-    { userId, email, role } as JwtPayload,
+    { userId, email, role, tenantId } as JwtPayload,
     config.JWT_SECRET,
     { expiresIn: config.JWT_EXPIRES_IN } as jwt.SignOptions
   );

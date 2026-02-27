@@ -42,6 +42,10 @@ export default function Settings() {
   });
   const [showPasswords, setShowPasswords] = useState(false);
 
+  // Email settings form
+  const [emailForm, setEmailForm] = useState<Record<string, string>>({});
+  const [emailFormInitialized, setEmailFormInitialized] = useState(false);
+
   // Scoring rule modal
   const [showRuleModal, setShowRuleModal] = useState(false);
   const [editingRule, setEditingRule] = useState<Record<string, unknown> | null>(null);
@@ -130,9 +134,34 @@ export default function Settings() {
     },
   });
 
+  const updateEmailMutation = useMutation({
+    mutationFn: (data: Record<string, unknown>) => settingsApi.updateEmailSettings(data),
+    onSuccess: () => {
+      toast.success('Configuracion de email actualizada');
+      queryClient.invalidateQueries({ queryKey: ['settings', 'email'] });
+    },
+    onError: () => {
+      toast.error('Error al actualizar la configuracion de email');
+    },
+  });
+
   const emailSettings = emailData?.data?.data;
   const apiKeys = apiKeysData?.data?.data?.keys || apiKeysData?.data?.data || [];
   const scoringRules = scoringData?.data?.data?.rules || scoringData?.data?.data || [];
+
+  // Initialize email form when data loads
+  if (emailSettings && !emailFormInitialized) {
+    setEmailForm({
+      from_email: emailSettings.from_email || '',
+      from_name: emailSettings.from_name || '',
+      reply_to: emailSettings.reply_to || '',
+      notification_email: emailSettings.notification_email || '',
+      imap_host: emailSettings.imap_host || '',
+      imap_port: String(emailSettings.imap_port || 993),
+      imap_user: emailSettings.imap_user || '',
+    });
+    setEmailFormInitialized(true);
+  }
 
   const resetRuleForm = () => {
     setRuleForm({ name: '', field: '', condition: 'equals', value: '', score: '10' });
@@ -267,45 +296,99 @@ export default function Settings() {
           <div className="flex items-center gap-2">
             <Mail className="h-5 w-5 text-primary-600" />
             <h2 className="text-lg font-semibold text-slate-900">Configuracion de Email</h2>
+            {emailSettings?.is_configured ? (
+              <Badge variant="success">
+                <CheckCircle className="h-3 w-3 mr-1" /> Configurado
+              </Badge>
+            ) : (
+              <Badge variant="warning">
+                <XCircle className="h-3 w-3 mr-1" /> Sin configurar
+              </Badge>
+            )}
           </div>
         </CardHeader>
         <CardContent>
-          {emailSettings ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
-              <div>
-                <p className="text-xs font-medium text-slate-500 uppercase">Servidor SMTP</p>
-                <p className="text-sm text-slate-900 mt-1">{emailSettings.smtp_host || 'No configurado'}</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-500 uppercase">Puerto</p>
-                <p className="text-sm text-slate-900 mt-1">{emailSettings.smtp_port || '-'}</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-500 uppercase">Nombre del Remitente</p>
-                <p className="text-sm text-slate-900 mt-1">{emailSettings.from_name || 'No configurado'}</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-500 uppercase">Email del Remitente</p>
-                <p className="text-sm text-slate-900 mt-1">{emailSettings.from_email || 'No configurado'}</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-500 uppercase">Estado</p>
-                <div className="mt-1">
-                  {emailSettings.is_configured ? (
-                    <Badge variant="success">
-                      <CheckCircle className="h-3 w-3 mr-1" /> Configurado
-                    </Badge>
-                  ) : (
-                    <Badge variant="warning">
-                      <XCircle className="h-3 w-3 mr-1" /> Sin configurar
-                    </Badge>
-                  )}
-                </div>
-              </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              updateEmailMutation.mutate(emailForm);
+            }}
+            className="space-y-4 max-w-2xl"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="Email del Remitente"
+                type="email"
+                value={emailForm.from_email || ''}
+                onChange={(e) => setEmailForm((f) => ({ ...f, from_email: e.target.value }))}
+                placeholder="noreply@tudominio.com"
+              />
+              <Input
+                label="Nombre del Remitente"
+                value={emailForm.from_name || ''}
+                onChange={(e) => setEmailForm((f) => ({ ...f, from_name: e.target.value }))}
+                placeholder="Mi Empresa"
+              />
+              <Input
+                label="Responder a (Reply-To)"
+                type="email"
+                value={emailForm.reply_to || ''}
+                onChange={(e) => setEmailForm((f) => ({ ...f, reply_to: e.target.value }))}
+                placeholder="contacto@tudominio.com"
+              />
+              <Input
+                label="Email de Notificaciones"
+                type="email"
+                value={emailForm.notification_email || ''}
+                onChange={(e) => setEmailForm((f) => ({ ...f, notification_email: e.target.value }))}
+                placeholder="admin@tudominio.com"
+                helperText="Recibe resumen de envios programados"
+              />
             </div>
-          ) : (
-            <p className="text-sm text-slate-500">Cargando configuracion de email...</p>
-          )}
+
+            <hr className="border-slate-200" />
+            <h3 className="text-sm font-semibold text-slate-700">IMAP (Deteccion de Respuestas)</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="Servidor IMAP"
+                value={emailForm.imap_host || ''}
+                onChange={(e) => setEmailForm((f) => ({ ...f, imap_host: e.target.value }))}
+                placeholder="imap.tudominio.com"
+              />
+              <Input
+                label="Puerto IMAP"
+                type="number"
+                value={emailForm.imap_port || '993'}
+                onChange={(e) => setEmailForm((f) => ({ ...f, imap_port: e.target.value }))}
+              />
+              <Input
+                label="Usuario IMAP"
+                value={emailForm.imap_user || ''}
+                onChange={(e) => setEmailForm((f) => ({ ...f, imap_user: e.target.value }))}
+                placeholder="user@tudominio.com"
+              />
+              <Input
+                label="Contrasena IMAP"
+                type="password"
+                value={emailForm.imap_pass || ''}
+                onChange={(e) => setEmailForm((f) => ({ ...f, imap_pass: e.target.value }))}
+                placeholder="Dejar vacio para no cambiar"
+              />
+            </div>
+            {emailSettings?.imap_configured && (
+              <Badge variant="success">
+                <CheckCircle className="h-3 w-3 mr-1" /> IMAP configurado
+              </Badge>
+            )}
+
+            <Button
+              type="submit"
+              loading={updateEmailMutation.isPending}
+              icon={<Save className="h-4 w-4" />}
+            >
+              Guardar Configuracion de Email
+            </Button>
+          </form>
         </CardContent>
       </Card>
 

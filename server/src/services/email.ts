@@ -3,22 +3,34 @@ import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config/env';
 import { query } from '../config/database';
 import { getEmailFooter, getUnsubscribeUrl } from '../routes/unsubscribe';
+import { getTenantConfig, type Tenant } from '../middleware/tenant';
 
-// Initialize Resend client (may be undefined if API key not configured)
-let resend: Resend | null = null;
+// Per-tenant Resend client cache
+const resendClients = new Map<string, Resend>();
 
-function getResendClient(): Resend {
-  if (!resend) {
-    if (!config.RESEND_API_KEY) {
-      throw new Error('RESEND_API_KEY is not configured. Cannot send emails.');
-    }
-    resend = new Resend(config.RESEND_API_KEY);
+function getResendClientForTenant(tenantApiKey: string): Resend {
+  if (!tenantApiKey) {
+    throw new Error('Resend API key is not configured for this tenant.');
   }
-  return resend;
+  let client = resendClients.get(tenantApiKey);
+  if (!client) {
+    client = new Resend(tenantApiKey);
+    resendClients.set(tenantApiKey, client);
+  }
+  return client;
+}
+
+// Fallback for global config (used when no tenant context)
+function getResendClient(): Resend {
+  if (!config.RESEND_API_KEY) {
+    throw new Error('RESEND_API_KEY is not configured. Cannot send emails.');
+  }
+  return getResendClientForTenant(config.RESEND_API_KEY);
 }
 
 /**
  * Send a single email via Resend.
+ * If tenantId is provided, uses the tenant's Resend API key and config.
  */
 export async function sendEmail(
   to: string,
@@ -26,24 +38,37 @@ export async function sendEmail(
   html: string,
   text?: string,
   from?: string,
-  replyTo?: string
+  replyTo?: string,
+  tenantId?: string
 ): Promise<{ id: string; success: boolean }> {
-  const client = getResendClient();
+  let client: Resend;
+  let tenant: Tenant | null = null;
+
+  if (tenantId) {
+    tenant = await getTenantConfig(tenantId);
+    const apiKey = tenant?.config?.email?.resend_api_key || config.RESEND_API_KEY;
+    client = getResendClientForTenant(apiKey);
+  } else {
+    client = getResendClient();
+  }
 
   try {
-    // Append compliance footer with unsubscribe link
-    const htmlWithFooter = html + getEmailFooter(to);
+    // Append compliance footer with unsubscribe link (tenant-branded)
+    const htmlWithFooter = html + getEmailFooter(to, tenantId, tenant);
 
     // Build List-Unsubscribe header for email clients
-    const unsubscribeUrl = getUnsubscribeUrl(to);
+    const unsubscribeUrl = getUnsubscribeUrl(to, tenantId);
+
+    const defaultFrom = tenant?.config?.email?.from_email || config.EMAIL_FROM;
+    const defaultReplyTo = tenant?.config?.email?.reply_to || config.EMAIL_REPLY_TO;
 
     const result = await client.emails.send({
-      from: from || config.EMAIL_FROM,
+      from: from || defaultFrom,
       to: [to],
       subject,
       html: htmlWithFooter,
       text: text || undefined,
-      replyTo: replyTo || config.EMAIL_REPLY_TO || undefined,
+      replyTo: replyTo || defaultReplyTo || undefined,
       headers: {
         'List-Unsubscribe': `<${unsubscribeUrl}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
@@ -126,22 +151,30 @@ export async function sendSequenceEmail(
       ? personalizeTemplate(step.body_text, prospect)
       : undefined;
 
-    // Determine from address
+    // Get tenant context from the prospect
+    const tenantId = prospect.tenant_id;
+    const tenant = tenantId ? await getTenantConfig(tenantId) : null;
+    const tenantEmail = tenant?.config?.email;
+
+    // Determine from address (sequence > tenant > global)
+    const defaultFromName = tenantEmail?.from_name || 'ABM Platform';
+    const defaultFromEmail = tenantEmail?.from_email || config.EMAIL_FROM;
     const fromAddress = sequence?.from_email
-      ? `${sequence.from_name || 'CamiaCasa'} <${sequence.from_email}>`
-      : config.EMAIL_FROM;
+      ? `${sequence.from_name || defaultFromName} <${sequence.from_email}>`
+      : `${defaultFromName} <${defaultFromEmail}>`;
 
     // Determine reply-to address
-    const replyToAddress = sequence?.reply_to || config.EMAIL_REPLY_TO || undefined;
+    const replyToAddress = sequence?.reply_to || tenantEmail?.reply_to || config.EMAIL_REPLY_TO || undefined;
 
-    // Send via Resend
+    // Send via Resend (tenant-aware)
     const result = await sendEmail(
       prospect.email,
       personalizedSubject,
       personalizedHtml,
       personalizedText,
       fromAddress,
-      replyToAddress
+      replyToAddress,
+      tenantId
     );
 
     // Record the email event

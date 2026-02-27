@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { query } from '../config/database';
 import { authenticate, hashPassword, comparePassword } from '../middleware/auth';
 import { config } from '../config/env';
+import { getTenantConfig, clearTenantCache } from '../middleware/tenant';
 
 const router = Router();
 
@@ -74,8 +75,8 @@ router.put('/profile', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    params.push(req.user!.id);
-    await query(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`, params);
+    params.push(req.user!.id, req.user!.tenantId);
+    await query(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ? AND tenant_id = ?`, params);
 
     const updated = await query<any[]>(
       'SELECT id, email, first_name, last_name, role, created_at FROM users WHERE id = ?',
@@ -130,19 +131,30 @@ router.put('/password', async (req: Request, res: Response): Promise<void> => {
 
 // --- Email Settings ---
 
-router.get('/email', async (_req: Request, res: Response): Promise<void> => {
+router.get('/email', async (req: Request, res: Response): Promise<void> => {
   try {
-    // Return email configuration from environment
-    const hasResendKey = !!config.RESEND_API_KEY;
+    const tenant = await getTenantConfig(req.user!.tenantId);
+    if (!tenant) {
+      res.status(404).json({ success: false, error: 'Tenant not found.' });
+      return;
+    }
+
+    const emailConfig = tenant.config.email || {};
+    const imapConfig = tenant.config.imap || {};
 
     res.json({
       success: true,
       data: {
-        from_email: config.EMAIL_FROM,
-        from_name: 'CamiaCasa ABM',
-        smtp_host: hasResendKey ? 'Resend API' : 'No configurado',
-        smtp_port: hasResendKey ? 'API' : '-',
-        is_configured: hasResendKey,
+        from_email: emailConfig.from_email || '',
+        from_name: emailConfig.from_name || '',
+        reply_to: emailConfig.reply_to || '',
+        notification_email: emailConfig.notification_email || '',
+        resend_api_key: emailConfig.resend_api_key ? emailConfig.resend_api_key.substring(0, 8) + '...' : '',
+        is_configured: !!emailConfig.resend_api_key,
+        imap_host: imapConfig.host || '',
+        imap_port: imapConfig.port || 993,
+        imap_user: imapConfig.user || '',
+        imap_configured: !!(imapConfig.host && imapConfig.user && imapConfig.pass),
       },
     });
   } catch (error: any) {
@@ -151,12 +163,46 @@ router.get('/email', async (_req: Request, res: Response): Promise<void> => {
   }
 });
 
-router.put('/email', async (_req: Request, res: Response): Promise<void> => {
-  // Email settings are managed via environment variables
-  res.json({
-    success: true,
-    data: { message: 'Email settings are managed via environment variables (.env file).' },
-  });
+router.put('/email', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { from_email, from_name, reply_to, notification_email, resend_api_key, imap_host, imap_port, imap_user, imap_pass } = req.body;
+
+    // Build the JSON_SET query to update specific fields in config
+    const updates: string[] = [];
+    const params: any[] = [];
+
+    if (from_email !== undefined) { updates.push("'$.email.from_email', ?"); params.push(from_email); }
+    if (from_name !== undefined) { updates.push("'$.email.from_name', ?"); params.push(from_name); }
+    if (reply_to !== undefined) { updates.push("'$.email.reply_to', ?"); params.push(reply_to); }
+    if (notification_email !== undefined) { updates.push("'$.email.notification_email', ?"); params.push(notification_email); }
+    if (resend_api_key !== undefined) { updates.push("'$.email.resend_api_key', ?"); params.push(resend_api_key); }
+    if (imap_host !== undefined) { updates.push("'$.imap.host', ?"); params.push(imap_host); }
+    if (imap_port !== undefined) { updates.push("'$.imap.port', ?"); params.push(imap_port); }
+    if (imap_user !== undefined) { updates.push("'$.imap.user', ?"); params.push(imap_user); }
+    if (imap_pass !== undefined) { updates.push("'$.imap.pass', ?"); params.push(imap_pass); }
+
+    if (updates.length === 0) {
+      res.status(400).json({ success: false, error: 'No fields to update.' });
+      return;
+    }
+
+    params.push(req.user!.tenantId);
+    await query(
+      `UPDATE tenants SET config = JSON_SET(config, ${updates.join(', ')}) WHERE id = ?`,
+      params
+    );
+
+    // Clear cache so changes take effect immediately
+    clearTenantCache(req.user!.tenantId);
+
+    res.json({
+      success: true,
+      data: { message: 'Email settings updated successfully.' },
+    });
+  } catch (error: any) {
+    console.error('Update email settings error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
 });
 
 // --- API Keys ---
@@ -199,10 +245,11 @@ router.get('/api-keys', async (_req: Request, res: Response): Promise<void> => {
 
 // --- Scoring Rules ---
 
-router.get('/scoring-rules', async (_req: Request, res: Response): Promise<void> => {
+router.get('/scoring-rules', async (req: Request, res: Response): Promise<void> => {
   try {
     const rules = await query<any[]>(
-      'SELECT * FROM scoring_rules ORDER BY created_at DESC'
+      'SELECT * FROM scoring_rules WHERE tenant_id = ? ORDER BY created_at DESC',
+      [req.user!.tenantId]
     );
 
     res.json({ success: true, data: { rules } });
@@ -254,9 +301,9 @@ router.post('/scoring-rules', async (req: Request, res: Response): Promise<void>
     const operator = operatorMap[data.condition] || 'equals';
 
     await query(
-      `INSERT INTO scoring_rules (id, name, category, field_name, operator, field_value, points)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, data.name, category, data.field, operator, JSON.stringify(data.value || ''), data.score]
+      `INSERT INTO scoring_rules (id, tenant_id, name, category, field_name, operator, field_value, points)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, req.user!.tenantId, data.name, category, data.field, operator, JSON.stringify(data.value || ''), data.score]
     );
 
     const created = await query<any[]>('SELECT * FROM scoring_rules WHERE id = ?', [id]);
@@ -278,7 +325,7 @@ router.put('/scoring-rules/:id', async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    const existing = await query<any[]>('SELECT id FROM scoring_rules WHERE id = ?', [id]);
+    const existing = await query<any[]>('SELECT id FROM scoring_rules WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (existing.length === 0) {
       res.status(404).json({ success: false, error: 'Scoring rule not found.' });
       return;
@@ -288,8 +335,8 @@ router.put('/scoring-rules/:id', async (req: Request, res: Response): Promise<vo
 
     await query(
       `UPDATE scoring_rules SET name = ?, field_name = ?, field_value = ?, points = ?
-       WHERE id = ?`,
-      [data.name, data.field, JSON.stringify(data.value || ''), data.score, id]
+       WHERE id = ? AND tenant_id = ?`,
+      [data.name, data.field, JSON.stringify(data.value || ''), data.score, id, req.user!.tenantId]
     );
 
     const updated = await query<any[]>('SELECT * FROM scoring_rules WHERE id = ?', [id]);
@@ -305,13 +352,13 @@ router.delete('/scoring-rules/:id', async (req: Request, res: Response): Promise
   try {
     const { id } = req.params;
 
-    const existing = await query<any[]>('SELECT id FROM scoring_rules WHERE id = ?', [id]);
+    const existing = await query<any[]>('SELECT id FROM scoring_rules WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (existing.length === 0) {
       res.status(404).json({ success: false, error: 'Scoring rule not found.' });
       return;
     }
 
-    await query('DELETE FROM scoring_rules WHERE id = ?', [id]);
+    await query('DELETE FROM scoring_rules WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
 
     res.json({ success: true, data: { message: 'Scoring rule deleted successfully.' } });
   } catch (error: any) {

@@ -6,6 +6,7 @@ import { sendEmail, sendSequenceEmail } from '../services/email';
 import { recalculateAllScores } from '../services/scoring';
 import { calculateOptimalSendTime, resolveProspectTimezone, isWithinSendWindow } from '../services/scheduling';
 import { pollImapForReplies } from '../services/imap';
+import { getAllActiveTenants, getTenantConfig } from '../middleware/tenant';
 
 /**
  * Initialize all scheduled jobs using node-cron.
@@ -63,8 +64,12 @@ export function startScheduler(): void {
   cron.schedule('0 2 * * *', async () => {
     try {
       console.log('Starting daily score recalculation...');
-      const result = await recalculateAllScores();
-      console.log(`Daily score recalculation complete: ${result.processed} processed, ${result.errors} errors.`);
+      const tenants = await getAllActiveTenants();
+      for (const tenant of tenants) {
+        const result = await recalculateAllScores(tenant.id);
+        console.log(`Score recalculation for ${tenant.name}: ${result.processed} processed, ${result.errors} errors.`);
+      }
+      console.log('Daily score recalculation complete for all tenants.');
     } catch (error: any) {
       console.error('Daily score recalculation error:', error.message);
     }
@@ -110,10 +115,11 @@ export function startScheduler(): void {
  * Domain age = days since first email_event of type 'sent'.
  * Day 1-3: 5, Day 4-7: 15, Day 8-14: 30, Day 15-21: 50, Day 22-30: 100, Day 31+: no cap
  */
-async function getWarmupDailyLimit(): Promise<number> {
+async function getWarmupDailyLimit(tenantId: string): Promise<number> {
   const result = await query<any[]>(
     `SELECT MIN(occurred_at) as first_sent
-     FROM email_events WHERE event_type = 'sent'`
+     FROM email_events WHERE event_type = 'sent' AND tenant_id = ?`,
+    [tenantId]
   );
 
   if (!result[0]?.first_sent) {
@@ -149,11 +155,13 @@ async function getSequenceSentToday(sequenceId: string): Promise<number> {
 /**
  * Count all emails sent today (across all sequences).
  */
-async function getTotalSentToday(): Promise<number> {
+async function getTotalSentToday(tenantId: string): Promise<number> {
   const result = await query<any[]>(
     `SELECT COUNT(*) as count FROM email_events
      WHERE event_type = 'sent'
-     AND DATE(occurred_at) = CURDATE()`
+     AND tenant_id = ?
+     AND DATE(occurred_at) = CURDATE()`,
+    [tenantId]
   );
   return result[0]?.count || 0;
 }
@@ -165,9 +173,10 @@ async function getTotalSentToday(): Promise<number> {
 async function processDueSequenceEmails(): Promise<void> {
   // Find enrollments where it is time to send the next email
   const dueEnrollments = await query<any[]>(
-    `SELECT se.*, es.status as sequence_status, es.settings as sequence_settings
+    `SELECT se.*, es.status as sequence_status, es.settings as sequence_settings, p.tenant_id
      FROM sequence_enrollments se
      JOIN email_sequences es ON se.sequence_id = es.id
+     JOIN prospects p ON se.prospect_id = p.id
      WHERE se.status = 'active'
      AND se.next_send_at <= NOW()
      AND es.status = 'active'
@@ -181,9 +190,8 @@ async function processDueSequenceEmails(): Promise<void> {
 
   console.log(`Processing ${dueEnrollments.length} due sequence email(s)...`);
 
-  // Cache warm-up limit and global counter at loop start
-  const warmupLimit = await getWarmupDailyLimit();
-  let globalSentToday = await getTotalSentToday();
+  // Per-tenant warm-up cache: tenantId -> { limit, sentToday }
+  const tenantWarmup = new Map<string, { limit: number; sentToday: number }>();
   // Cache per-sequence counters: sequenceId -> sentToday
   const sequenceSentCache: Record<string, number> = {};
 
@@ -283,9 +291,18 @@ async function processDueSequenceEmails(): Promise<void> {
         continue;
       }
 
-      // --- Warm-up & daily limit checks ---
-      // Check global warm-up limit
-      if (globalSentToday >= warmupLimit) {
+      // --- Warm-up & daily limit checks (per-tenant) ---
+      const enrollmentTenantId = enrollment.tenant_id;
+      if (!tenantWarmup.has(enrollmentTenantId)) {
+        tenantWarmup.set(enrollmentTenantId, {
+          limit: await getWarmupDailyLimit(enrollmentTenantId),
+          sentToday: await getTotalSentToday(enrollmentTenantId),
+        });
+      }
+      const tw = tenantWarmup.get(enrollmentTenantId)!;
+
+      // Check tenant warm-up limit
+      if (tw.sentToday >= tw.limit) {
         const tomorrow = calculateOptimalSendTime(
           new Date(Date.now() + 24 * 60 * 60 * 1000),
           prospectTz,
@@ -295,7 +312,7 @@ async function processDueSequenceEmails(): Promise<void> {
           'UPDATE sequence_enrollments SET next_send_at = ? WHERE id = ?',
           [tomorrow, enrollment.id]
         );
-        console.log(`Warm-up limit reached (${warmupLimit}/day). Rescheduled enrollment ${enrollment.id} to tomorrow.`);
+        console.log(`Warm-up limit reached for tenant ${enrollmentTenantId} (${tw.limit}/day). Rescheduled enrollment ${enrollment.id} to tomorrow.`);
         continue;
       }
 
@@ -321,7 +338,7 @@ async function processDueSequenceEmails(): Promise<void> {
       // Handle different step types
       if (step.step_type === 'email') {
         // Rate limit: wait 600ms before sending (max ~1.6/sec, within Resend's 2/sec limit)
-        if (globalSentToday > 0) {
+        if (tw.sentToday > 0) {
           await new Promise((resolve) => setTimeout(resolve, 600));
         }
 
@@ -343,7 +360,7 @@ async function processDueSequenceEmails(): Promise<void> {
         );
 
         // Increment cached counters after successful send
-        globalSentToday++;
+        tw.sentToday++;
         sequenceSentCache[enrollment.sequence_id] = (sequenceSentCache[enrollment.sequence_id] || 0) + 1;
       }
 
@@ -397,7 +414,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
   // Only send step N if step N-1 for the same prospect+campaign is already 'sent' (or it's step 1)
   const emailsToSend = await query<any[]>(
     `SELECT ge.*, p.email as prospect_email, p.first_name, p.last_name, p.full_name,
-            p.title as prospect_title, p.do_not_contact,
+            p.title as prospect_title, p.do_not_contact, p.tenant_id,
             cam.name as campaign_name
      FROM generated_emails ge
      JOIN prospects p ON ge.prospect_id = p.id
@@ -420,27 +437,31 @@ async function processScheduledOutboxEmails(): Promise<void> {
 
   console.log(`Processing ${emailsToSend.length} scheduled outbox email(s)...`);
 
-  // Check warm-up limit
-  const warmupLimit = await getWarmupDailyLimit();
-  let globalSentToday = await getTotalSentToday();
-
-  // Build from address
-  const { config: envConfig } = await import('../config/env');
-  const rawFrom = envConfig.EMAIL_FROM || 'noreply@camiacasa.cat';
-  const fromAddress = rawFrom.includes('<') ? rawFrom : `Alfons Marques <${rawFrom}>`;
+  // Per-tenant warm-up cache: tenantId -> { limit, sentToday }
+  const tenantWarmup = new Map<string, { limit: number; sentToday: number }>();
 
   let sent = 0;
   let failed = 0;
-  const results: Array<{ name: string; email: string; subject: string; campaign: string; step: number; status: 'sent' | 'failed' | 'skipped'; reason?: string }> = [];
+  const results: Array<{ name: string; email: string; subject: string; campaign: string; step: number; status: 'sent' | 'failed' | 'skipped'; reason?: string; tenant_id: string }> = [];
 
   for (const email of emailsToSend) {
     const prospectName = email.full_name || `${email.first_name || ''} ${email.last_name || ''}`.trim() || email.prospect_email;
+    const emailTenantId = email.tenant_id;
 
-    // Check global warm-up limit
-    if (globalSentToday >= warmupLimit) {
-      console.log(`Warm-up limit reached (${warmupLimit}/day). Stopping scheduled outbox processing.`);
-      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: `Limite warm-up alcanzado (${warmupLimit}/dia)` });
-      break;
+    // Resolve per-tenant warm-up
+    if (!tenantWarmup.has(emailTenantId)) {
+      tenantWarmup.set(emailTenantId, {
+        limit: await getWarmupDailyLimit(emailTenantId),
+        sentToday: await getTotalSentToday(emailTenantId),
+      });
+    }
+    const tw = tenantWarmup.get(emailTenantId)!;
+
+    // Check tenant warm-up limit
+    if (tw.sentToday >= tw.limit) {
+      console.log(`Warm-up limit reached for tenant ${emailTenantId} (${tw.limit}/day). Skipping email ${email.id}.`);
+      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: `Limite warm-up alcanzado (${tw.limit}/dia)`, tenant_id: emailTenantId });
+      continue;
     }
 
     // Rate limit: wait 600ms between sends
@@ -457,14 +478,14 @@ async function processScheduledOutboxEmails(): Promise<void> {
          WHERE id = ?`,
         [email.id]
       );
-      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: 'do_not_contact' });
+      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: 'do_not_contact', tenant_id: emailTenantId });
       continue;
     }
 
-    // Check suppression list
+    // Check suppression list (scoped by tenant)
     const suppressed = await query<any[]>(
-      'SELECT id FROM suppression_list WHERE email = ?',
-      [email.prospect_email]
+      'SELECT id FROM suppression_list WHERE email = ? AND tenant_id = ?',
+      [email.prospect_email, emailTenantId]
     );
     if (suppressed.length > 0) {
       console.log(`Skipping scheduled email ${email.id} - suppressed`);
@@ -474,18 +495,27 @@ async function processScheduledOutboxEmails(): Promise<void> {
          WHERE id = ?`,
         [email.id]
       );
-      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: 'lista de supresion' });
+      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: 'lista de supresion', tenant_id: emailTenantId });
       continue;
     }
 
     try {
+      // Resolve per-tenant email config
+      const tenant = await getTenantConfig(emailTenantId);
+      const tenantEmail = tenant?.config?.email;
+      const rawFrom = tenantEmail?.from_email || 'noreply@example.com';
+      const fromName = tenantEmail?.from_name || 'ABM Platform';
+      const fromAddress = `${fromName} <${rawFrom}>`;
+      const replyTo = tenantEmail?.reply_to || undefined;
+
       const result = await sendEmail(
         email.prospect_email,
         email.subject,
         email.body_html,
         undefined,
         fromAddress,
-        envConfig.EMAIL_REPLY_TO
+        replyTo,
+        emailTenantId
       );
 
       if (result.success) {
@@ -515,8 +545,8 @@ async function processScheduledOutboxEmails(): Promise<void> {
         );
 
         sent++;
-        globalSentToday++;
-        results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'sent' });
+        tw.sentToday++;
+        results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'sent', tenant_id: emailTenantId });
       } else {
         failed++;
         await query(
@@ -525,7 +555,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
            WHERE id = ?`,
           [email.id]
         );
-        results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'failed', reason: 'Envio fallido' });
+        results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'failed', reason: 'Envio fallido', tenant_id: emailTenantId });
       }
     } catch (sendError: any) {
       failed++;
@@ -535,7 +565,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
          WHERE id = ?`,
         [sendError.message || 'Unknown error', email.id]
       );
-      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'failed', reason: sendError.message || 'Error desconocido' });
+      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'failed', reason: sendError.message || 'Error desconocido', tenant_id: emailTenantId });
     }
   }
 
@@ -543,27 +573,58 @@ async function processScheduledOutboxEmails(): Promise<void> {
     console.log(`Scheduled outbox: sent ${sent}, failed ${failed}`);
   }
 
-  // Send notification email to Alfons only when actual sends or failures occurred
+  // Send notification per tenant when actual sends or failures occurred
   if (sent > 0 || failed > 0) {
-    try {
-      await sendOutboxNotification(results, sent, failed, fromAddress);
-    } catch (notifError: any) {
-      console.error('Failed to send outbox notification:', notifError.message);
+    // Group results by tenant
+    const resultsByTenant = new Map<string, typeof results>();
+    for (const r of results) {
+      if (!resultsByTenant.has(r.tenant_id)) {
+        resultsByTenant.set(r.tenant_id, []);
+      }
+      resultsByTenant.get(r.tenant_id)!.push(r);
+    }
+
+    for (const [tenantId, tenantResults] of resultsByTenant) {
+      const tenantSent = tenantResults.filter(r => r.status === 'sent').length;
+      const tenantFailed = tenantResults.filter(r => r.status === 'failed').length;
+      if (tenantSent > 0 || tenantFailed > 0) {
+        try {
+          await sendOutboxNotification(tenantResults, tenantSent, tenantFailed, tenantId);
+        } catch (notifError: any) {
+          console.error(`Failed to send outbox notification for tenant ${tenantId}:`, notifError.message);
+        }
+      }
     }
   }
 }
 
-const NOTIFICATION_EMAIL = 'alfons.marques@camiacasa.cat';
-
 /**
  * Send a summary notification email after processing scheduled outbox emails.
+ * Scoped per tenant - reads notification_email from tenant config.
  */
 async function sendOutboxNotification(
-  results: Array<{ name: string; email: string; subject: string; campaign: string; step: number; status: string; reason?: string }>,
+  results: Array<{ name: string; email: string; subject: string; campaign: string; step: number; status: string; reason?: string; tenant_id: string }>,
   sent: number,
   failed: number,
-  fromAddress: string
+  tenantId: string
 ): Promise<void> {
+  const tenant = await getTenantConfig(tenantId);
+  if (!tenant) {
+    console.warn(`Cannot send outbox notification: tenant ${tenantId} not found.`);
+    return;
+  }
+
+  const notificationEmail = tenant.config?.email?.notification_email;
+  if (!notificationEmail) {
+    console.warn(`No notification_email configured for tenant ${tenant.name}. Skipping notification.`);
+    return;
+  }
+
+  const tenantEmail = tenant.config?.email;
+  const rawFrom = tenantEmail?.from_email || 'noreply@example.com';
+  const fromName = tenantEmail?.from_name || 'ABM Platform';
+  const fromAddress = `${fromName} <${rawFrom}>`;
+  const tenantName = tenant.name || 'ABM Platform';
   const skipped = results.filter(r => r.status === 'skipped').length;
   const now = new Date().toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Madrid' });
 
@@ -623,18 +684,20 @@ async function sendOutboxNotification(
     </table>` : ''}
   </div>
   <div style="padding:12px 24px;font-size:11px;color:#94a3b8;text-align:center;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
-    CamiaCasa ABM — Notificacion automatica del scheduler
+    ${tenantName} ABM — Notificacion automatica del scheduler
   </div>
 </div>`;
 
   await sendEmail(
-    NOTIFICATION_EMAIL,
+    notificationEmail,
     `${statusEmoji} Outbox: ${statusText}`,
     html,
     undefined,
-    fromAddress
+    fromAddress,
+    undefined,
+    tenantId
   );
-  console.log('Outbox notification sent to', NOTIFICATION_EMAIL);
+  console.log(`Outbox notification sent to ${notificationEmail} (tenant: ${tenantName})`);
 }
 
 /**
@@ -643,7 +706,7 @@ async function sendOutboxNotification(
 async function processPendingEnrichments(): Promise<void> {
   // Find prospects that are new and not yet enriched
   const prospects = await query<any[]>(
-    `SELECT id FROM prospects
+    `SELECT id, tenant_id FROM prospects
      WHERE status = 'new'
      AND enrichment_data IS NULL
      AND do_not_contact = FALSE
@@ -658,7 +721,7 @@ async function processPendingEnrichments(): Promise<void> {
   console.log(`Queuing ${prospects.length} prospect(s) for enrichment...`);
 
   for (const prospect of prospects) {
-    await addJob('enrich_prospect', { prospect_id: prospect.id }, {
+    await addJob('enrich_prospect', { prospect_id: prospect.id, tenant_id: prospect.tenant_id }, {
       queue: 'enrichment',
       priority: 1,
     });

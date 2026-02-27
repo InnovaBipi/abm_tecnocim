@@ -176,32 +176,34 @@ async function test3AutoScoring() {
 }
 
 async function test4ImapConfig() {
-  console.log('\n=== Test 4: IMAP reply detection ===');
+  console.log('\n=== Test 4: IMAP reply detection (per-tenant) ===');
 
-  // Verify IMAP config is present
-  assert(!!config.OVH_IMAP_HOST, `IMAP host configured: ${config.OVH_IMAP_HOST}`);
-  assert(config.OVH_IMAP_PORT === 993, `IMAP port: ${config.OVH_IMAP_PORT}`);
-  assert(!!config.OVH_EMAIL, `IMAP email configured: ${config.OVH_EMAIL}`);
-  assert(!!config.OVH_EMAIL_PASS, 'IMAP password configured');
+  // IMAP config is now per-tenant in tenants.config JSON, not env vars
+  const { getAllActiveTenants } = await import('../middleware/tenant');
+  const tenants = await getAllActiveTenants();
+  const tenantsWithImap = tenants.filter(t => t.config?.imap?.host && t.config?.imap?.user && t.config?.imap?.pass);
+  console.log(`  Tenants with IMAP configured: ${tenantsWithImap.length}/${tenants.length}`);
+  assert(tenantsWithImap.length > 0, 'At least one tenant has IMAP configured');
 
-  // Verify imap_sync_state table exists and has INBOX row
+  // Verify imap_sync_state table exists
   const syncState = await query<any[]>(
-    `SELECT * FROM imap_sync_state WHERE mailbox = 'INBOX'`
+    `SELECT * FROM imap_sync_state WHERE mailbox = 'INBOX' LIMIT 5`
   );
-  assert(syncState.length > 0, 'imap_sync_state has INBOX row');
-  console.log(`  last_uid: ${syncState[0]?.last_uid}, last_synced_at: ${syncState[0]?.last_synced_at || 'never'}`);
+  console.log(`  imap_sync_state rows: ${syncState.length}`);
 
-  // Actually test IMAP connection
-  console.log('  Testing IMAP connection...');
+  // Test IMAP connection for the first configured tenant
+  const testTenant = tenantsWithImap[0];
+  const imapConf = testTenant.config.imap!;
+  console.log(`  Testing IMAP connection for tenant ${testTenant.name}...`);
   try {
     const { ImapFlow } = await import('imapflow');
     const client = new ImapFlow({
-      host: config.OVH_IMAP_HOST,
-      port: config.OVH_IMAP_PORT,
+      host: imapConf.host!,
+      port: imapConf.port || 993,
       secure: true,
       auth: {
-        user: config.OVH_EMAIL,
-        pass: config.OVH_EMAIL_PASS,
+        user: imapConf.user!,
+        pass: imapConf.pass!,
       },
       logger: false,
     });

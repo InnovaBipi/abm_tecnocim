@@ -8,27 +8,32 @@ const router = Router();
 router.use(authenticate);
 
 // --- GET /stats - Key metrics ---
-router.get('/stats', async (_req: Request, res: Response): Promise<void> => {
+router.get('/stats', async (req: Request, res: Response): Promise<void> => {
   try {
+    const tenantId = req.user!.tenantId;
+
     // Total prospects
-    const prospectCount = await query<any[]>('SELECT COUNT(*) as count FROM prospects');
+    const prospectCount = await query<any[]>('SELECT COUNT(*) as count FROM prospects WHERE tenant_id = ?', [tenantId]);
 
     // Total companies
-    const companyCount = await query<any[]>('SELECT COUNT(*) as count FROM companies');
+    const companyCount = await query<any[]>('SELECT COUNT(*) as count FROM companies WHERE tenant_id = ?', [tenantId]);
 
     // Active campaigns
     const activeCampaigns = await query<any[]>(
-      "SELECT COUNT(*) as count FROM campaigns WHERE status = 'active'"
+      "SELECT COUNT(*) as count FROM campaigns WHERE status = 'active' AND tenant_id = ?",
+      [tenantId]
     );
 
     // Emails sent (total)
     const emailsSent = await query<any[]>(
-      "SELECT COUNT(*) as count FROM email_events WHERE event_type = 'sent'"
+      "SELECT COUNT(*) as count FROM email_events WHERE event_type = 'sent' AND tenant_id = ?",
+      [tenantId]
     );
 
     // Reply rate
     const emailsReplied = await query<any[]>(
-      "SELECT COUNT(*) as count FROM email_events WHERE event_type = 'replied'"
+      "SELECT COUNT(*) as count FROM email_events WHERE event_type = 'replied' AND tenant_id = ?",
+      [tenantId]
     );
     const sentCount = emailsSent[0].count || 0;
     const repliedCount = emailsReplied[0].count || 0;
@@ -36,31 +41,36 @@ router.get('/stats', async (_req: Request, res: Response): Promise<void> => {
 
     // Open rate
     const emailsOpened = await query<any[]>(
-      "SELECT COUNT(*) as count FROM email_events WHERE event_type = 'opened'"
+      "SELECT COUNT(*) as count FROM email_events WHERE event_type = 'opened' AND tenant_id = ?",
+      [tenantId]
     );
     const openedCount = emailsOpened[0].count || 0;
     const openRate = sentCount > 0 ? Math.round((openedCount / sentCount) * 10000) / 100 : 0;
 
     // Average lead score
     const avgScore = await query<any[]>(
-      'SELECT AVG(lead_score) as avg_score FROM prospects WHERE lead_score > 0'
+      'SELECT AVG(lead_score) as avg_score FROM prospects WHERE lead_score > 0 AND tenant_id = ?',
+      [tenantId]
     );
 
     // Prospects by status breakdown
     const statusBreakdown = await query<any[]>(
-      'SELECT status, COUNT(*) as count FROM prospects GROUP BY status ORDER BY count DESC'
+      'SELECT status, COUNT(*) as count FROM prospects WHERE tenant_id = ? GROUP BY status ORDER BY count DESC',
+      [tenantId]
     );
 
     // New prospects this week
     const newThisWeek = await query<any[]>(
       `SELECT COUNT(*) as count FROM prospects
-       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`
+       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) AND tenant_id = ?`,
+      [tenantId]
     );
 
     // New prospects this month
     const newThisMonth = await query<any[]>(
       `SELECT COUNT(*) as count FROM prospects
-       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`
+       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND tenant_id = ?`,
+      [tenantId]
     );
 
     res.json({
@@ -88,8 +98,10 @@ router.get('/stats', async (_req: Request, res: Response): Promise<void> => {
 });
 
 // --- GET /recent-activity - Last 20 activities across all prospects ---
-router.get('/recent-activity', async (_req: Request, res: Response): Promise<void> => {
+router.get('/recent-activity', async (req: Request, res: Response): Promise<void> => {
   try {
+    const tenantId = req.user!.tenantId;
+
     const activities = await query<any[]>(
       `SELECT pa.*,
               p.email as prospect_email,
@@ -101,8 +113,10 @@ router.get('/recent-activity', async (_req: Request, res: Response): Promise<voi
        FROM prospect_activities pa
        JOIN prospects p ON pa.prospect_id = p.id
        LEFT JOIN users u ON pa.performed_by = u.id
+       WHERE pa.tenant_id = ?
        ORDER BY pa.occurred_at DESC
-       LIMIT 20`
+       LIMIT 20`,
+      [tenantId]
     );
 
     res.json({
@@ -119,17 +133,20 @@ router.get('/recent-activity', async (_req: Request, res: Response): Promise<voi
 });
 
 // --- GET /top-prospects - Top 10 prospects by lead score ---
-router.get('/top-prospects', async (_req: Request, res: Response): Promise<void> => {
+router.get('/top-prospects', async (req: Request, res: Response): Promise<void> => {
   try {
+    const tenantId = req.user!.tenantId;
+
     const prospects = await query<any[]>(
       `SELECT p.id, p.email, p.first_name, p.last_name, p.full_name, p.title,
               p.status, p.lead_score, p.last_contacted, p.last_replied,
               c.name as company_name, c.tier as company_tier
        FROM prospects p
        LEFT JOIN companies c ON p.company_id = c.id
-       WHERE p.lead_score > 0
+       WHERE p.lead_score > 0 AND p.tenant_id = ?
        ORDER BY p.lead_score DESC
-       LIMIT 10`
+       LIMIT 10`,
+      [tenantId]
     );
 
     res.json({
@@ -146,8 +163,10 @@ router.get('/top-prospects', async (_req: Request, res: Response): Promise<void>
 });
 
 // --- GET /campaign-performance - Per-campaign stats ---
-router.get('/campaign-performance', async (_req: Request, res: Response): Promise<void> => {
+router.get('/campaign-performance', async (req: Request, res: Response): Promise<void> => {
   try {
+    const tenantId = req.user!.tenantId;
+
     const campaigns = await query<any[]>(
       `SELECT
          cam.id,
@@ -184,10 +203,12 @@ router.get('/campaign-performance', async (_req: Request, res: Response): Promis
                 SUM(CASE WHEN ee.event_type = 'bounced' THEN 1 ELSE 0 END) as bounced
          FROM email_events ee
          JOIN email_sequences es ON ee.sequence_id = es.id
-         WHERE es.campaign_id IS NOT NULL
+         WHERE es.campaign_id IS NOT NULL AND ee.tenant_id = ?
          GROUP BY es.campaign_id
        ) stats ON stats.campaign_id = cam.id
-       ORDER BY cam.created_at DESC`
+       WHERE cam.tenant_id = ?
+       ORDER BY cam.created_at DESC`,
+      [tenantId, tenantId]
     );
 
     res.json({
@@ -204,8 +225,10 @@ router.get('/campaign-performance', async (_req: Request, res: Response): Promis
 });
 
 // --- GET /deliverability - Delivery health metrics ---
-router.get('/deliverability', async (_req: Request, res: Response): Promise<void> => {
+router.get('/deliverability', async (req: Request, res: Response): Promise<void> => {
   try {
+    const tenantId = req.user!.tenantId;
+
     const totals = await query<any[]>(
       `SELECT
          SUM(CASE WHEN event_type = 'sent' THEN 1 ELSE 0 END) as sent,
@@ -215,7 +238,9 @@ router.get('/deliverability', async (_req: Request, res: Response): Promise<void
          SUM(CASE WHEN event_type = 'opened' THEN 1 ELSE 0 END) as opened,
          SUM(CASE WHEN event_type = 'clicked' THEN 1 ELSE 0 END) as clicked,
          SUM(CASE WHEN event_type = 'replied' THEN 1 ELSE 0 END) as replied
-       FROM email_events`
+       FROM email_events
+       WHERE tenant_id = ?`,
+      [tenantId]
     );
 
     const t = totals[0] || {};
@@ -223,7 +248,8 @@ router.get('/deliverability', async (_req: Request, res: Response): Promise<void
 
     // Warm-up status: domain age in days
     const firstSent = await query<any[]>(
-      `SELECT MIN(occurred_at) as first_sent FROM email_events WHERE event_type = 'sent'`
+      `SELECT MIN(occurred_at) as first_sent FROM email_events WHERE event_type = 'sent' AND tenant_id = ?`,
+      [tenantId]
     );
     let domainAgeDays = 0;
     if (firstSent[0]?.first_sent) {
@@ -263,11 +289,14 @@ router.get('/deliverability', async (_req: Request, res: Response): Promise<void
 });
 
 // --- GET /funnel - Prospect status breakdown with conversion rates ---
-router.get('/funnel', async (_req: Request, res: Response): Promise<void> => {
+router.get('/funnel', async (req: Request, res: Response): Promise<void> => {
   try {
+    const tenantId = req.user!.tenantId;
+
     const stages = await query<any[]>(
-      `SELECT status, COUNT(*) as count FROM prospects GROUP BY status ORDER BY
-       FIELD(status, 'new', 'enriched', 'qualified', 'contacted', 'replied', 'interested', 'meeting', 'converted', 'unsubscribed', 'bounced')`
+      `SELECT status, COUNT(*) as count FROM prospects WHERE tenant_id = ? GROUP BY status ORDER BY
+       FIELD(status, 'new', 'enriched', 'qualified', 'contacted', 'replied', 'interested', 'meeting', 'converted', 'unsubscribed', 'bounced')`,
+      [tenantId]
     );
 
     const total = stages.reduce((sum: number, s: any) => sum + s.count, 0);
@@ -305,8 +334,10 @@ router.get('/funnel', async (_req: Request, res: Response): Promise<void> => {
 });
 
 // --- GET /sequence-step-performance - Per-step open/click/reply rates ---
-router.get('/sequence-step-performance', async (_req: Request, res: Response): Promise<void> => {
+router.get('/sequence-step-performance', async (req: Request, res: Response): Promise<void> => {
   try {
+    const tenantId = req.user!.tenantId;
+
     const performance = await query<any[]>(
       `SELECT
          es.id as sequence_id,
@@ -321,8 +352,10 @@ router.get('/sequence-step-performance', async (_req: Request, res: Response): P
        FROM email_events ee
        JOIN sequence_steps ss ON ee.step_id = ss.id
        JOIN email_sequences es ON ee.sequence_id = es.id
+       WHERE ee.tenant_id = ?
        GROUP BY es.id, es.name, ss.step_number, ss.subject
-       ORDER BY es.name, ss.step_number`
+       ORDER BY es.name, ss.step_number`,
+      [tenantId]
     );
 
     const result = performance.map((row: any) => ({
@@ -343,8 +376,10 @@ router.get('/sequence-step-performance', async (_req: Request, res: Response): P
 });
 
 // --- GET /engagement-trends - Daily email volumes last 30 days ---
-router.get('/engagement-trends', async (_req: Request, res: Response): Promise<void> => {
+router.get('/engagement-trends', async (req: Request, res: Response): Promise<void> => {
   try {
+    const tenantId = req.user!.tenantId;
+
     const trends = await query<any[]>(
       `SELECT
          DATE(occurred_at) as date,
@@ -354,9 +389,10 @@ router.get('/engagement-trends', async (_req: Request, res: Response): Promise<v
          SUM(CASE WHEN event_type = 'clicked' THEN 1 ELSE 0 END) as clicked,
          SUM(CASE WHEN event_type = 'replied' THEN 1 ELSE 0 END) as replied
        FROM email_events
-       WHERE occurred_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+       WHERE occurred_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND tenant_id = ?
        GROUP BY DATE(occurred_at)
-       ORDER BY date ASC`
+       ORDER BY date ASC`,
+      [tenantId]
     );
 
     res.json({
@@ -370,8 +406,10 @@ router.get('/engagement-trends', async (_req: Request, res: Response): Promise<v
 });
 
 // --- GET /hot-prospects - Prospects with engagement in last 48h ---
-router.get('/hot-prospects', async (_req: Request, res: Response): Promise<void> => {
+router.get('/hot-prospects', async (req: Request, res: Response): Promise<void> => {
   try {
+    const tenantId = req.user!.tenantId;
+
     const hotProspects = await query<any[]>(
       `SELECT
          p.id, p.email, p.first_name, p.last_name, p.full_name,
@@ -385,10 +423,12 @@ router.get('/hot-prospects', async (_req: Request, res: Response): Promise<void>
        LEFT JOIN companies c ON p.company_id = c.id
        WHERE ee.occurred_at >= DATE_SUB(NOW(), INTERVAL 48 HOUR)
        AND ee.event_type IN ('opened', 'clicked', 'replied')
+       AND ee.tenant_id = ?
        GROUP BY p.id, p.email, p.first_name, p.last_name, p.full_name,
                 p.title, p.status, p.lead_score, c.name
        ORDER BY activity_count DESC, last_activity DESC
-       LIMIT 20`
+       LIMIT 20`,
+      [tenantId]
     );
 
     res.json({

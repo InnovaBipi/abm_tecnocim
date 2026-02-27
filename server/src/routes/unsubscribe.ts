@@ -3,53 +3,60 @@ import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 import { config } from '../config/env';
+import { getTenantConfig, type Tenant } from '../middleware/tenant';
 
 const router = Router();
 
 /**
- * Generate an unsubscribe token for an email address.
+ * Generate an unsubscribe token for an email address (includes tenantId for scoping).
  * Uses HMAC-SHA256 so tokens can't be forged without the JWT_SECRET.
  */
-export function generateUnsubscribeToken(email: string): string {
+export function generateUnsubscribeToken(email: string, tenantId?: string): string {
+  const data = tenantId ? `${email.toLowerCase()}:${tenantId}` : email.toLowerCase();
   return crypto
     .createHmac('sha256', config.JWT_SECRET)
-    .update(email.toLowerCase())
+    .update(data)
     .digest('hex');
 }
 
 /**
- * Verify an unsubscribe token against an email.
+ * Verify an unsubscribe token against an email and tenant.
  */
-function verifyUnsubscribeToken(email: string, token: string): boolean {
-  const expected = generateUnsubscribeToken(email);
-  return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+function verifyUnsubscribeToken(email: string, token: string, tenantId?: string): boolean {
+  const expected = generateUnsubscribeToken(email, tenantId);
+  try {
+    return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Build the unsubscribe URL for an email.
+ * Build the unsubscribe URL for an email (with tenant context).
  */
-export function getUnsubscribeUrl(email: string): string {
-  const token = generateUnsubscribeToken(email);
+export function getUnsubscribeUrl(email: string, tenantId?: string): string {
+  const token = generateUnsubscribeToken(email, tenantId);
   const baseUrl = config.NODE_ENV === 'production'
     ? config.FRONTEND_URL
     : `http://localhost:${config.PORT}`;
-  return `${baseUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`;
+  const tenantParam = tenantId ? `&tid=${encodeURIComponent(tenantId)}` : '';
+  return `${baseUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&token=${token}${tenantParam}`;
 }
 
 /**
  * Build the compliance footer for all outgoing emails.
+ * Uses tenant branding if provided.
  */
-export function getEmailFooter(recipientEmail: string): string {
-  const unsubscribeUrl = getUnsubscribeUrl(recipientEmail);
+export function getEmailFooter(recipientEmail: string, tenantId?: string, tenant?: Tenant | null): string {
+  const unsubscribeUrl = getUnsubscribeUrl(recipientEmail, tenantId);
+  const companyName = tenant?.name || 'ABM Platform';
+  const footerHtml = tenant?.config?.branding?.footer_html || `<p>${companyName}</p>`;
 
   return `
 <div style="margin-top:40px;padding-top:20px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;line-height:1.5;">
-  <p style="margin:0;">
-    CamiaCasa · Sant Vicenç dels Horts, Barcelona · <a href="https://camiacasa.cat" style="color:#9ca3af;">camiacasa.cat</a>
-  </p>
+  ${footerHtml}
   <p style="margin:4px 0 0 0;">
-    Has rebut aquest email perquè ets un contacte professional de CamiaCasa.
-    <a href="${unsubscribeUrl}" style="color:#6b7280;text-decoration:underline;">Cancel·lar subscripció</a>
+    <a href="${unsubscribeUrl}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a>
   </p>
 </div>`;
 }
@@ -64,36 +71,67 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const email = req.query.email as string;
     const token = req.query.token as string;
+    const tenantId = req.query.tid as string || undefined;
 
     if (!email || !token) {
-      res.status(400).send(unsubscribePage('Error', 'Enllaç no vàlid.'));
+      res.status(400).send(unsubscribePage('Error', 'Invalid link.'));
       return;
     }
 
-    // Verify token
-    if (!verifyUnsubscribeToken(email, token)) {
-      res.status(403).send(unsubscribePage('Error', 'Enllaç no vàlid o expirat.'));
-      return;
+    // Verify token (with tenant context if present)
+    if (!verifyUnsubscribeToken(email, token, tenantId)) {
+      // Fallback: try without tenant for backwards compatibility with old links
+      if (tenantId || !verifyUnsubscribeToken(email, token)) {
+        res.status(403).send(unsubscribePage('Error', 'Invalid or expired link.'));
+        return;
+      }
     }
 
-    // Add to suppression list
-    await query(
-      `INSERT IGNORE INTO suppression_list (id, email, reason, source)
-       VALUES (?, ?, 'unsubscribed', 'unsubscribe_link')`,
-      [uuidv4(), email.toLowerCase()]
-    );
+    // Resolve tenant: from URL param or from prospect record
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId) {
+      const prospectForTenant = await query<any[]>(
+        'SELECT tenant_id FROM prospects WHERE email = ? LIMIT 1',
+        [email.toLowerCase()]
+      );
+      if (prospectForTenant.length > 0) {
+        resolvedTenantId = prospectForTenant[0].tenant_id;
+      }
+    }
 
-    // Update prospect
-    await query(
-      `UPDATE prospects SET do_not_contact = TRUE, status = 'unsubscribed'
-       WHERE email = ?`,
-      [email.toLowerCase()]
-    );
+    // Get tenant for branding
+    const tenant = resolvedTenantId ? await getTenantConfig(resolvedTenantId) : null;
+
+    // Add to suppression list (per-tenant)
+    if (resolvedTenantId) {
+      await query(
+        `INSERT IGNORE INTO suppression_list (id, tenant_id, email, reason, source)
+         VALUES (?, ?, ?, 'unsubscribed', 'unsubscribe_link')`,
+        [uuidv4(), resolvedTenantId, email.toLowerCase()]
+      );
+    }
+
+    // Update prospect (scoped to tenant if known)
+    if (resolvedTenantId) {
+      await query(
+        `UPDATE prospects SET do_not_contact = TRUE, status = 'unsubscribed'
+         WHERE email = ? AND tenant_id = ?`,
+        [email.toLowerCase(), resolvedTenantId]
+      );
+    } else {
+      await query(
+        `UPDATE prospects SET do_not_contact = TRUE, status = 'unsubscribed'
+         WHERE email = ?`,
+        [email.toLowerCase()]
+      );
+    }
 
     // Stop all active enrollments
     const prospects = await query<any[]>(
-      'SELECT id FROM prospects WHERE email = ?',
-      [email.toLowerCase()]
+      resolvedTenantId
+        ? 'SELECT id FROM prospects WHERE email = ? AND tenant_id = ?'
+        : 'SELECT id FROM prospects WHERE email = ?',
+      resolvedTenantId ? [email.toLowerCase(), resolvedTenantId] : [email.toLowerCase()]
     );
 
     if (prospects.length > 0) {
@@ -105,18 +143,19 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
       await query(
         `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
-         VALUES (?, ?, 'unsubscribed', 'Subscripció cancel·lada', 'El prospect ha cancel·lat la subscripció via link.')`,
+         VALUES (?, ?, 'unsubscribed', 'Unsubscribed', 'Prospect unsubscribed via link.')`,
         [uuidv4(), prospects[0].id]
       );
     }
 
+    const companyName = tenant?.name || 'our platform';
     res.status(200).send(unsubscribePage(
-      'Subscripció cancel·lada',
-      `L'adreça <strong>${email}</strong> ha estat eliminada de les nostres llistes. No rebràs més emails comercials de CamiaCasa.`
+      'Unsubscribed',
+      `The address <strong>${email}</strong> has been removed from our mailing lists. You will no longer receive commercial emails from ${companyName}.`
     ));
   } catch (error: any) {
     console.error('Unsubscribe error:', error.message);
-    res.status(500).send(unsubscribePage('Error', 'Hi ha hagut un error. Si us plau, contacta amb alfons.marques@camiacasa.cat.'));
+    res.status(500).send(unsubscribePage('Error', 'An error occurred. Please contact support.'));
   }
 });
 

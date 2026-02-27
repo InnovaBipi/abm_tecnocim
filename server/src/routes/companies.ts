@@ -46,8 +46,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const allowedSortColumns = ['created_at', 'updated_at', 'name', 'account_score', 'tier'];
     const safeSortBy = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at';
 
-    let whereClauses: string[] = [];
-    let params: any[] = [];
+    let whereClauses: string[] = ['c.tenant_id = ?'];
+    let params: any[] = [req.user!.tenantId];
 
     if (search && search.trim()) {
       whereClauses.push('(c.name LIKE ? OR c.domain LIKE ? OR c.industry LIKE ?)');
@@ -70,7 +70,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       params.push(isTarget === 'true');
     }
 
-    const whereSQL = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+    const whereSQL = 'WHERE ' + whereClauses.join(' AND ');
 
     // Count
     const countResult = await query<any[]>(
@@ -117,8 +117,8 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params;
 
     const companies = await query<any[]>(
-      'SELECT * FROM companies WHERE id = ?',
-      [id]
+      'SELECT * FROM companies WHERE id = ? AND tenant_id = ?',
+      [id, req.user!.tenantId]
     );
 
     if (companies.length === 0) {
@@ -184,8 +184,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     // Check for duplicate domain if provided
     if (data.domain) {
       const existing = await query<any[]>(
-        'SELECT id FROM companies WHERE domain = ?',
-        [data.domain]
+        'SELECT id FROM companies WHERE domain = ? AND tenant_id = ?',
+        [data.domain, req.user!.tenantId]
       );
 
       if (existing.length > 0) {
@@ -198,11 +198,12 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     }
 
     await query(
-      `INSERT INTO companies (id, name, domain, industry, employee_count, annual_revenue,
+      `INSERT INTO companies (id, tenant_id, name, domain, industry, employee_count, annual_revenue,
        city, region, country, website_url, linkedin_url, description, tier, is_target)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
+        req.user!.tenantId,
         data.name,
         data.domain || null,
         data.industry || null,
@@ -219,7 +220,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       ]
     );
 
-    const created = await query<any[]>('SELECT * FROM companies WHERE id = ?', [id]);
+    const created = await query<any[]>('SELECT * FROM companies WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
 
     res.status(201).json({
       success: true,
@@ -249,7 +250,7 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const existing = await query<any[]>('SELECT id FROM companies WHERE id = ?', [id]);
+    const existing = await query<any[]>('SELECT id FROM companies WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (existing.length === 0) {
       res.status(404).json({
         success: false,
@@ -293,14 +294,14 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    params.push(id);
+    params.push(id, req.user!.tenantId);
 
     await query(
-      `UPDATE companies SET ${setClauses.join(', ')} WHERE id = ?`,
+      `UPDATE companies SET ${setClauses.join(', ')} WHERE id = ? AND tenant_id = ?`,
       params
     );
 
-    const updated = await query<any[]>('SELECT * FROM companies WHERE id = ?', [id]);
+    const updated = await query<any[]>('SELECT * FROM companies WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
 
     res.json({
       success: true,
@@ -320,7 +321,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
 
-    const existing = await query<any[]>('SELECT id FROM companies WHERE id = ?', [id]);
+    const existing = await query<any[]>('SELECT id FROM companies WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
     if (existing.length === 0) {
       res.status(404).json({
         success: false,
@@ -329,7 +330,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    await query('DELETE FROM companies WHERE id = ?', [id]);
+    await query('DELETE FROM companies WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
 
     res.json({
       success: true,

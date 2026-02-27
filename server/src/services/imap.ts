@@ -1,25 +1,23 @@
 import { ImapFlow } from 'imapflow';
 import { v4 as uuidv4 } from 'uuid';
-import { config } from '../config/env';
 import { query } from '../config/database';
+import { getAllActiveTenants } from '../middleware/tenant';
 
 /**
- * Poll IMAP inbox for new replies from prospects.
- * Matches incoming emails to prospects and creates 'replied' events.
+ * Poll IMAP inbox for a single tenant.
+ * Matches incoming emails to prospects and creates 'replied' events, all scoped to tenantId.
  */
-export async function pollImapForReplies(): Promise<void> {
-  if (!config.OVH_IMAP_HOST || !config.OVH_EMAIL || !config.OVH_EMAIL_PASS) {
-    // IMAP not configured — skip silently
-    return;
-  }
-
+export async function pollImapForTenant(
+  tenantId: string,
+  imapConfig: { host: string; port: number; user: string; pass: string }
+): Promise<void> {
   const client = new ImapFlow({
-    host: config.OVH_IMAP_HOST,
-    port: config.OVH_IMAP_PORT,
+    host: imapConfig.host,
+    port: imapConfig.port,
     secure: true,
     auth: {
-      user: config.OVH_EMAIL,
-      pass: config.OVH_EMAIL_PASS,
+      user: imapConfig.user,
+      pass: imapConfig.pass,
     },
     logger: false,
   });
@@ -27,9 +25,10 @@ export async function pollImapForReplies(): Promise<void> {
   try {
     await client.connect();
 
-    // Read last synced UID
+    // Read last synced UID for this tenant
     const syncState = await query<any[]>(
-      `SELECT last_uid FROM imap_sync_state WHERE mailbox = 'INBOX' LIMIT 1`
+      `SELECT last_uid FROM imap_sync_state WHERE tenant_id = ? AND mailbox = 'INBOX' LIMIT 1`,
+      [tenantId]
     );
     const lastUid = syncState.length > 0 ? syncState[0].last_uid : 0;
 
@@ -64,10 +63,10 @@ export async function pollImapForReplies(): Promise<void> {
         const senderAddress = message.envelope?.from?.[0]?.address?.toLowerCase();
         if (!senderAddress) continue;
 
-        // Match sender against prospects
+        // Match sender against prospects scoped to tenant
         const prospects = await query<any[]>(
-          'SELECT id, status FROM prospects WHERE LOWER(email) = ? LIMIT 1',
-          [senderAddress]
+          'SELECT id, status FROM prospects WHERE LOWER(email) = ? AND tenant_id = ? LIMIT 1',
+          [senderAddress, tenantId]
         );
 
         if (prospects.length === 0) continue;
@@ -132,13 +131,14 @@ export async function pollImapForReplies(): Promise<void> {
           }
         }
 
-        // Insert 'replied' email event
+        // Insert 'replied' email event with tenant_id
         await query(
-          `INSERT INTO email_events (id, enrollment_id, prospect_id, sequence_id, step_id,
+          `INSERT INTO email_events (id, tenant_id, enrollment_id, prospect_id, sequence_id, step_id,
            event_type, subject, metadata)
-           VALUES (?, ?, ?, ?, ?, 'replied', ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, 'replied', ?, ?)`,
           [
             uuidv4(),
+            tenantId,
             enrollmentId,
             prospect.id,
             sequenceId,
@@ -154,34 +154,63 @@ export async function pollImapForReplies(): Promise<void> {
           [prospect.id]
         );
 
-        // Log activity
+        // Log activity with tenant_id
         await query(
-          `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
-           VALUES (?, ?, 'email_replied', 'Respuesta recibida (IMAP)', ?)`,
+          `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, description)
+           VALUES (?, ?, ?, 'email_replied', 'Respuesta recibida (IMAP)', ?)`,
           [
             uuidv4(),
+            tenantId,
             prospect.id,
             `Asunto: ${message.envelope?.subject || '(sin asunto)'}`,
           ]
         );
 
-        console.log(`IMAP: Reply detected from ${senderAddress} (prospect ${prospect.id})`);
+        console.log(`IMAP [${tenantId}]: Reply detected from ${senderAddress} (prospect ${prospect.id})`);
       }
     } finally {
       lock.release();
     }
 
-    // Update last_uid in sync state
+    // Update or insert last_uid in sync state for this tenant
     if (highestUid > lastUid) {
-      await query(
-        `UPDATE imap_sync_state SET last_uid = ?, last_synced_at = NOW() WHERE mailbox = 'INBOX'`,
-        [highestUid]
-      );
+      if (syncState.length > 0) {
+        await query(
+          `UPDATE imap_sync_state SET last_uid = ?, last_synced_at = NOW() WHERE tenant_id = ? AND mailbox = 'INBOX'`,
+          [highestUid, tenantId]
+        );
+      } else {
+        await query(
+          `INSERT INTO imap_sync_state (tenant_id, mailbox, last_uid, last_synced_at) VALUES (?, 'INBOX', ?, NOW())`,
+          [tenantId, highestUid]
+        );
+      }
     }
 
     await client.logout();
   } catch (error: any) {
-    console.error('IMAP polling error:', error.message);
+    console.error(`IMAP polling error [${tenantId}]:`, error.message);
     try { await client.logout(); } catch { /* ignore logout errors */ }
+  }
+}
+
+/**
+ * Poll IMAP inbox for all active tenants that have IMAP configured.
+ * Iterates over tenants and calls pollImapForTenant for each.
+ */
+export async function pollImapForReplies(): Promise<void> {
+  const tenants = await getAllActiveTenants();
+
+  for (const tenant of tenants) {
+    const imap = tenant.config?.imap;
+    if (!imap?.host || !imap?.user || !imap?.pass) {
+      continue;
+    }
+
+    try {
+      await pollImapForTenant(tenant.id, imap);
+    } catch (error: any) {
+      console.error(`IMAP polling failed for tenant ${tenant.id}:`, error.message);
+    }
   }
 }

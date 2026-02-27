@@ -3,6 +3,7 @@ import { query } from '../config/database';
 import { searchWithPerplexity, enrichWithGemini } from './ai';
 import { scrapeCompanyWebsite } from './scraper';
 import { calculateScore } from './scoring';
+import { getTenantConfig } from '../middleware/tenant';
 
 /**
  * Orchestrate full enrichment of a prospect:
@@ -33,6 +34,9 @@ export async function enrichProspect(prospectId: string): Promise<{
     }
 
     const prospect = prospects[0];
+    const tenantId = prospect.tenant_id;
+    const tenant = tenantId ? await getTenantConfig(tenantId) : null;
+    const tenantAI = tenant?.config?.ai;
     const enrichmentResults: any = {
       enriched_at: new Date().toISOString(),
       sources: [],
@@ -41,8 +45,8 @@ export async function enrichProspect(prospectId: string): Promise<{
     // Step 1: Research the company and prospect with Perplexity
     let perplexityData: string = '';
     try {
-      const searchQuery = buildSearchQuery(prospect);
-      perplexityData = await searchWithPerplexity(searchQuery);
+      const searchQuery = buildSearchQuery(prospect, tenantAI?.industry_context);
+      perplexityData = await searchWithPerplexity(searchQuery, tenantAI?.perplexity_system);
       enrichmentResults.perplexity_research = perplexityData;
       enrichmentResults.sources.push('perplexity');
     } catch (err: any) {
@@ -67,7 +71,7 @@ export async function enrichProspect(prospectId: string): Promise<{
     // Step 3: Analyze all collected data with Gemini
     let analysisResult: any = {};
     try {
-      const analysisPrompt = buildAnalysisPrompt(prospect, perplexityData, websiteData);
+      const analysisPrompt = buildAnalysisPrompt(prospect, perplexityData, websiteData, tenantAI?.industry_context);
       const geminiResponse = await enrichWithGemini(analysisPrompt);
 
       // Try to parse structured data from Gemini response
@@ -159,11 +163,12 @@ export async function enrichProspect(prospectId: string): Promise<{
 
     // Log activity
     await query(
-      `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description, metadata)
-       VALUES (?, ?, 'enriched', 'Prospect enriched', ?, ?)`,
+      `INSERT INTO prospect_activities (id, prospect_id, tenant_id, activity_type, title, description, metadata)
+       VALUES (?, ?, ?, 'enriched', 'Prospect enriched', ?, ?)`,
       [
         uuidv4(),
         prospectId,
+        tenantId,
         `Enrichment sources: ${enrichmentResults.sources.join(', ')}`,
         JSON.stringify({ sources: enrichmentResults.sources }),
       ]
@@ -178,8 +183,9 @@ export async function enrichProspect(prospectId: string): Promise<{
 
 /**
  * Build a search query for Perplexity based on prospect data.
+ * When industryContext is provided, asks about use cases relevant to that industry.
  */
-function buildSearchQuery(prospect: any): string {
+function buildSearchQuery(prospect: any, industryContext?: string): string {
   const parts: string[] = [];
 
   if (prospect.company_name) {
@@ -202,15 +208,27 @@ function buildSearchQuery(prospect: any): string {
   parts.push('- Company size and revenue?');
   parts.push('- Industry and market focus?');
   parts.push('- Recent news or investments?');
-  parts.push('- Are they involved in real estate or investment?');
+  parts.push('- Key business activities and market position?');
+
+  // Add industry-specific questions when tenant context is available
+  if (industryContext) {
+    parts.push(`- What specific use cases or opportunities related to ${industryContext} would be most relevant for this company?`);
+    parts.push(`- What processes, departments, or workflows in this company could benefit from ${industryContext}?`);
+    parts.push('- What challenges or pain points might this company face that are relevant to our services?');
+  }
 
   return parts.join('\n');
 }
 
 /**
  * Build an analysis prompt for Gemini to extract structured data.
+ * When industryContext is provided, also extracts suggested use cases.
  */
-function buildAnalysisPrompt(prospect: any, perplexityData: string, websiteData: string): string {
+function buildAnalysisPrompt(prospect: any, perplexityData: string, websiteData: string, industryContext?: string): string {
+  const useCaseField = industryContext
+    ? `  "suggested_use_cases": ["specific use case 1 for this company related to ${industryContext}", "use case 2", "use case 3"],\n`
+    : '';
+
   return `Analyze the following data about a prospect and their company. Extract structured information.
 
 PROSPECT:
@@ -235,10 +253,12 @@ Extract and return the following as JSON:
   "company_employee_count": "estimated range like '51-200'",
   "company_annual_revenue": "estimated range",
   "investment_interest_score": 1-10,
-  "real_estate_relevance": "how relevant this prospect is for real estate investment",
+  "business_relevance": "how relevant this prospect is for business engagement",
   "key_insights": ["insight 1", "insight 2"],
-  "recommended_approach": "how to approach this prospect for a real estate investment opportunity"
+  "recommended_approach": "best approach to engage this prospect",
+${useCaseField}  "pain_points": ["specific challenge this company likely faces"]
 }
+${industryContext ? `\nIMPORTANT: For "suggested_use_cases", think specifically about how ${industryContext} could solve REAL problems for THIS company based on the research data. Be specific to their industry, size, and activities. Do not be generic.` : ''}
 
 Return ONLY valid JSON, no other text.`;
 }
