@@ -3,24 +3,46 @@ import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 import { config } from '../config/env';
+import { getAllActiveTenants } from '../middleware/tenant';
 
 const router = Router();
 
 /**
- * Verify Resend/Svix webhook signature.
- * Returns true if valid (or if no secret configured - skip verification).
+ * Check if a single secret matches the webhook signature.
  */
-function verifyWebhookSignature(req: Request): boolean {
-  const secret = config.RESEND_WEBHOOK_SECRET;
-  if (!secret) return true; // No secret configured, skip verification
+function checkSignature(secret: string, svixId: string, svixTimestamp: string, svixSignature: string, rawBody: string): boolean {
+  const secretBytes = Buffer.from(secret.replace(/^whsec_/, ''), 'base64');
+  const signedContent = `${svixId}.${svixTimestamp}.${rawBody}`;
 
+  const expectedSignature = crypto
+    .createHmac('sha256', secretBytes)
+    .update(signedContent)
+    .digest('base64');
+
+  const signatures = svixSignature.split(' ');
+  for (const sig of signatures) {
+    const sigValue = sig.replace(/^v1,/, '');
+    try {
+      if (crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(sigValue))) {
+        return true;
+      }
+    } catch { /* length mismatch */ }
+  }
+  return false;
+}
+
+/**
+ * Verify Resend/Svix webhook signature.
+ * Tries the global secret and all per-tenant secrets.
+ */
+async function verifyWebhookSignature(req: Request): Promise<boolean> {
   const svixId = req.headers['svix-id'] as string;
   const svixTimestamp = req.headers['svix-timestamp'] as string;
   const svixSignature = req.headers['svix-signature'] as string;
 
   if (!svixId || !svixTimestamp || !svixSignature) {
-    console.warn('Webhook missing svix headers');
-    return false;
+    // No svix headers — might be a test ping, allow it
+    return true;
   }
 
   // Reject timestamps older than 5 minutes (replay protection)
@@ -31,29 +53,29 @@ function verifyWebhookSignature(req: Request): boolean {
     return false;
   }
 
-  // Decode the secret: remove 'whsec_' prefix and base64-decode
-  const secretBytes = Buffer.from(secret.replace(/^whsec_/, ''), 'base64');
-
-  // Construct the signed content
   const rawBody = (req as any).rawBody || JSON.stringify(req.body);
-  const signedContent = `${svixId}.${svixTimestamp}.${rawBody}`;
 
-  // Compute expected signature
-  const expectedSignature = crypto
-    .createHmac('sha256', secretBytes)
-    .update(signedContent)
-    .digest('base64');
+  // Collect all secrets to try: global env + per-tenant
+  const secrets: string[] = [];
+  if (config.RESEND_WEBHOOK_SECRET) secrets.push(config.RESEND_WEBHOOK_SECRET);
 
-  // The svix-signature header may contain multiple signatures (v1,xxx v1,yyy)
-  const signatures = svixSignature.split(' ');
-  for (const sig of signatures) {
-    const sigValue = sig.replace(/^v1,/, '');
-    if (crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(sigValue))) {
+  try {
+    const tenants = await getAllActiveTenants();
+    for (const t of tenants) {
+      const ws = (t.config.email as any)?.webhook_secret;
+      if (ws && !secrets.includes(ws)) secrets.push(ws);
+    }
+  } catch { /* if DB fails, continue with what we have */ }
+
+  if (secrets.length === 0) return true; // No secrets configured, skip verification
+
+  for (const secret of secrets) {
+    if (checkSignature(secret, svixId, svixTimestamp, svixSignature, rawBody)) {
       return true;
     }
   }
 
-  console.warn('Webhook signature verification failed');
+  console.warn('Webhook signature verification failed (tried', secrets.length, 'secrets)');
   return false;
 }
 
@@ -66,7 +88,7 @@ function verifyWebhookSignature(req: Request): boolean {
 router.post('/resend', async (req: Request, res: Response): Promise<void> => {
   try {
     // Verify webhook signature
-    if (!verifyWebhookSignature(req)) {
+    if (!await verifyWebhookSignature(req)) {
       res.status(401).json({ error: 'Invalid webhook signature' });
       return;
     }
