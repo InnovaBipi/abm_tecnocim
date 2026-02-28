@@ -204,7 +204,7 @@ export default function Sequences() {
                       >
                         {sequence.name as string}
                       </button>
-                      {sequence.description && (
+                      {!!sequence.description && (
                         <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[200px]">
                           {sequence.description as string}
                         </p>

@@ -365,7 +365,7 @@ export default function CampaignDetail() {
                         <TableCell isHeader className="text-center">Puntuacion</TableCell>
                         <TableCell isHeader>Emails</TableCell>
                         <TableCell isHeader>Estado</TableCell>
-                        <TableCell isHeader className="w-16"></TableCell>
+                        <TableCell isHeader className="w-16">{null}</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -822,7 +822,7 @@ export default function CampaignDetail() {
                       <p className="text-sm font-medium text-slate-900">{pName}</p>
                       <p className="text-xs text-slate-500">{prospect.email as string}</p>
                     </div>
-                    {prospect.company_name && (
+                    {!!prospect.company_name && (
                       <span className="text-xs text-slate-400">{prospect.company_name as string}</span>
                     )}
                   </div>

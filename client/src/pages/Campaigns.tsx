@@ -194,10 +194,10 @@ export default function Campaigns() {
                         <h3 className="text-sm font-semibold text-slate-900 leading-tight">
                           {campaign.name as string}
                         </h3>
-                        {campaign.asset_type && (
+                        {!!campaign.asset_type && (
                           <span className="text-xs text-slate-500 capitalize">
                             {campaign.asset_type as string}
-                            {campaign.asset_location ? ` - ${campaign.asset_location}` : ''}
+                            {campaign.asset_location ? ` - ${campaign.asset_location as string}` : ''}
                           </span>
                         )}
                       </div>
@@ -208,7 +208,7 @@ export default function Campaigns() {
                   </div>
 
                   {/* Description */}
-                  {campaign.description && (
+                  {!!campaign.description && (
                     <p className="text-xs text-slate-500 mb-3 line-clamp-2">
                       {campaign.description as string}
                     </p>
