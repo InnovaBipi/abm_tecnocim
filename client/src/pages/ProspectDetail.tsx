@@ -35,6 +35,7 @@ import {
   DollarSign,
   MapPin,
   Sparkles,
+  AlertTriangle,
 } from 'lucide-react';
 import { formatDateTime, formatRelativeDate, getScoreColor, getStatusColor } from '@/lib/utils';
 import toast from 'react-hot-toast';
@@ -436,11 +437,11 @@ export default function ProspectDetail() {
                             {ai.investment_interest_score ?? '-'}
                           </div>
                           <div>
-                            <p className="text-xs font-medium text-amber-700 uppercase tracking-wide">Interes Inversor</p>
+                            <p className="text-xs font-medium text-amber-700 uppercase tracking-wide">Relevancia</p>
                             <p className="text-sm text-amber-900 font-semibold">
-                              {(ai.investment_interest_score || 0) >= 8 ? 'Muy alto' :
-                               (ai.investment_interest_score || 0) >= 6 ? 'Alto' :
-                               (ai.investment_interest_score || 0) >= 4 ? 'Medio' : 'Bajo'} ({ai.investment_interest_score}/10)
+                              {(ai.investment_interest_score || 0) >= 8 ? 'Muy alta' :
+                               (ai.investment_interest_score || 0) >= 6 ? 'Alta' :
+                               (ai.investment_interest_score || 0) >= 4 ? 'Media' : 'Baja'} ({ai.investment_interest_score}/10)
                             </p>
                           </div>
                         </div>
@@ -479,16 +480,52 @@ export default function ProspectDetail() {
                         </div>
                       )}
 
-                      {/* Real Estate Relevance */}
-                      {ai.real_estate_relevance && (
+                      {/* Business Relevance */}
+                      {(ai.business_relevance || ai.real_estate_relevance) && (
                         <div className="mb-6">
                           <div className="flex items-center gap-2 mb-2">
                             <Target className="h-4 w-4 text-purple-500" />
-                            <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Relevancia Inmobiliaria</h4>
+                            <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Relevancia de Negocio</h4>
                           </div>
                           <p className="text-sm text-slate-600 leading-relaxed bg-purple-50 rounded-lg p-4 border border-purple-100">
-                            {ai.real_estate_relevance}
+                            {ai.business_relevance || ai.real_estate_relevance}
                           </p>
+                        </div>
+                      )}
+
+                      {/* Suggested Use Cases */}
+                      {ai.suggested_use_cases && ai.suggested_use_cases.length > 0 && (
+                        <div className="mb-6">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Lightbulb className="h-4 w-4 text-indigo-500" />
+                            <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Casos de Uso Sugeridos</h4>
+                          </div>
+                          <div className="space-y-2">
+                            {ai.suggested_use_cases.map((uc: string, i: number) => (
+                              <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-indigo-50 border border-indigo-100">
+                                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-200 text-indigo-700 text-xs font-bold shrink-0 mt-0.5">{i + 1}</span>
+                                <p className="text-sm text-indigo-900 leading-relaxed">{uc}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Pain Points */}
+                      {ai.pain_points && ai.pain_points.length > 0 && (
+                        <div className="mb-6">
+                          <div className="flex items-center gap-2 mb-2">
+                            <AlertTriangle className="h-4 w-4 text-orange-500" />
+                            <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Retos / Pain Points</h4>
+                          </div>
+                          <div className="space-y-2">
+                            {ai.pain_points.map((pp: string, i: number) => (
+                              <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-orange-50 border border-orange-100">
+                                <AlertTriangle className="h-4 w-4 text-orange-400 mt-0.5 shrink-0" />
+                                <p className="text-sm text-orange-900 leading-relaxed">{pp}</p>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </>
@@ -545,9 +582,23 @@ export default function ProspectDetail() {
                       )}
                     </button>
                     {showFullResearch && (
-                      <div className="mt-4 prose prose-sm prose-slate max-w-none bg-slate-50 rounded-lg p-4 text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">
-                        {research}
-                      </div>
+                      <div
+                        className="mt-4 prose prose-sm prose-slate max-w-none bg-slate-50 rounded-lg p-4 text-sm text-slate-600 leading-relaxed [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:mt-4 [&_h3]:mb-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_li]:text-slate-600 [&_strong]:text-slate-800 [&_a]:text-blue-600 [&_a]:underline"
+                        dangerouslySetInnerHTML={{
+                          __html: (research as string)
+                            .replace(/### (.+)/g, '<h3>$1</h3>')
+                            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                            .replace(/\[(\d+)\]/g, '<sup class="text-xs text-blue-500">[$1]</sup>')
+                            .replace(/^- (.+)$/gm, '<li>$1</li>')
+                            .replace(/(<li>[\s\S]*?<\/li>)/g, (match) => {
+                              if (!match.startsWith('<ul>')) return '<ul>' + match + '</ul>';
+                              return match;
+                            })
+                            .replace(/<\/ul>\s*<ul>/g, '')
+                            .replace(/\n{2,}/g, '<br/><br/>')
+                            .replace(/\n/g, '<br/>')
+                        }}
+                      />
                     )}
                   </Card>
                 )}
