@@ -215,7 +215,8 @@ INSTRUCTIONS:
 - Write in a professional but approachable tone
 - Personalize based on the prospect's role and company
 - Focus on value proposition relevant to ${ctx.industry_context}
-- Keep the email concise (150-250 words)
+- Keep the email very concise (60-100 words MAX). Write like a busy executive.
+- Subject line: maximum 5-7 words, under 40 characters. Short and specific.
 - Do NOT use excessive exclamation marks or salesy language
 - Sender is ${ctx.sender_name} from ${ctx.company_name}
 ${ctx.email_style ? `\nSTYLE:\n${ctx.email_style}` : ''}
@@ -247,6 +248,55 @@ Return your response in this exact JSON format:
     subject: `Opportunity from ${ctx.company_name}`,
     body: result,
   };
+}
+
+/**
+ * Classify a reply email using Gemini.
+ * Returns: 'positive' | 'negative' | 'out_of_office' | 'unsubscribe' | 'other'
+ *
+ * - positive: prospect shows interest, wants to talk, asks questions
+ * - negative: explicit rejection ("not interested", "no thanks", "please stop")
+ * - out_of_office: auto-reply, vacation, OOO
+ * - unsubscribe: wants to be removed from mailing list
+ * - other: unclear or unrelated
+ */
+export async function classifyReply(
+  bodyText: string,
+  subject: string
+): Promise<string> {
+  const prompt = `You are an email reply classifier for a B2B sales outreach platform.
+
+Classify the following email reply into exactly ONE of these categories:
+- positive: The person shows interest, wants more information, asks questions, or agrees to a meeting/call.
+- negative: The person explicitly declines, says they're not interested, asks to stop emailing, or rejects the offer. Examples: "no gracias", "no estoy interesado", "no me interesa", "not interested", "please stop", "no thanks".
+- out_of_office: Auto-reply, vacation notice, OOO message, or automatic response indicating the person is away.
+- unsubscribe: The person explicitly asks to be removed from the mailing list or to stop receiving emails permanently. Examples: "darse de baja", "remove me", "unsubscribe".
+- other: Cannot be clearly classified, or it's an unrelated response.
+
+IMPORTANT: When in doubt between "negative" and "other", lean toward "negative" to protect the prospect from unwanted emails.
+
+EMAIL SUBJECT: ${subject}
+
+EMAIL BODY:
+${bodyText.substring(0, 1500)}
+
+Respond with ONLY the classification word (positive, negative, out_of_office, unsubscribe, or other). Nothing else.`;
+
+  const result = await enrichWithGemini(prompt, { temperature: 0.1, maxOutputTokens: 20 });
+  const classification = result.trim().toLowerCase().replace(/[^a-z_]/g, '');
+
+  const validCategories = ['positive', 'negative', 'out_of_office', 'unsubscribe', 'other'];
+  if (validCategories.includes(classification)) {
+    return classification;
+  }
+
+  // Fuzzy match for partial responses
+  if (classification.includes('positive')) return 'positive';
+  if (classification.includes('negative')) return 'negative';
+  if (classification.includes('out_of_office') || classification.includes('ooo')) return 'out_of_office';
+  if (classification.includes('unsubscribe')) return 'unsubscribe';
+
+  return 'other';
 }
 
 /**
@@ -402,9 +452,12 @@ ${languageInstruction}
 8. Email 2: Value/data angle — dig deeper into a SECOND specific use case or pain point. Reference their actual industry dynamics, market position, or operational challenges.
 9. Email 3: Social proof or urgency (mention relevant clients/cases, timing, exclusive access)
 10. Email 4: Soft close (brief, respectful, open door)
-11. Keep each email 100-200 words. Shorter is better.
-12. Sender is ${ctx.sender_name} from ${ctx.company_name}.
-13. IMPORTANT: If enrichment data includes "Suggested Use Cases" or "Pain Points", USE THEM. Propose concrete, specific use cases that demonstrate you understand the prospect's business. Do NOT be vague — the more specific and relevant the use case, the better.
+11. BREVITY IS CRITICAL: Keep each email between 60-100 words MAX. Write like a busy executive — short paragraphs, no filler, get to the point fast. If you can say it in 60 words, do not use 100.
+12. SUBJECT LINES: Maximum 5-7 words. Short, intriguing, specific. Examples: "IA aplicada a R+D a Cocunat", "Formació IA per a Sedatex", "Pregunta sobre el vostre equip". NEVER exceed 40 characters. No generic subjects.
+13. Sender is ${ctx.sender_name} from ${ctx.company_name}.
+14. IMPORTANT: If enrichment data includes "Suggested Use Cases" or "Pain Points", USE THEM. Propose concrete, specific use cases that demonstrate you understand the prospect's business. Do NOT be vague — the more specific and relevant the use case, the better.
+15. NEVER use "Re:" as a fake reply prefix in subjects. Each subject must be original.
+16. Do NOT include a "P.S." or postscript section.
 ${ctx.email_style ? `\nSTYLE GUIDE:\n${ctx.email_style}` : ''}
 ${ctx.key_differentiators ? `\nKEY DIFFERENTIATORS (weave naturally, do not list them all in every email):\n${ctx.key_differentiators}` : ''}
 

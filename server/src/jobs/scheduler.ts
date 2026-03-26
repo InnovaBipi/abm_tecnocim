@@ -8,6 +8,10 @@ import { calculateOptimalSendTime, resolveProspectTimezone, isWithinSendWindow }
 import { pollImapForReplies } from '../services/imap';
 import { getAllActiveTenants, getTenantConfig } from '../middleware/tenant';
 
+// Daily digest accumulator: collects send results throughout the day per tenant
+const dailyDigest = new Map<string, Array<{ name: string; email: string; subject: string; campaign: string; step: number; status: 'sent' | 'failed' | 'skipped'; reason?: string; tenant_id: string }>>();
+let lastDigestDate = '';
+
 /**
  * Initialize all scheduled jobs using node-cron.
  */
@@ -94,6 +98,18 @@ export function startScheduler(): void {
       await pollImapForReplies();
     } catch (error: any) {
       console.error('IMAP polling error:', error.message);
+    }
+  });
+
+  // =============================================
+  // Daily at 19:00 CET (17:00 UTC): Send daily outbox digest
+  // One email per tenant summarizing everything sent that day
+  // =============================================
+  cron.schedule('0 17 * * *', async () => {
+    try {
+      await sendDailyOutboxDigest();
+    } catch (error: any) {
+      console.error('Daily outbox digest error:', error.message);
     }
   });
 
@@ -407,10 +423,96 @@ async function processDueSequenceEmails(): Promise<void> {
 }
 
 /**
+ * Auto-cancel follow-up emails where a previous step bounced.
+ * Runs before sending to prevent orphaned scheduled emails.
+ */
+async function cancelBouncedFollowups(): Promise<void> {
+  // Find prospect+campaign combos where any step has bounced
+  const bounced = await query<any[]>(
+    `SELECT DISTINCT prospect_id, campaign_id FROM generated_emails
+     WHERE status = 'bounced'`
+  );
+
+  for (const b of bounced) {
+    await query(
+      `UPDATE generated_emails
+       SET status = 'rejected',
+           metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'previous_step_bounced')
+       WHERE prospect_id = ? AND campaign_id = ? AND status = 'scheduled'
+       AND step_number > (
+         SELECT MIN(step_number) FROM (
+           SELECT step_number FROM generated_emails
+           WHERE prospect_id = ? AND campaign_id = ? AND status = 'bounced'
+         ) as bounced_steps
+       )`,
+      [b.prospect_id, b.campaign_id, b.prospect_id, b.campaign_id]
+    );
+  }
+}
+
+/**
+ * Auto-cancel follow-up emails where the prospect has replied.
+ * If the reply is classified as negative/unsubscribe, also marks prospect as do_not_contact.
+ * Runs before sending to prevent emailing prospects who already responded.
+ */
+async function cancelRepliedFollowups(): Promise<void> {
+  // Find prospects who have replied (from IMAP detection or webhooks)
+  const replied = await query<any[]>(
+    `SELECT DISTINCT ee.prospect_id, ge.campaign_id, ee.metadata
+     FROM email_events ee
+     JOIN generated_emails ge ON ge.prospect_id = ee.prospect_id AND ge.status = 'scheduled'
+     WHERE ee.event_type = 'replied'`
+  );
+
+  for (const r of replied) {
+    // Cancel all scheduled follow-ups for this prospect+campaign
+    const result = await query<any>(
+      `UPDATE generated_emails
+       SET status = 'rejected',
+           metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'prospect_replied')
+       WHERE prospect_id = ? AND campaign_id = ? AND status = 'scheduled'`,
+      [r.prospect_id, r.campaign_id]
+    );
+
+    if (result.affectedRows > 0) {
+      console.log(`Cancelled ${result.affectedRows} scheduled email(s) for replied prospect ${r.prospect_id} in campaign ${r.campaign_id}`);
+    }
+
+    // If reply was classified as negative/unsubscribe, mark prospect
+    let classification: string | undefined;
+    try {
+      const meta = typeof r.metadata === 'string' ? JSON.parse(r.metadata) : r.metadata;
+      classification = meta?.reply_classification;
+    } catch { /* ignore parse errors */ }
+
+    if (classification === 'negative' || classification === 'unsubscribe') {
+      // Also cancel ALL scheduled emails across all campaigns for this prospect
+      await query(
+        `UPDATE generated_emails
+         SET status = 'rejected',
+             metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'prospect_rejected')
+         WHERE prospect_id = ? AND status = 'scheduled'`,
+        [r.prospect_id]
+      );
+
+      // Mark prospect to prevent future outreach
+      await query(
+        `UPDATE prospects SET status = 'rejected', do_not_contact = TRUE WHERE id = ? AND do_not_contact = FALSE`,
+        [r.prospect_id]
+      );
+    }
+  }
+}
+
+/**
  * Process scheduled outbox emails whose scheduled_for time has arrived.
  * Sends up to 20 emails per cycle with 600ms delay between sends.
  */
 async function processScheduledOutboxEmails(): Promise<void> {
+  // Auto-cancel follow-ups after bounces and replies
+  await cancelBouncedFollowups();
+  await cancelRepliedFollowups();
+
   // Only send step N if step N-1 for the same prospect+campaign is already 'sent' (or it's step 1)
   const emailsToSend = await query<any[]>(
     `SELECT ge.*, p.email as prospect_email, p.first_name, p.last_name, p.full_name,
@@ -420,6 +522,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
      JOIN prospects p ON ge.prospect_id = p.id
      JOIN campaigns cam ON ge.campaign_id = cam.id
      WHERE ge.status = 'scheduled' AND ge.scheduled_for <= NOW()
+       AND cam.status = 'active'
        AND (ge.step_number = 1 OR EXISTS (
          SELECT 1 FROM generated_emails prev
          WHERE prev.prospect_id = ge.prospect_id
@@ -467,6 +570,24 @@ async function processScheduledOutboxEmails(): Promise<void> {
     // Rate limit: wait 600ms between sends
     if (sent > 0 || failed > 0) {
       await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+
+    // Skip if prospect has replied to any email in this campaign
+    const prospectReplied = await query<any[]>(
+      `SELECT id FROM email_events
+       WHERE prospect_id = ? AND event_type = 'replied' LIMIT 1`,
+      [email.prospect_id]
+    );
+    if (prospectReplied.length > 0) {
+      console.log(`Skipping scheduled email ${email.id} - prospect replied`);
+      await query(
+        `UPDATE generated_emails SET status = 'rejected',
+         metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'prospect_replied')
+         WHERE id = ?`,
+        [email.id]
+      );
+      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: 'prospecto respondió', tenant_id: emailTenantId });
+      continue;
     }
 
     // Skip do_not_contact
@@ -526,6 +647,20 @@ async function processScheduledOutboxEmails(): Promise<void> {
           [result.id, email.id]
         );
 
+        // Record email_event 'sent' so webhook follow-ups (delivered/opened/clicked) can link back
+        await query(
+          `INSERT INTO email_events (id, tenant_id, prospect_id, event_type, resend_email_id, subject, from_email)
+           VALUES (?, ?, ?, 'sent', ?, ?, ?)`,
+          [
+            uuidv4(),
+            emailTenantId,
+            email.prospect_id,
+            result.id,
+            email.subject,
+            fromAddress,
+          ]
+        );
+
         await query(
           `UPDATE prospects SET last_contacted = NOW(),
            status = CASE WHEN status IN ('new', 'enriched', 'qualified') THEN 'contacted' ELSE status END
@@ -540,7 +675,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
             uuidv4(),
             email.prospect_id,
             `Email enviado (programado): Paso ${email.step_number}`,
-            `Asunto: ${email.subject} | Propiedad: ${email.campaign_name}`,
+            `Asunto: ${email.subject} | Campaña: ${email.campaign_name}`,
           ]
         );
 
@@ -573,29 +708,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
     console.log(`Scheduled outbox: sent ${sent}, failed ${failed}`);
   }
 
-  // Send notification per tenant when actual sends or failures occurred
-  if (sent > 0 || failed > 0) {
-    // Group results by tenant
-    const resultsByTenant = new Map<string, typeof results>();
-    for (const r of results) {
-      if (!resultsByTenant.has(r.tenant_id)) {
-        resultsByTenant.set(r.tenant_id, []);
-      }
-      resultsByTenant.get(r.tenant_id)!.push(r);
-    }
-
-    for (const [tenantId, tenantResults] of resultsByTenant) {
-      const tenantSent = tenantResults.filter(r => r.status === 'sent').length;
-      const tenantFailed = tenantResults.filter(r => r.status === 'failed').length;
-      if (tenantSent > 0 || tenantFailed > 0) {
-        try {
-          await sendOutboxNotification(tenantResults, tenantSent, tenantFailed, tenantId);
-        } catch (notifError: any) {
-          console.error(`Failed to send outbox notification for tenant ${tenantId}:`, notifError.message);
-        }
-      }
-    }
-  }
+  // Results are now queried from DB at digest time — no in-memory accumulation needed
 }
 
 /**
@@ -698,6 +811,119 @@ async function sendOutboxNotification(
     tenantId
   );
   console.log(`Outbox notification sent to ${notificationEmail} (tenant: ${tenantName})`);
+}
+
+/**
+ * Send a single daily digest email per tenant with everything sent/failed today.
+ * Queries the DB directly (survives server restarts) and uses a DB flag to guarantee
+ * exactly 1 notification email per tenant per day — never more.
+ */
+async function sendDailyOutboxDigest(): Promise<void> {
+  const tenants = await getAllActiveTenants();
+  const today = new Date().toISOString().slice(0, 10);
+
+  for (const tenant of tenants) {
+    try {
+      // Check if digest was already sent today for this tenant (survives restarts)
+      const alreadySent = await query<any[]>(
+        `SELECT id FROM email_events
+         WHERE tenant_id = ? AND event_type = 'digest_sent'
+         AND DATE(occurred_at) = CURDATE()
+         LIMIT 1`,
+        [tenant.id]
+      );
+
+      if (alreadySent.length > 0) {
+        console.log(`Daily digest already sent today for ${tenant.name}, skipping.`);
+        continue;
+      }
+
+      // Query today's actual send results directly from the DB
+      const sentEmails = await query<any[]>(
+        `SELECT ge.subject, ge.step_number, ge.sent_at,
+                p.email as prospect_email, p.first_name, p.last_name, p.full_name,
+                cam.name as campaign_name
+         FROM generated_emails ge
+         JOIN prospects p ON ge.prospect_id = p.id
+         JOIN campaigns cam ON ge.campaign_id = cam.id
+         WHERE ge.tenant_id = ? AND ge.status = 'sent' AND DATE(ge.sent_at) = CURDATE()
+         ORDER BY ge.sent_at`,
+        [tenant.id]
+      );
+
+      const failedEmails = await query<any[]>(
+        `SELECT ge.subject, ge.step_number,
+                p.email as prospect_email, p.first_name, p.last_name, p.full_name,
+                cam.name as campaign_name,
+                JSON_EXTRACT(ge.metadata, '$.error') as error_msg
+         FROM generated_emails ge
+         JOIN prospects p ON ge.prospect_id = p.id
+         JOIN campaigns cam ON ge.campaign_id = cam.id
+         WHERE ge.tenant_id = ? AND ge.status = 'bounced' AND DATE(ge.updated_at) = CURDATE()`,
+        [tenant.id]
+      );
+
+      const skippedEmails = await query<any[]>(
+        `SELECT ge.subject, ge.step_number,
+                p.email as prospect_email, p.first_name, p.last_name, p.full_name,
+                cam.name as campaign_name,
+                JSON_EXTRACT(ge.metadata, '$.skip_reason') as skip_reason
+         FROM generated_emails ge
+         JOIN prospects p ON ge.prospect_id = p.id
+         JOIN campaigns cam ON ge.campaign_id = cam.id
+         WHERE ge.tenant_id = ? AND ge.status = 'rejected' AND DATE(ge.updated_at) = CURDATE()`,
+        [tenant.id]
+      );
+
+      const totalSent = sentEmails.length;
+      const totalFailed = failedEmails.length;
+
+      if (totalSent === 0 && totalFailed === 0) {
+        console.log(`Daily digest: nothing to report for ${tenant.name}.`);
+        continue;
+      }
+
+      // Build results array for the notification formatter
+      const results = [
+        ...sentEmails.map((e: any) => ({
+          name: e.full_name || `${e.first_name || ''} ${e.last_name || ''}`.trim(),
+          email: e.prospect_email, subject: e.subject, campaign: e.campaign_name,
+          step: e.step_number, status: 'sent' as const, tenant_id: tenant.id,
+        })),
+        ...failedEmails.map((e: any) => ({
+          name: e.full_name || `${e.first_name || ''} ${e.last_name || ''}`.trim(),
+          email: e.prospect_email, subject: e.subject, campaign: e.campaign_name,
+          step: e.step_number, status: 'failed' as const, reason: e.error_msg || 'Error', tenant_id: tenant.id,
+        })),
+        ...skippedEmails.map((e: any) => ({
+          name: e.full_name || `${e.first_name || ''} ${e.last_name || ''}`.trim(),
+          email: e.prospect_email, subject: e.subject, campaign: e.campaign_name,
+          step: e.step_number, status: 'skipped' as const, reason: e.skip_reason || 'Skipped', tenant_id: tenant.id,
+        })),
+      ];
+
+      await sendOutboxNotification(results, totalSent, totalFailed, tenant.id);
+
+      // Mark digest as sent today in the DB (prevents duplicates even on restart)
+      await query(
+        `INSERT INTO email_events (id, tenant_id, event_type, subject, metadata)
+         VALUES (?, ?, 'digest_sent', ?, ?)`,
+        [
+          uuidv4(), tenant.id,
+          `Digest ${today}: ${totalSent} sent, ${totalFailed} failed`,
+          JSON.stringify({ date: today, sent: totalSent, failed: totalFailed, skipped: skippedEmails.length }),
+        ]
+      );
+
+      console.log(`Daily digest sent for ${tenant.name}: ${totalSent} sent, ${totalFailed} failed`);
+    } catch (err: any) {
+      console.error(`Failed to send daily digest for ${tenant.name}:`, err.message);
+    }
+  }
+
+  // Clear in-memory accumulator (no longer needed but keep tidy)
+  dailyDigest.clear();
+  lastDigestDate = '';
 }
 
 /**
