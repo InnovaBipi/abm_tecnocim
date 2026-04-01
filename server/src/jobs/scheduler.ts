@@ -824,11 +824,12 @@ async function sendDailyOutboxDigest(): Promise<void> {
 
   for (const tenant of tenants) {
     try {
-      // Check if digest was already sent today for this tenant (survives restarts)
+      // Check if digest was already sent today for this tenant (survives restarts).
+      // Uses imap_sync_state with mailbox='DIGEST' as a lightweight flag.
       const alreadySent = await query<any[]>(
-        `SELECT id FROM email_events
-         WHERE tenant_id = ? AND event_type = 'digest_sent'
-         AND DATE(occurred_at) = CURDATE()
+        `SELECT id FROM imap_sync_state
+         WHERE tenant_id = ? AND mailbox = 'DIGEST'
+         AND DATE(last_synced_at) = CURDATE()
          LIMIT 1`,
         [tenant.id]
       );
@@ -904,16 +905,23 @@ async function sendDailyOutboxDigest(): Promise<void> {
 
       await sendOutboxNotification(results, totalSent, totalFailed, tenant.id);
 
-      // Mark digest as sent today in the DB (prevents duplicates even on restart)
-      await query(
-        `INSERT INTO email_events (id, tenant_id, event_type, subject, metadata)
-         VALUES (?, ?, 'digest_sent', ?, ?)`,
-        [
-          uuidv4(), tenant.id,
-          `Digest ${today}: ${totalSent} sent, ${totalFailed} failed`,
-          JSON.stringify({ date: today, sent: totalSent, failed: totalFailed, skipped: skippedEmails.length }),
-        ]
+      // Mark digest as sent today in the DB (prevents duplicates even on restart).
+      // Uses imap_sync_state with mailbox='DIGEST' as a lightweight flag.
+      const existingDigestRow = await query<any[]>(
+        `SELECT id FROM imap_sync_state WHERE tenant_id = ? AND mailbox = 'DIGEST' LIMIT 1`,
+        [tenant.id]
       );
+      if (existingDigestRow.length > 0) {
+        await query(
+          `UPDATE imap_sync_state SET last_synced_at = NOW() WHERE tenant_id = ? AND mailbox = 'DIGEST'`,
+          [tenant.id]
+        );
+      } else {
+        await query(
+          `INSERT INTO imap_sync_state (id, tenant_id, mailbox, last_uid, last_synced_at) VALUES (?, ?, 'DIGEST', 0, NOW())`,
+          [uuidv4(), tenant.id]
+        );
+      }
 
       console.log(`Daily digest sent for ${tenant.name}: ${totalSent} sent, ${totalFailed} failed`);
     } catch (err: any) {
