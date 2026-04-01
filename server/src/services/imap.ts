@@ -7,7 +7,8 @@ import { classifyReply } from './ai';
 
 /**
  * Poll IMAP inbox for a single tenant.
- * Matches incoming emails to prospects and creates 'replied' events, all scoped to tenantId.
+ * Uses sequence-number based fetch (OVH rejects UID FETCH on some servers).
+ * Tracks last synced UID to avoid reprocessing.
  */
 export async function pollImapForTenant(
   tenantId: string,
@@ -38,75 +39,85 @@ export async function pollImapForTenant(
     let highestUid = lastUid;
 
     try {
-      // Search for messages with UID > lastUid
-      let searchResult: any;
-      try {
-        searchResult = await client.search({ uid: lastUid > 0 ? `${lastUid + 1}:*` : '1:*' }, { uid: true });
-      } catch (searchErr: any) {
-        console.error(`IMAP search failed [${tenantId}] (lastUid=${lastUid}):`, searchErr.message);
+      const totalMessages = (client as any).mailbox?.exists || 0;
+      if (totalMessages === 0) {
         lock.release();
         await client.logout();
         return;
       }
 
-      // search() can return false if no results
-      const uids = Array.isArray(searchResult) ? searchResult : [];
+      // Fetch envelopes using sequence-number range (works on OVH, UID fetch doesn't).
+      // We fetch the last N messages and filter by UID > lastUid after.
+      // Start from a reasonable window — last 50 messages or all if fewer.
+      const startSeq = Math.max(1, totalMessages - 49);
+      const rangeStr = `${startSeq}:${totalMessages}`;
 
-      // Filter out UIDs <= lastUid (IMAP range semantics include the boundary)
-      const newUids = uids.filter((uid: number) => uid > lastUid);
+      // Collect all envelopes in a single fast IMAP command
+      const messages: Array<{
+        uid: number;
+        seqNo: number;
+        envelope: any;
+      }> = [];
 
-      if (newUids.length === 0) {
+      try {
+        let seqNo = startSeq;
+        for await (const msg of client.fetch(rangeStr, { envelope: true, uid: true })) {
+          messages.push({
+            uid: msg.uid,
+            seqNo: seqNo++,
+            envelope: msg.envelope,
+          });
+        }
+      } catch (fetchErr: any) {
+        console.warn(`IMAP [${tenantId}]: Envelope fetch partially failed after ${messages.length} messages: ${fetchErr.message}`);
+      }
+
+      // Filter to only new messages (UID > lastUid)
+      const newMessages = messages.filter(m => m.uid > lastUid);
+
+      if (newMessages.length === 0) {
+        // Update highestUid even if no new prospect replies — avoid refetching
+        if (messages.length > 0) {
+          const maxFetched = Math.max(...messages.map(m => m.uid));
+          if (maxFetched > highestUid) highestUid = maxFetched;
+        }
         lock.release();
         await client.logout();
+        // Persist sync state even when no new messages
+        if (highestUid > lastUid) {
+          await updateSyncState(tenantId, highestUid, syncState.length > 0);
+        }
         return;
       }
 
-      console.log(`IMAP [${tenantId}]: Fetching ${newUids.length} new messages (UIDs > ${lastUid})`);
+      console.log(`IMAP [${tenantId}]: ${newMessages.length} new messages (UIDs > ${lastUid})`);
 
-      // Batch fetch all messages at once (single IMAP command, less connection stress)
-      // Wrapped in try-catch so partial success still updates highestUid
-      try {
-        for await (const message of client.fetch(newUids, { uid: true, envelope: true, source: true })) {
-          if (message.uid > highestUid) {
-            highestUid = message.uid;
-          }
+      for (const msg of newMessages) {
+        if (msg.uid > highestUid) highestUid = msg.uid;
 
-          const senderAddress = message.envelope?.from?.[0]?.address?.toLowerCase();
-          if (!senderAddress) continue;
+        const senderAddress = msg.envelope?.from?.[0]?.address?.toLowerCase();
+        if (!senderAddress) continue;
 
-          // Parse the full message body for reply classification
-          let replyBodyText = '';
-          try {
-            if (message.source) {
-              const parsed = await simpleParser(message.source);
-              replyBodyText = (parsed.text || '').substring(0, 2000); // limit to 2000 chars
-            }
-          } catch (parseErr: any) {
-            console.warn(`IMAP [${tenantId}]: Failed to parse body for UID ${message.uid}: ${parseErr.message}`);
-          }
-
-        // Match sender against prospects scoped to tenant
-        const prospects = await query<any[]>(
+        // Check if sender is a prospect in this tenant
+        const matchedProspects = await query<any[]>(
           'SELECT id, status FROM prospects WHERE LOWER(email) = ? AND tenant_id = ? LIMIT 1',
           [senderAddress, tenantId]
         );
+        if (matchedProspects.length === 0) continue;
 
-        if (prospects.length === 0) continue;
+        const prospect = matchedProspects[0];
 
-        const prospect = prospects[0];
-
-        // Deduplicate: check by IMAP UID (strongest)
+        // Deduplicate by UID
         const existingByUid = await query<any[]>(
           `SELECT id FROM email_events
            WHERE prospect_id = ? AND event_type = 'replied'
            AND JSON_EXTRACT(metadata, '$.uid') = ?
            LIMIT 1`,
-          [prospect.id, message.uid]
+          [prospect.id, msg.uid]
         );
-
         if (existingByUid.length > 0) continue;
 
-        // Also dedup by time window (catches non-UID duplicates)
+        // Dedup by time window
         const recentReplies = await query<any[]>(
           `SELECT id FROM email_events
            WHERE prospect_id = ? AND event_type = 'replied'
@@ -114,18 +125,29 @@ export async function pollImapForTenant(
            LIMIT 1`,
           [prospect.id]
         );
-
         if (recentReplies.length > 0) continue;
 
-        // Try to match to sequence via In-Reply-To from envelope
-        const inReplyTo = message.envelope?.inReplyTo || null;
+        // Fetch body for this specific message using sequence number
+        let replyBodyText = '';
+        try {
+          const seqRange = `${msg.seqNo}:${msg.seqNo}`;
+          for await (const fullMsg of client.fetch(seqRange, { source: true })) {
+            if (fullMsg.source) {
+              const parsed = await simpleParser(fullMsg.source);
+              replyBodyText = (parsed.text || '').substring(0, 2000);
+            }
+          }
+        } catch (bodyErr: any) {
+          console.warn(`IMAP [${tenantId}]: Body fetch failed for seq ${msg.seqNo} (classifying without body): ${bodyErr.message}`);
+        }
 
+        // Match to sequence via In-Reply-To
+        const inReplyTo = msg.envelope?.inReplyTo || null;
         let sequenceId: string | null = null;
         let enrollmentId: string | null = null;
         let stepId: string | null = null;
 
         if (inReplyTo) {
-          // Try matching by resend_email_id or message_id
           const matchedEvents = await query<any[]>(
             `SELECT sequence_id, enrollment_id, step_id FROM email_events
              WHERE (resend_email_id = ? OR message_id = ?)
@@ -133,7 +155,6 @@ export async function pollImapForTenant(
              LIMIT 1`,
             [inReplyTo, inReplyTo, prospect.id]
           );
-
           if (matchedEvents.length > 0) {
             sequenceId = matchedEvents[0].sequence_id;
             enrollmentId = matchedEvents[0].enrollment_id;
@@ -141,7 +162,7 @@ export async function pollImapForTenant(
           }
         }
 
-        // Fallback: match to most recent active enrollment for this prospect
+        // Fallback: most recent active enrollment
         if (!enrollmentId) {
           const activeEnrollments = await query<any[]>(
             `SELECT se.id as enrollment_id, se.sequence_id,
@@ -154,7 +175,6 @@ export async function pollImapForTenant(
              LIMIT 1`,
             [prospect.id]
           );
-
           if (activeEnrollments.length > 0) {
             enrollmentId = activeEnrollments[0].enrollment_id;
             sequenceId = activeEnrollments[0].sequence_id;
@@ -162,34 +182,29 @@ export async function pollImapForTenant(
           }
         }
 
-        // Classify the reply using AI (positive, negative, out_of_office, unsubscribe, other)
+        // Classify the reply using AI
         let replyClassification = 'other';
         if (replyBodyText.trim().length > 0) {
           try {
-            replyClassification = await classifyReply(replyBodyText, message.envelope?.subject || '');
+            replyClassification = await classifyReply(replyBodyText, msg.envelope?.subject || '');
             console.log(`IMAP [${tenantId}]: Reply from ${senderAddress} classified as: ${replyClassification}`);
           } catch (classifyErr: any) {
-            console.warn(`IMAP [${tenantId}]: Classification failed for UID ${message.uid}, defaulting to 'other': ${classifyErr.message}`);
+            console.warn(`IMAP [${tenantId}]: Classification failed for UID ${msg.uid}, defaulting to 'other': ${classifyErr.message}`);
           }
         }
 
-        // Insert 'replied' email event with tenant_id and classification
+        // Insert reply event
         await query(
           `INSERT INTO email_events (id, tenant_id, enrollment_id, prospect_id, sequence_id, step_id,
            event_type, subject, metadata)
            VALUES (?, ?, ?, ?, ?, ?, 'replied', ?, ?)`,
           [
-            uuidv4(),
-            tenantId,
-            enrollmentId,
-            prospect.id,
-            sequenceId,
-            stepId,
-            message.envelope?.subject || null,
+            uuidv4(), tenantId, enrollmentId, prospect.id, sequenceId, stepId,
+            msg.envelope?.subject || null,
             JSON.stringify({
               source: 'imap',
               from: senderAddress,
-              uid: message.uid,
+              uid: msg.uid,
               reply_classification: replyClassification,
               reply_snippet: replyBodyText.substring(0, 500),
             }),
@@ -198,84 +213,92 @@ export async function pollImapForTenant(
 
         // Update prospect status based on classification
         if (replyClassification === 'negative' || replyClassification === 'unsubscribe') {
-          // Rejection or unsubscribe: mark as rejected + do_not_contact
           await query(
             `UPDATE prospects SET status = 'rejected', do_not_contact = TRUE, last_replied = NOW() WHERE id = ?`,
             [prospect.id]
           );
-        } else if (replyClassification === 'out_of_office') {
-          // OOO: keep status, just record the reply timestamp
-          await query(
-            `UPDATE prospects SET last_replied = NOW() WHERE id = ?`,
-            [prospect.id]
-          );
-        } else {
-          // Positive or other: mark as replied
-          await query(
-            `UPDATE prospects SET status = 'replied', last_replied = NOW() WHERE id = ?`,
-            [prospect.id]
-          );
-        }
-
-        // If negative/unsubscribe, also stop all active enrollments for this prospect
-        if (replyClassification === 'negative' || replyClassification === 'unsubscribe') {
           await query(
             `UPDATE sequence_enrollments SET status = 'replied', completed_at = NOW()
              WHERE prospect_id = ? AND status = 'active'`,
             [prospect.id]
           );
+          // Also cancel all scheduled outbox emails
+          await query(
+            `UPDATE generated_emails SET status = 'rejected',
+             metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'prospect_rejected')
+             WHERE prospect_id = ? AND status = 'scheduled'`,
+            [prospect.id]
+          );
           console.log(`IMAP [${tenantId}]: Stopped ALL sequences for ${senderAddress} (rejection: ${replyClassification})`);
+        } else if (replyClassification === 'out_of_office') {
+          await query(
+            `UPDATE prospects SET last_replied = NOW() WHERE id = ?`,
+            [prospect.id]
+          );
+        } else {
+          // Positive or other: mark as replied, stop sequences
+          await query(
+            `UPDATE prospects SET status = 'replied', last_replied = NOW() WHERE id = ?`,
+            [prospect.id]
+          );
+          await query(
+            `UPDATE sequence_enrollments SET status = 'replied', completed_at = NOW()
+             WHERE prospect_id = ? AND status = 'active'`,
+            [prospect.id]
+          );
+          await query(
+            `UPDATE generated_emails SET status = 'rejected',
+             metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'prospect_replied')
+             WHERE prospect_id = ? AND status = 'scheduled'`,
+            [prospect.id]
+          );
         }
 
-        // Log activity with tenant_id
+        // Log activity
         await query(
           `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, description)
            VALUES (?, ?, ?, 'email_replied', 'Respuesta recibida (IMAP)', ?)`,
           [
-            uuidv4(),
-            tenantId,
-            prospect.id,
-            `Asunto: ${message.envelope?.subject || '(sin asunto)'}`,
+            uuidv4(), tenantId, prospect.id,
+            `Clasificación: ${replyClassification} | Asunto: ${msg.envelope?.subject || '(sin asunto)'}`,
           ]
         );
 
-        console.log(`IMAP [${tenantId}]: Reply detected from ${senderAddress} (prospect ${prospect.id})`);
-        }
-      } catch (fetchErr: any) {
-        // On fetch failure, advance past all UIDs so we don't re-process them endlessly
-        const maxUid = Math.max(...newUids);
-        if (maxUid > highestUid) highestUid = maxUid;
-        console.error(`IMAP [${tenantId}]: Fetch interrupted, advancing to UID ${highestUid}: ${fetchErr.message}`);
+        console.log(`IMAP [${tenantId}]: Reply detected from ${senderAddress} [${replyClassification}]`);
       }
     } finally {
       lock.release();
     }
 
-    // Update or insert last_uid in sync state for this tenant
+    // Persist sync state
     if (highestUid > lastUid) {
-      if (syncState.length > 0) {
-        await query(
-          `UPDATE imap_sync_state SET last_uid = ?, last_synced_at = NOW() WHERE tenant_id = ? AND mailbox = 'INBOX'`,
-          [highestUid, tenantId]
-        );
-      } else {
-        await query(
-          `INSERT INTO imap_sync_state (id, tenant_id, mailbox, last_uid, last_synced_at) VALUES (?, ?, 'INBOX', ?, NOW())`,
-          [uuidv4(), tenantId, highestUid]
-        );
-      }
+      await updateSyncState(tenantId, highestUid, syncState.length > 0);
     }
 
     await client.logout();
   } catch (error: any) {
-    console.error(`IMAP polling error [${tenantId}]:`, error.message, error.stack?.split('\n').slice(0, 3).join(' | '));
-    try { await client.logout(); } catch { /* ignore logout errors */ }
+    console.error(`IMAP polling error [${tenantId}]:`, error.message);
+    try { await client.logout(); } catch { /* ignore */ }
+  }
+}
+
+/** Update or insert IMAP sync state */
+async function updateSyncState(tenantId: string, highestUid: number, exists: boolean): Promise<void> {
+  if (exists) {
+    await query(
+      `UPDATE imap_sync_state SET last_uid = ?, last_synced_at = NOW() WHERE tenant_id = ? AND mailbox = 'INBOX'`,
+      [highestUid, tenantId]
+    );
+  } else {
+    await query(
+      `INSERT INTO imap_sync_state (id, tenant_id, mailbox, last_uid, last_synced_at) VALUES (?, ?, 'INBOX', ?, NOW())`,
+      [uuidv4(), tenantId, highestUid]
+    );
   }
 }
 
 /**
  * Poll IMAP inbox for all active tenants that have IMAP configured.
- * Iterates over tenants and calls pollImapForTenant for each.
  */
 export async function pollImapForReplies(): Promise<void> {
   const tenants = await getAllActiveTenants();
