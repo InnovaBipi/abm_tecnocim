@@ -55,10 +55,10 @@ services:
         value: "${APP_URL}"
     health_check:
       http_path: /api/health
-    routes:
-      - path: /api
       initial_delay_seconds: 30
       period_seconds: 10
+    routes:
+      - path: /api
 
 static_sites:
   - name: web
