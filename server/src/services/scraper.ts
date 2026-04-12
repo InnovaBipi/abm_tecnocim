@@ -80,7 +80,7 @@ export async function basicScrape(url: string): Promise<string> {
   try {
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; CamiaCasaBot/1.0)',
+        'User-Agent': 'Mozilla/5.0 (compatible; TecnocimBot/1.0)',
         'Accept': 'text/html,application/xhtml+xml',
       },
       signal: AbortSignal.timeout(15000),

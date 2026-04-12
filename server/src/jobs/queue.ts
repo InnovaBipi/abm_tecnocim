@@ -156,7 +156,7 @@ export async function processImportInline(payload: {
   tenant_id?: string;
 }): Promise<{ imported: number; skipped: number; errors: number }> {
   const { import_id, file_path, column_mapping } = payload;
-  const tenantId = payload.tenant_id || 'tenant-camiacasa-0001';
+  const tenantId = payload.tenant_id || 'tenant-tecnocim-0003';
   const fs = await import('fs');
   const path = await import('path');
 

@@ -61,11 +61,9 @@ export default function Login() {
       <div className="w-full max-w-md mx-4">
         {/* Logo & branding */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary-600 text-white mb-4 shadow-lg shadow-primary-600/30">
-            <Home className="h-8 w-8" />
-          </div>
-          <h1 className="text-3xl font-bold text-slate-900">ABM Platform</h1>
-          <p className="text-slate-500 mt-1">Plataforma de Gestion de Prospectos</p>
+          <img src="/logo.png" alt="Tecnocim" className="h-14 mx-auto mb-4" />
+          <h1 className="text-3xl font-bold text-slate-900">Tecnocim ABM</h1>
+          <p className="text-slate-500 mt-1">Account-Based Marketing Platform</p>
         </div>
 
         {/* Login form */}
@@ -132,7 +130,7 @@ export default function Login() {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-6">
-          ABM Platform &copy; {new Date().getFullYear()} - Todos los derechos reservados
+          Tecnocim ABM &copy; {new Date().getFullYear()} - Todos los derechos reservados
         </p>
       </div>
     </div>

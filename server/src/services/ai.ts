@@ -16,16 +16,15 @@ export interface TenantAIContext {
   default_language?: 'spanish' | 'catalan' | 'english'; // override language resolution
 }
 
-/** Default CamiaCasa context (backwards compatibility). */
+/** Default Tecnocim context (fallback when tenant config is missing). */
 const DEFAULT_TENANT_CONTEXT: TenantAIContext = {
-  company_name: 'CamiaCasa',
-  sender_name: 'Alfons Marques',
-  company_description: 'Agencia inmobiliaria profesional en Sant Vicenç dels Horts (Baix Llobregat, Catalunya). +15 años de experiencia, +64 municipios. Especializados en compra-venta, gestión de patrimonio, inversión inmobiliaria, personal shopping inmobiliario y valoraciones profesionales.',
-  industry_context: 'real estate investment',
-  contact_email: 'alfons.marques@camiacasa.cat',
-  contact_phone: '+34 614 378 560',
-  entity_label: 'property',
-  entity_label_plural: 'properties',
+  company_name: 'Tecnocim',
+  sender_name: 'Albert Sánchez',
+  company_description: 'Tecnocim - Consultora de innovación tecnológica. Especializados en gestión integral de bonificaciones fiscales I+D+i, transformación digital y desarrollo de software a medida.',
+  industry_context: 'innovation consulting, R&D tax incentives, digital transformation',
+  contact_email: 'albert.sanchez@tecnocim.com',
+  entity_label: 'servicio',
+  entity_label_plural: 'servicios',
 };
 
 /**

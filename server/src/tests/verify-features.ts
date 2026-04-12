@@ -326,7 +326,7 @@ async function test5DashboardEndpoints() {
 
 async function main() {
   console.log('==========================================');
-  console.log(' CamiaCasa ABM - Feature Verification');
+  console.log(' Tecnocim ABM - Feature Verification');
   console.log('==========================================');
   console.log(`DB: ${config.DB_HOST}:${config.DB_PORT}/${config.DB_NAME}`);
 

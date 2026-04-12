@@ -288,7 +288,7 @@ const INTERNATIONAL_TITLE_KEYWORDS = [
 /**
  * Resolve the preferred email language for a prospect based on their location.
  *
- * When defaultLanguage is not provided (CamiaCasa-style):
+ * When defaultLanguage is not provided:
  * 0. International roles (title contains "International", "Europe", "Global", etc.) → 'english'
  * 1. Region is Catalunya (or city is in Catalonia) → 'catalan'
  * 2. Country is Spain (or other Spanish-speaking) → 'spanish'

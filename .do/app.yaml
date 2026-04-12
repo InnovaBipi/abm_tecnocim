@@ -30,7 +30,7 @@ services:
       - key: DB_PASS
         value: "${abm-tecnocim-db.PASSWORD}"
       - key: DB_NAME
-        value: "${abm-tecnocim-db.DATABASE}"
+        value: abm_tecnocim
       - key: DB_SSL
         value: "true"
       - key: JWT_SECRET
