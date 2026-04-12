@@ -97,6 +97,7 @@ export async function sendSequenceEmail(
     sequence_id: string;
     prospect_id: string;
     current_step: number;
+    tenant_id: string;
   },
   step: {
     id: string;
@@ -119,10 +120,10 @@ export async function sendSequenceEmail(
 
     const prospect = prospects[0];
 
-    // Check suppression list
+    // Check suppression list (filter by tenant to avoid cross-tenant blocking)
     const suppressed = await query<any[]>(
-      'SELECT id FROM suppression_list WHERE email = ?',
-      [prospect.email]
+      'SELECT id FROM suppression_list WHERE email = ? AND tenant_id = ?',
+      [prospect.email, enrollment.tenant_id]
     );
 
     if (suppressed.length > 0) {

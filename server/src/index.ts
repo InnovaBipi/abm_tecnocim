@@ -87,9 +87,10 @@ async function main(): Promise<void> {
 
   const sendLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hour
-    max: 200, // 200 email sends per hour
+    max: 200, // 200 email sends per hour per tenant
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: (req: any) => req.user?.tenantId || req.ip || 'anonymous',
     message: { success: false, error: 'Límit d\'enviaments assolit. Espera 1 hora.' },
   });
 

@@ -9,9 +9,9 @@ const poolConfig: mysql.PoolOptions = {
   database: config.DB_NAME,
   waitForConnections: true,
   connectionLimit: config.NODE_ENV === 'production' ? 50 : 10,
-  queueLimit: 0,
+  queueLimit: 100,
   enableKeepAlive: true,
-  keepAliveInitialDelay: 0,
+  keepAliveInitialDelay: 30000,
 };
 
 // Support SSL for production (e.g., DigitalOcean managed MySQL)

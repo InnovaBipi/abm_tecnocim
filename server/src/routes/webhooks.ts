@@ -41,8 +41,8 @@ async function verifyWebhookSignature(req: Request): Promise<boolean> {
   const svixSignature = req.headers['svix-signature'] as string;
 
   if (!svixId || !svixTimestamp || !svixSignature) {
-    // No svix headers — might be a test ping, allow it
-    return true;
+    // Only allow missing headers in development (never in production)
+    return config.NODE_ENV !== 'production';
   }
 
   // Reject timestamps older than 5 minutes (replay protection)

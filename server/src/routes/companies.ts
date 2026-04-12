@@ -134,9 +134,9 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
       `SELECT id, email, first_name, last_name, full_name, title, seniority,
               status, lead_score, last_contacted
        FROM prospects
-       WHERE company_id = ?
+       WHERE company_id = ? AND tenant_id = ?
        ORDER BY lead_score DESC`,
-      [id]
+      [id, req.user!.tenantId]
     );
 
     // Fetch tags
@@ -144,8 +144,8 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
       `SELECT t.id, t.name, t.color
        FROM tags t
        JOIN company_tags ct ON t.id = ct.tag_id
-       WHERE ct.company_id = ?`,
-      [id]
+       WHERE ct.company_id = ? AND t.tenant_id = ?`,
+      [id, req.user!.tenantId]
     );
 
     res.json({

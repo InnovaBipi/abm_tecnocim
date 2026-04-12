@@ -2,6 +2,10 @@
 description: TypeScript coding conventions for backend and frontend
 globs: ["**/*.ts", "**/*.tsx"]
 alwaysApply: false
+paths:
+  - "server/src/**/*.ts"
+  - "client/src/**/*.ts"
+  - "client/src/**/*.tsx"
 ---
 
 # TypeScript Patterns

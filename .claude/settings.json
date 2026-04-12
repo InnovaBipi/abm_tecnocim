@@ -34,5 +34,57 @@
       "Write(.env*)",
       "Write(node_modules/**)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "You are a security reviewer for a multi-tenant ABM platform. Check the code being written/edited. If it contains SQL queries (SELECT, INSERT, UPDATE, DELETE on tables like prospects, companies, campaigns, email_sequences, generated_emails, scoring_rules, imports, tags, prospect_activities, email_events, suppression_list, sequence_enrollments, jobs, imap_sync_state, prospect_score_history), verify EVERY query includes tenant_id filtering. The ONLY exceptions are: (1) the 'tenants' table itself, (2) the '_migrations' table, (3) 'sequence_steps' table (child of sequence, no tenant_id column), (4) 'campaign_prospects' and 'prospect_tags' and 'company_tags' junction tables. If a query on a tenant-scoped table is MISSING tenant_id, respond {\"decision\": \"block\", \"reason\": \"SQL query on [table] missing tenant_id filter\"}. Otherwise respond {\"decision\": \"allow\"}."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(echo '$TOOL_INPUT' | jq -r '.file_path // .filePath // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '\\.(ts|tsx)$'; then npx prettier --write \"$FILE\" 2>/dev/null; fi; exit 0"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Review what was accomplished in this session. Check: (1) Are there any incomplete tasks that were started but not finished? (2) Were any SQL queries written without tenant_id on tenant-scoped tables? (3) Were any .env or credential files modified? If everything looks good, respond {\"decision\": \"allow\"}. If there are incomplete tasks or security issues, respond {\"decision\": \"block\", \"reason\": \"<specific issue>\"}."
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'POST-COMPACTION REMINDERS: (1) EVERY SQL query MUST include WHERE tenant_id=? (2) tenant_id comes from req.user!.tenantId via JWT, NEVER from request body (3) Use parameterized queries only - never string concatenation (4) Check suppression_list with tenant_id before any email send (5) Bulk operations max 1000 items'"
+          }
+        ]
+      }
+    ]
+  },
+  "project": {
+    "name": "ABM Tecnocim",
+    "type": "business-application",
+    "framework": "express,react,vite",
+    "languages": ["es", "ca"],
+    "domain": "account-based-marketing"
   }
 }

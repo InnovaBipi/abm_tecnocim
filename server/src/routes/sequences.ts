@@ -154,9 +154,9 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     const enrollmentStats = await query<any[]>(
       `SELECT status, COUNT(*) as count
        FROM sequence_enrollments
-       WHERE sequence_id = ?
+       WHERE sequence_id = ? AND tenant_id = ?
        GROUP BY status`,
-      [id]
+      [id, req.user!.tenantId]
     );
 
     // Fetch recent enrollments
@@ -164,10 +164,10 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
       `SELECT se.*, p.email, p.first_name, p.last_name, p.full_name
        FROM sequence_enrollments se
        JOIN prospects p ON se.prospect_id = p.id
-       WHERE se.sequence_id = ?
+       WHERE se.sequence_id = ? AND se.tenant_id = ?
        ORDER BY se.enrolled_at DESC
        LIMIT 50`,
-      [id]
+      [id, req.user!.tenantId]
     );
 
     // Per-step email stats
@@ -179,11 +179,11 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
               SUM(CASE WHEN ee.event_type = 'replied' THEN 1 ELSE 0 END) as replied,
               SUM(CASE WHEN ee.event_type = 'bounced' THEN 1 ELSE 0 END) as bounced
        FROM sequence_steps ss
-       LEFT JOIN email_events ee ON ee.step_id = ss.id
+       LEFT JOIN email_events ee ON ee.step_id = ss.id AND ee.tenant_id = ?
        WHERE ss.sequence_id = ?
        GROUP BY ss.id, ss.step_number
        ORDER BY ss.step_number ASC`,
-      [id]
+      [req.user!.tenantId, id]
     );
 
     res.json({

@@ -135,20 +135,20 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
               p.status, p.lead_score, cp.status as campaign_status, cp.added_at
        FROM campaign_prospects cp
        JOIN prospects p ON cp.prospect_id = p.id
-       WHERE cp.campaign_id = ?
+       WHERE cp.campaign_id = ? AND p.tenant_id = ?
        ORDER BY cp.added_at DESC`,
-      [id]
+      [id, req.user!.tenantId]
     );
 
     // Fetch sequences
     const sequences = await query<any[]>(
       `SELECT es.*,
-              (SELECT COUNT(*) FROM sequence_enrollments se WHERE se.sequence_id = es.id) as enrollment_count,
+              (SELECT COUNT(*) FROM sequence_enrollments se WHERE se.sequence_id = es.id AND se.tenant_id = ?) as enrollment_count,
               (SELECT COUNT(*) FROM sequence_steps ss WHERE ss.sequence_id = es.id) as step_count
        FROM email_sequences es
-       WHERE es.campaign_id = ?
+       WHERE es.campaign_id = ? AND es.tenant_id = ?
        ORDER BY es.created_at DESC`,
-      [id]
+      [req.user!.tenantId, id, req.user!.tenantId]
     );
 
     // Email stats
@@ -156,9 +156,9 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
       `SELECT ee.event_type, COUNT(*) as count
        FROM email_events ee
        JOIN email_sequences es ON ee.sequence_id = es.id
-       WHERE es.campaign_id = ?
+       WHERE es.campaign_id = ? AND ee.tenant_id = ?
        GROUP BY ee.event_type`,
-      [id]
+      [id, req.user!.tenantId]
     );
 
     res.json({
@@ -716,6 +716,16 @@ router.post('/:id/reject-emails', async (req: Request, res: Response): Promise<v
 router.delete('/:id/prospects/:prospectId', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id, prospectId } = req.params;
+
+    // Verify campaign belongs to this tenant before deleting
+    const campaignCheck = await query<any[]>(
+      'SELECT id FROM campaigns WHERE id = ? AND tenant_id = ?',
+      [id, req.user!.tenantId]
+    );
+    if (campaignCheck.length === 0) {
+      res.status(404).json({ success: false, error: 'Campaign not found.' });
+      return;
+    }
 
     const result = await query<any>(
       'DELETE FROM campaign_prospects WHERE campaign_id = ? AND prospect_id = ?',

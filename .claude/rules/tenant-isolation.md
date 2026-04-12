@@ -2,6 +2,11 @@
 description: Enforce multi-tenant data isolation in all database operations
 globs: ["server/**/*.ts", "database/**/*.sql"]
 alwaysApply: true
+paths:
+  - "server/src/routes/**/*.ts"
+  - "server/src/services/**/*.ts"
+  - "server/src/jobs/**/*.ts"
+  - "database/**/*.sql"
 ---
 
 # Tenant Isolation Rules

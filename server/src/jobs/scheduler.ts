@@ -365,6 +365,7 @@ async function processDueSequenceEmails(): Promise<void> {
             sequence_id: enrollment.sequence_id,
             prospect_id: enrollment.prospect_id,
             current_step: enrollment.current_step,
+            tenant_id: enrollment.tenant_id,
           },
           {
             id: step.id,

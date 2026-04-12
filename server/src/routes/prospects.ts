@@ -159,10 +159,10 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     // Fetch recent activities
     const activities = await query<any[]>(
       `SELECT * FROM prospect_activities
-       WHERE prospect_id = ?
+       WHERE prospect_id = ? AND tenant_id = ?
        ORDER BY occurred_at DESC
        LIMIT 20`,
-      [id]
+      [id, req.user!.tenantId]
     );
 
     // Fetch tags
@@ -170,8 +170,8 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
       `SELECT t.id, t.name, t.color
        FROM tags t
        JOIN prospect_tags pt ON t.id = pt.tag_id
-       WHERE pt.prospect_id = ?`,
-      [id]
+       WHERE pt.prospect_id = ? AND t.tenant_id = ?`,
+      [id, req.user!.tenantId]
     );
 
     res.json({

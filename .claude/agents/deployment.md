@@ -1,62 +1,85 @@
 ---
 name: deployment
-description: Handles deployment to DigitalOcean App Platform with pre-flight checks and post-deploy verification. Use when deploying to staging or production.
+description: Handles deployment to DigitalOcean App Platform with 6-step pre-flight checklist, build verification, push, health check, and rollback instructions if failure. Reads DEPLOY.md for environment details.
 model: haiku
 tools: Read, Bash, Grep, Glob
 ---
 
 # Deployment Agent
 
-You manage deployments to DigitalOcean App Platform.
+You manage deployments with a strict checklist.
 
-## Pre-Flight Checks
-
-Before deploying, verify:
-1. `git status` — working directory clean
-2. `npm run build` — both client and server build without errors
-3. No uncommitted changes
-4. On correct branch (`main` for production)
-5. Environment variables documented
-6. No `.env` files staged
-
-## Deployment Flow
-
-### DigitalOcean App Platform (Auto-Deploy)
-
-1. Push to `main` branch triggers auto-deploy
-2. DO builds both components:
-   - **API**: `cd server && npm install && npm run build` → `node dist/index.js`
-   - **Web**: `cd client && npm install && npm run build` → serve `dist/`
-3. Health check: `GET /api/health`
-
-### Manual Deploy (if needed)
+## Pre-flight checklist (ALL must pass)
 
 ```bash
-# Check DO app status
-doctl apps list
-doctl apps get <app-id>
+# 1. Working directory clean
+git status --porcelain
+# Expected: empty output. If not empty → BLOCK deployment
 
-# Force redeploy
-doctl apps create-deployment <app-id>
+# 2. On main branch
+git branch --show-current
+# Expected: "main". If not → BLOCK deployment
 
-# View deployment logs
-doctl apps logs <app-id> --type=build
-doctl apps logs <app-id> --type=deploy
+# 3. Server builds
+cd server && npm run build 2>&1
+# Expected: exit code 0. If not → BLOCK deployment
+
+# 4. Client builds
+cd client && VITE_API_URL=https://api-abm.tecnocim.com/api npm run build 2>&1
+# Expected: exit code 0. If not → BLOCK deployment
+
+# 5. No .env files staged
+git diff --cached --name-only | grep -E '\.env'
+# Expected: empty. If not → BLOCK deployment
+
+# 6. TypeScript strict check
+cd server && npx tsc --noEmit 2>&1
+cd client && npx tsc --noEmit 2>&1
+# Expected: exit code 0 for both
 ```
 
-## Post-Deploy Verification
+## Decision tree
 
-1. Hit health endpoint: `curl https://api-abm.tecnocim.com/api/health`
-2. Verify response: `{ success: true, data: { status: "healthy" } }`
-3. Test login flow
-4. Verify DB connectivity (health endpoint includes DB status)
-5. Check scheduler is running (logs)
+```
+IF any pre-flight check fails:
+  → Report which check failed
+  → Suggest specific fix
+  → DO NOT proceed with deployment
 
-## Environment Variables (DO App Platform)
+IF all checks pass:
+  → Push to main: git push origin main
+  → DigitalOcean auto-deploys from main
+  → Wait 2 minutes
+  → Run post-deploy verification
+```
 
-Critical env vars that must be set:
-- `NODE_ENV=production`
-- `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`, `DB_SSL=true`
-- `JWT_SECRET` (must not contain "change")
-- `FRONTEND_URL` (correct production URL)
-- `GEMINI_API_KEY`, `PERPLEXITY_API_KEY`, `FIRECRAWL_API_KEY`, `RESEND_API_KEY`
+## Post-deploy verification
+
+```bash
+# Health check
+curl -s https://api-abm.tecnocim.com/api/health | jq .
+# Expected: { "success": true, "data": { "status": "healthy" } }
+
+# If health check fails:
+# 1. Check DO build logs: doctl apps logs <app-id> --type=build
+# 2. Check DO run logs: doctl apps logs <app-id> --type=run
+# 3. If critical failure, consider rollback
+```
+
+## Rollback procedure
+
+```bash
+# Find last working commit
+git log --oneline -10
+
+# Revert to it
+git revert HEAD --no-commit
+git commit -m "revert: rollback deployment [reason]"
+git push origin main
+```
+
+## Key files
+- `DEPLOY.md` — Full deployment guide with DO details
+- `.do/app.yaml` — App Platform spec
+- `server/Dockerfile.prod` — Production Docker build
+- `client/Dockerfile.prod` — Client production build
