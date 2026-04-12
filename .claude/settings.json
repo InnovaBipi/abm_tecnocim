@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Edit(client/**)",
+      "Edit(server/**)",
+      "Edit(database/**)",
+      "Edit(.claude/**)",
+      "Edit(CLAUDE.md)",
+      "Write(client/**)",
+      "Write(server/**)",
+      "Write(database/**)",
+      "Write(.claude/**)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git branch*)",
+      "Bash(git remote*)",
+      "Bash(gh *)",
+      "Bash(ls *)",
+      "Bash(mkdir *)",
+      "Bash(docker compose*)",
+      "Bash(docker-compose*)",
+      "Bash(curl *)",
+      "Bash(doctl *)",
+      "WebSearch"
+    ],
+    "deny": [
+      "Write(.env*)",
+      "Write(node_modules/**)"
+    ]
+  }
+}

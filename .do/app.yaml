@@ -1,0 +1,71 @@
+name: abm-tecnocim
+region: fra
+
+services:
+  - name: api
+    github:
+      repo: DATANINJA-dev/abm_tecnocim
+      branch: main
+      deploy_on_push: true
+    source_dir: server
+    build_command: npm install && npm run build
+    run_command: npm start
+    http_port: 3001
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: DB_HOST
+        value: "${db.HOSTNAME}"
+      - key: DB_PORT
+        value: "${db.PORT}"
+      - key: DB_USER
+        value: "${db.USERNAME}"
+      - key: DB_PASS
+        value: "${db.PASSWORD}"
+      - key: DB_NAME
+        value: "${db.DATABASE}"
+      - key: DB_SSL
+        value: "true"
+      - key: JWT_SECRET
+        type: SECRET
+      - key: GEMINI_API_KEY
+        type: SECRET
+      - key: PERPLEXITY_API_KEY
+        type: SECRET
+      - key: FIRECRAWL_API_KEY
+        type: SECRET
+      - key: RESEND_API_KEY
+        type: SECRET
+      - key: RESEND_WEBHOOK_SECRET
+        type: SECRET
+      - key: FRONTEND_URL
+        value: "https://abm.tecnocim.com"
+    health_check:
+      http_path: /api/health
+      initial_delay_seconds: 30
+      period_seconds: 10
+
+static_sites:
+  - name: web
+    github:
+      repo: DATANINJA-dev/abm_tecnocim
+      branch: main
+      deploy_on_push: true
+    source_dir: client
+    build_command: npm install && npm run build
+    output_dir: dist
+    envs:
+      - key: VITE_API_URL
+        value: "https://api-abm.tecnocim.com/api"
+    routes:
+      - path: /
+    catchall_document: index.html
+
+databases:
+  - name: db
+    engine: MYSQL
+    version: "8"
+    size: db-s-1vcpu-1gb
+    num_nodes: 1

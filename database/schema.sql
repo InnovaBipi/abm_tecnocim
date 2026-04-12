@@ -1,12 +1,12 @@
 -- ============================================
--- CamiaCasa ABM - MySQL Database Schema
+-- ABM Platform - MySQL Database Schema
 -- ============================================
 
-CREATE DATABASE IF NOT EXISTS camiacasa_abm
+CREATE DATABASE IF NOT EXISTS abm_tecnocim
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
-USE camiacasa_abm;
+USE abm_tecnocim;
 
 -- ============================================
 -- USERS & AUTH

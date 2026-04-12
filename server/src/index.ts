@@ -174,7 +174,7 @@ async function main(): Promise<void> {
   const server = app.listen(config.PORT, () => {
     console.log('');
     console.log('=========================================');
-    console.log('  CamiaCasa ABM Server');
+    console.log('  ABM Platform Server');
     console.log('=========================================');
     console.log(`  Environment: ${config.NODE_ENV}`);
     console.log(`  Port:        ${config.PORT}`);

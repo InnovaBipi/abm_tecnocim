@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "serena": {
+      "command": "uvx",
+      "args": ["serena-mcp"],
+      "env": {
+        "SERENA_PROJECT_DIR": "."
+      }
+    }
+  }
+}

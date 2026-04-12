@@ -1,0 +1,11 @@
+project_name: ABM Tecnocim
+language: typescript
+source_directories:
+  - server/src
+  - client/src
+exclude_patterns:
+  - node_modules
+  - dist
+  - build
+  - "*.d.ts"
+  - "*.js.map"

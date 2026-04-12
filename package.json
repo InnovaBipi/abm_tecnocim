@@ -1,7 +1,7 @@
 {
-  "name": "camiacasa-abm",
+  "name": "abm-tecnocim",
   "version": "1.0.0",
-  "description": "CamiaCasa ABM - Account-Based Marketing for Real Estate",
+  "description": "ABM Platform - Multi-tenant Account-Based Marketing",
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",

@@ -55,7 +55,7 @@ export const config: EnvConfig = {
   DB_PORT: parseInt(getEnvVar('DB_PORT', '3306'), 10),
   DB_USER: getEnvVar('DB_USER', 'root'),
   DB_PASSWORD: getEnvVar('DB_PASS', ''),
-  DB_NAME: getEnvVar('DB_NAME', 'camiacasa_abm'),
+  DB_NAME: getEnvVar('DB_NAME', 'abm_tecnocim'),
   DB_SSL: getEnvVar('DB_SSL', 'false') === 'true',
 
   // JWT

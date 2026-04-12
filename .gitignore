@@ -30,8 +30,12 @@ desktop.ini
 *.swp
 *.swo
 
-# Claude Code local settings (may contain credentials in command history)
-.claude/
+# Claude Code local settings (keep agents, commands, rules, skills - exclude local settings)
+.claude/settings.local.json
+.claude/projects/
+
+# Serena local state
+.serena/memories/
 
 # Uploads
 uploads/
