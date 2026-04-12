@@ -59,6 +59,7 @@ services:
       period_seconds: 10
     routes:
       - path: /api
+        preserve_path_prefix: true
 
 static_sites:
   - name: web
