@@ -21,7 +21,7 @@ ingress:
 services:
   - name: api
     github:
-      repo: DATANINJA-dev/abm_tecnocim
+      repo: InnovaBipi/abm_tecnocim
       branch: main
       deploy_on_push: true
     source_dir: server
@@ -73,7 +73,7 @@ services:
 static_sites:
   - name: web
     github:
-      repo: DATANINJA-dev/abm_tecnocim
+      repo: InnovaBipi/abm_tecnocim
       branch: main
       deploy_on_push: true
     source_dir: client
