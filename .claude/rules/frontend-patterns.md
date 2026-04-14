@@ -31,3 +31,29 @@ alwaysApply: false
 - Pages in `client/src/pages/` map 1:1 to routes in `App.tsx`
 - Layout wrapper provides Sidebar + navigation
 - ProtectedRoute handles auth redirect
+
+## Testing Patterns
+
+- Every new UI component in `components/ui/` must have a `.test.tsx` file
+- Use React Testing Library with semantic queries (getByRole, getByLabelText)
+- Test all 4 states: loading, error, empty, data
+- Mock API calls with `vi.mock('@/services/api')`
+- Never test implementation details (internal state, CSS classes)
+
+## Accessibility Requirements
+
+- All `<button>` elements must have accessible text (visible text or aria-label)
+- All icon-only buttons MUST have `aria-label`
+- All `<img>` elements must have `alt`
+- All form inputs must have associated `<label htmlFor>` or `aria-label`
+- Use semantic HTML elements (button, a, nav, main, section, header, footer)
+- Never use `onClick` on non-interactive elements without `role="button"` + `tabIndex={0}` + `onKeyDown`
+- Color must never be the sole indicator (pair with text/icon)
+
+## Performance Patterns
+
+- Use `keepPreviousData` / `placeholderData` for paginated queries (prevents flash)
+- Use `React.memo()` on list item renderers (ProspectRow, CampaignCard)
+- Use `useMemo` for derived/computed data from query results
+- Use `useCallback` for handlers passed to memoized child components
+- Avoid creating new objects/arrays in JSX (extract to const or useMemo)

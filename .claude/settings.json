@@ -63,7 +63,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Review what was accomplished in this session. Check: (1) Are there any incomplete tasks that were started but not finished? (2) Were any SQL queries written without tenant_id on tenant-scoped tables? (3) Were any .env or credential files modified? If everything looks good, respond {\"decision\": \"allow\"}. If there are incomplete tasks or security issues, respond {\"decision\": \"block\", \"reason\": \"<specific issue>\"}."
+            "prompt": "Review what was accomplished in this session. Check: (1) Are there any incomplete tasks that were started but not finished? (2) Were any SQL queries written without tenant_id on tenant-scoped tables? (3) Were any .env or credential files modified? (4) Were any new UI components created without corresponding .test.tsx files? If so, remind about testing conventions. If everything looks good, respond {\"decision\": \"allow\"}. If there are incomplete tasks or security issues, respond {\"decision\": \"block\", \"reason\": \"<specific issue>\"}."
           }
         ]
       }

@@ -11,7 +11,15 @@
     "start": "cd server && npm start",
     "db:migrate": "cd server && npm run db:migrate",
     "db:seed": "cd server && npm run db:seed",
-    "install:all": "npm install && cd server && npm install && cd ../client && npm install"
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install",
+    "test": "cd server && npx vitest run && cd ../client && npx vitest run",
+    "test:server": "cd server && npx vitest run",
+    "test:client": "cd client && npx vitest run",
+    "test:watch": "cd client && npx vitest",
+    "test:coverage": "cd server && npx vitest run --coverage && cd ../client && npx vitest run --coverage",
+    "test:e2e": "cd client && npx playwright test",
+    "test:e2e:ui": "cd client && npx playwright test --ui",
+    "test:e2e:debug": "cd client && npx playwright test --headed --debug"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
