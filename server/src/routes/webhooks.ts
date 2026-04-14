@@ -216,9 +216,9 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
 
         // Log activity
         await query(
-          `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
-           VALUES (?, ?, 'email_bounced', 'Email rebotado', ?)`,
-          [uuidv4(), prospectId, `El email ha rebotado. Añadido a lista de supresión.`]
+          `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, description)
+           VALUES (?, ?, ?, 'email_bounced', 'Email rebotado', ?)`,
+          [uuidv4(), tenantId, prospectId, `El email ha rebotado. Añadido a lista de supresión.`]
         );
         break;
 
@@ -246,9 +246,9 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
         );
 
         await query(
-          `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
-           VALUES (?, ?, 'spam_complaint', 'Queja de spam', ?)`,
-          [uuidv4(), prospectId, `El prospect ha marcado el email como spam. Marcado como do_not_contact.`]
+          `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, description)
+           VALUES (?, ?, ?, 'spam_complaint', 'Queja de spam', ?)`,
+          [uuidv4(), tenantId, prospectId, `El prospect ha marcado el email como spam. Marcado como do_not_contact.`]
         );
         break;
 
@@ -260,9 +260,9 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
         );
 
         await query(
-          `INSERT INTO prospect_activities (id, prospect_id, activity_type, title)
-           VALUES (?, ?, 'email_opened', 'Email abierto')`,
-          [uuidv4(), prospectId]
+          `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title)
+           VALUES (?, ?, ?, 'email_opened', 'Email abierto')`,
+          [uuidv4(), tenantId, prospectId]
         );
         break;
 
@@ -287,9 +287,9 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
               [prospectId]
             );
             await query(
-              `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
-               VALUES (?, ?, 'auto_qualified', 'Auto-calificado como interesado', ?)`,
-              [uuidv4(), prospectId, `Score ${p.lead_score} >= 70 tras click. Promocionado automáticamente.`]
+              `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, description)
+               VALUES (?, ?, ?, 'auto_qualified', 'Auto-calificado como interesado', ?)`,
+              [uuidv4(), tenantId, prospectId, `Score ${p.lead_score} >= 70 tras click. Promocionado automáticamente.`]
             );
           }
 
@@ -302,9 +302,9 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
         }
 
         await query(
-          `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
-           VALUES (?, ?, 'email_clicked', 'Link clicado', ?)`,
-          [uuidv4(), prospectId, `Link: ${data.click?.link || 'unknown'}`]
+          `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, description)
+           VALUES (?, ?, ?, 'email_clicked', 'Link clicado', ?)`,
+          [uuidv4(), tenantId, prospectId, `Link: ${data.click?.link || 'unknown'}`]
         );
         break;
       }

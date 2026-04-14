@@ -251,13 +251,13 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
     // Log activity
     await query(
-      `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, performed_by)
-       VALUES (?, ?, 'created', 'Prospect created', ?)`,
-      [uuidv4(), id, req.user!.id]
+      `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, performed_by)
+       VALUES (?, ?, ?, 'created', 'Prospect created', ?)`,
+      [uuidv4(), req.user!.tenantId, id, req.user!.id]
     );
 
     // Fetch the created prospect
-    const created = await query<any[]>('SELECT * FROM prospects WHERE id = ?', [id]);
+    const created = await query<any[]>('SELECT * FROM prospects WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
 
     res.status(201).json({
       success: true,
@@ -351,12 +351,12 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
 
     // Log activity
     await query(
-      `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description, performed_by)
-       VALUES (?, ?, 'updated', 'Prospect updated', ?, ?)`,
-      [uuidv4(), id, `Updated fields: ${Object.keys(data).join(', ')}`, req.user!.id]
+      `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, description, performed_by)
+       VALUES (?, ?, ?, 'updated', 'Prospect updated', ?, ?)`,
+      [uuidv4(), req.user!.tenantId, id, `Updated fields: ${Object.keys(data).join(', ')}`, req.user!.id]
     );
 
-    const updated = await query<any[]>('SELECT * FROM prospects WHERE id = ?', [id]);
+    const updated = await query<any[]>('SELECT * FROM prospects WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
 
     res.json({
       success: true,

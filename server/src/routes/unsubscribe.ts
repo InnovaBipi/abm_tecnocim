@@ -142,9 +142,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       );
 
       await query(
-        `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
-         VALUES (?, ?, 'unsubscribed', 'Unsubscribed', 'Prospect unsubscribed via link.')`,
-        [uuidv4(), prospects[0].id]
+        `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, description)
+         VALUES (?, ?, ?, 'unsubscribed', 'Unsubscribed', 'Prospect unsubscribed via link.')`,
+        [uuidv4(), resolvedTenantId, prospects[0].id]
       );
     }
 

@@ -415,9 +415,9 @@ async function processDueSequenceEmails(): Promise<void> {
 
       // Log activity about the failure
       await query(
-        `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
-         VALUES (?, ?, 'error', 'Sequence email failed', ?)`,
-        [uuidv4(), enrollment.prospect_id, `Error: ${error.message}`]
+        `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, description)
+         VALUES (?, ?, ?, 'error', 'Sequence email failed', ?)`,
+        [uuidv4(), enrollment.tenant_id, enrollment.prospect_id, `Error: ${error.message}`]
       );
     }
   }
@@ -670,10 +670,11 @@ async function processScheduledOutboxEmails(): Promise<void> {
         );
 
         await query(
-          `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
-           VALUES (?, ?, 'email_sent', ?, ?)`,
+          `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, description)
+           VALUES (?, ?, ?, 'email_sent', ?, ?)`,
           [
             uuidv4(),
+            emailTenantId,
             email.prospect_id,
             `Email enviado (programado): Paso ${email.step_number}`,
             `Asunto: ${email.subject} | Campaña: ${email.campaign_name}`,

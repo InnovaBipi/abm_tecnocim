@@ -204,10 +204,11 @@ export async function sendSequenceEmail(
 
     // Log activity
     await query(
-      `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
-       VALUES (?, ?, 'email_sent', ?, ?)`,
+      `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, description)
+       VALUES (?, ?, ?, 'email_sent', ?, ?)`,
       [
         uuidv4(),
+        enrollment.tenant_id,
         enrollment.prospect_id,
         `Sequence email sent (Step ${step.step_number})`,
         `Subject: ${personalizedSubject}`,

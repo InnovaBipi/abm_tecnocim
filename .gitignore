@@ -48,4 +48,11 @@ temp/
 
 # Coverage
 coverage/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Build artifacts
+client/dist-node/
+
 nul

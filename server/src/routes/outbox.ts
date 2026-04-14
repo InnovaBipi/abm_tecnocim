@@ -312,10 +312,11 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
 
           // Log activity
           await query(
-            `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, description)
-             VALUES (?, ?, 'email_sent', ?, ?)`,
+            `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, description)
+             VALUES (?, ?, ?, 'email_sent', ?, ?)`,
             [
               uuidv4(),
+              req.user!.tenantId,
               email.prospect_id,
               `Email enviado: Paso ${email.step_number}`,
               `Asunto: ${email.subject} | Propiedad: ${email.campaign_name}`,

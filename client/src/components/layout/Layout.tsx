@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
+import { ErrorBoundary } from './ErrorBoundary';
 import { useAuthStore } from '@/stores/authStore';
 
 export function Layout() {
@@ -18,7 +19,9 @@ export function Layout() {
       <Sidebar />
       <div className="pl-64">
         <main className="min-h-screen">
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

@@ -32,6 +32,10 @@ jobs:
         working-directory: server
         run: npm run build
 
+      - name: Run tests
+        working-directory: server
+        run: npx vitest run --passWithNoTests
+
   client-check:
     name: Client - Lint & Build
     runs-on: ubuntu-latest
@@ -58,6 +62,10 @@ jobs:
         run: npm run build
         env:
           VITE_API_URL: https://api-abm.tecnocim.com/api
+
+      - name: Run tests
+        working-directory: client
+        run: npx vitest run
 
   security-audit:
     name: Security Audit

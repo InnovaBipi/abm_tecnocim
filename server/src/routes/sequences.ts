@@ -536,9 +536,9 @@ router.post('/:id/enroll', async (req: Request, res: Response): Promise<void> =>
 
         // Log activity
         await query(
-          `INSERT INTO prospect_activities (id, prospect_id, activity_type, title, performed_by)
-           VALUES (?, ?, 'enrolled', 'Enrolled in email sequence', ?)`,
-          [uuidv4(), prospectId, req.user!.id]
+          `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, performed_by)
+           VALUES (?, ?, ?, 'enrolled', 'Enrolled in email sequence', ?)`,
+          [uuidv4(), req.user!.tenantId, prospectId, req.user!.id]
         );
 
         enrolledCount++;
