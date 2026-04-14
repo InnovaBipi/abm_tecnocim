@@ -45,6 +45,13 @@ export default {
       fontFamily: {
         sans: ['Poppins', 'system-ui', '-apple-system', 'sans-serif'],
       },
+      boxShadow: {
+        card: '0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03)',
+      },
+      fontSize: {
+        display: ['2.25rem', { lineHeight: '2.5rem', fontWeight: '700' }],
+        label: ['0.75rem', { lineHeight: '1rem', fontWeight: '500', letterSpacing: '0.05em' }],
+      },
     },
   },
   plugins: [],
