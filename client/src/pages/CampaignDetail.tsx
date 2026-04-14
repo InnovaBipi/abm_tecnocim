@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Tabs } from '@/components/ui/Tabs';
 import { Table, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/Table';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   ArrowLeft,
   Users,
@@ -30,8 +31,17 @@ import {
   ChevronRight,
   Edit3,
 } from 'lucide-react';
+import { Select } from '@/components/ui/Select';
 import { getStatusColor, getScoreColor, formatNumber } from '@/lib/utils';
+import { useConfirmDialog } from '@/hooks/useConfirmDialog';
 import toast from 'react-hot-toast';
+
+const campaignStatusOptions = [
+  { value: 'draft', label: 'Borrador' },
+  { value: 'active', label: 'Activo' },
+  { value: 'paused', label: 'Pausado' },
+  { value: 'completed', label: 'Completado' },
+];
 
 // --- Email status badge helper ---
 function EmailStatusBadge({ status }: { status: string }) {
@@ -54,6 +64,7 @@ export default function CampaignDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { dialogProps, confirm } = useConfirmDialog();
   const [activeTab, setActiveTab] = useState('prospects');
   const [showAddProspectsModal, setShowAddProspectsModal] = useState(false);
   const [prospectSearch, setProspectSearch] = useState('');
@@ -153,6 +164,15 @@ export default function CampaignDetail() {
     onError: () => toast.error('Error al guardar'),
   });
 
+  const updateStatusMutation = useMutation({
+    mutationFn: (status: string) => campaignsApi.update(id!, { status }),
+    onSuccess: () => {
+      toast.success('Estado de la campana actualizado');
+      queryClient.invalidateQueries({ queryKey: ['campaigns', id] });
+    },
+    onError: () => toast.error('Error al cambiar el estado'),
+  });
+
   const campaign = data?.data?.data;
   const allProspects = allProspectsData?.data?.data?.prospects || [];
   const generatedEmails = generatedEmailsData?.data?.data;
@@ -245,6 +265,17 @@ export default function CampaignDetail() {
               <p className="text-sm text-slate-500 mt-1">{campaign.description}</p>
             )}
           </div>
+        </div>
+        <div className="w-40">
+          <Select
+            options={campaignStatusOptions}
+            value={campaign.status || 'draft'}
+            onChange={(val) => {
+              if (val !== campaign.status) {
+                updateStatusMutation.mutate(val);
+              }
+            }}
+          />
         </div>
       </div>
 
@@ -415,9 +446,12 @@ export default function CampaignDetail() {
                             <TableCell>
                               <button
                                 onClick={() => {
-                                  if (confirm('Remover este prospecto de la propiedad?')) {
-                                    removeProspectMutation.mutate(pId);
-                                  }
+                                  confirm({
+                                    title: 'Remover prospecto?',
+                                    description: 'El prospecto sera removido de esta campana.',
+                                    confirmLabel: 'Remover',
+                                    onConfirm: () => removeProspectMutation.mutate(pId),
+                                  });
                                 }}
                                 className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
                               >
@@ -898,6 +932,8 @@ export default function CampaignDetail() {
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

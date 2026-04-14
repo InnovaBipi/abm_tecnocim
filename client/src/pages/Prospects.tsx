@@ -9,18 +9,23 @@ import { Select } from '@/components/ui/Select';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Table, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/Table';
+import { SortableHeader, SortDirection } from '@/components/ui/SortableHeader';
 import { Pagination } from '@/components/ui/Pagination';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { SkeletonTable } from '@/components/ui/Skeleton';
 import {
   Search,
   Plus,
   Upload,
   Trash2,
   Megaphone,
-  Loader2,
   AlertCircle,
   UserPlus,
 } from 'lucide-react';
 import { formatRelativeDate, getStatusColor, getScoreColor } from '@/lib/utils';
+import { useConfirmDialog } from '@/hooks/useConfirmDialog';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import toast from 'react-hot-toast';
 
 const statusOptions = [
@@ -60,18 +65,30 @@ export default function Prospects() {
     title: '',
     source: 'manual',
   });
+  const { dialogProps, confirm } = useConfirmDialog();
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
 
   const limit = 20;
 
+  const handleSort = (field: string, direction: SortDirection) => {
+    setSortBy(direction ? field : null);
+    setSortDirection(direction);
+    setPage(1);
+  };
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ['prospects', { page, limit, search, status: statusFilter, source: sourceFilter }],
+    queryKey: ['prospects', { page, limit, search: debouncedSearch, status: statusFilter, source: sourceFilter, sortBy, sortDirection }],
     queryFn: () =>
       prospectsApi.list({
         page,
         limit,
-        search: search || undefined,
+        search: debouncedSearch || undefined,
         status: statusFilter || undefined,
         source: sourceFilter || undefined,
+        sortBy: sortBy || undefined,
+        sortOrder: sortDirection || undefined,
       }),
   });
 
@@ -238,9 +255,12 @@ export default function Prospects() {
               icon={<Trash2 className="h-3.5 w-3.5" />}
               loading={bulkDeleteMutation.isPending}
               onClick={() => {
-                if (confirm('Estas seguro de eliminar los prospectos seleccionados?')) {
-                  bulkDeleteMutation.mutate(selectedIds);
-                }
+                confirm({
+                  title: `Eliminar ${selectedIds.length} prospecto(s)?`,
+                  description: 'Esta accion no se puede deshacer. Los prospectos seran eliminados permanentemente.',
+                  confirmLabel: 'Eliminar',
+                  onConfirm: () => bulkDeleteMutation.mutate(selectedIds),
+                });
               }}
             >
               Eliminar
@@ -251,28 +271,28 @@ export default function Prospects() {
 
       {/* Table */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
-          <span className="ml-2 text-slate-500">Cargando prospectos...</span>
-        </div>
+        <SkeletonTable rows={8} columns={7} />
       ) : error ? (
         <div className="flex flex-col items-center justify-center py-16 text-red-500">
           <AlertCircle className="h-8 w-8 mb-2" />
           <p className="text-sm">Error al cargar los prospectos</p>
         </div>
       ) : prospects.length === 0 ? (
-        <Card className="flex flex-col items-center justify-center py-16">
-          <UserPlus className="h-12 w-12 text-slate-300 mb-3" />
-          <h3 className="text-lg font-medium text-slate-600">Sin prospectos</h3>
-          <p className="text-sm text-slate-400 mt-1">Agrega tu primer prospecto o importa un archivo CSV</p>
-          <div className="flex items-center gap-3 mt-4">
-            <Button variant="secondary" onClick={() => navigate('/imports')}>
-              Importar CSV
-            </Button>
-            <Button onClick={() => setShowCreateModal(true)}>
-              Nuevo Prospecto
-            </Button>
-          </div>
+        <Card>
+          <EmptyState
+            icon={<UserPlus className="h-7 w-7" />}
+            title="Sin prospectos"
+            description="Agrega tu primer prospecto o importa un archivo CSV para comenzar"
+            action={{
+              label: 'Nuevo Prospecto',
+              onClick: () => setShowCreateModal(true),
+              icon: <Plus className="h-4 w-4" />,
+            }}
+            secondaryAction={{
+              label: 'Importar CSV',
+              onClick: () => navigate('/imports'),
+            }}
+          />
         </Card>
       ) : (
         <>
@@ -287,13 +307,13 @@ export default function Prospects() {
                     className="rounded border-slate-300 text-primary-600 focus:ring-primary-500"
                   />
                 </TableCell>
-                <TableCell isHeader>Nombre</TableCell>
+                <SortableHeader label="Nombre" field="full_name" currentSort={sortBy} currentDirection={sortDirection} onSort={handleSort} />
                 <TableCell isHeader>Email</TableCell>
                 <TableCell isHeader>Empresa</TableCell>
                 <TableCell isHeader>Cargo</TableCell>
-                <TableCell isHeader className="text-center">Puntuacion</TableCell>
-                <TableCell isHeader>Estado</TableCell>
-                <TableCell isHeader>Ultima actividad</TableCell>
+                <SortableHeader label="Puntuacion" field="lead_score" currentSort={sortBy} currentDirection={sortDirection} onSort={handleSort} className="text-center" />
+                <SortableHeader label="Estado" field="status" currentSort={sortBy} currentDirection={sortDirection} onSort={handleSort} />
+                <SortableHeader label="Ultima actividad" field="last_contacted" currentSort={sortBy} currentDirection={sortDirection} onSort={handleSort} />
                 <TableCell isHeader className="w-20">Acciones</TableCell>
               </TableRow>
             </TableHead>
@@ -341,11 +361,15 @@ export default function Prospects() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (confirm('Eliminar este prospecto?')) {
-                            deleteMutation.mutate(id);
-                          }
+                          confirm({
+                            title: 'Eliminar prospecto?',
+                            description: `Se eliminara a ${name} permanentemente.`,
+                            confirmLabel: 'Eliminar',
+                            onConfirm: () => deleteMutation.mutate(id),
+                          });
                         }}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        aria-label="Eliminar prospecto"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -433,6 +457,8 @@ export default function Prospects() {
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

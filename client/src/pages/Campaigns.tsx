@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { EmptyState } from '@/components/ui/EmptyState';
 import {
   Search,
   Plus,
@@ -22,6 +24,8 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { getStatusColor, formatNumber, formatDate } from '@/lib/utils';
+import { useConfirmDialog } from '@/hooks/useConfirmDialog';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import toast from 'react-hot-toast';
 
 const statusFilterOptions = [
@@ -48,6 +52,7 @@ const statusOptions = [
 export default function Campaigns() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { dialogProps, confirm } = useConfirmDialog();
   const tenant = useAuthStore((s) => s.tenant);
 
   const entityLabel = tenant?.config?.entity?.type_label || 'Propiedad';
@@ -69,11 +74,13 @@ export default function Campaigns() {
     status: 'draft',
   });
 
+  const debouncedSearch = useDebouncedValue(search, 300);
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ['campaigns', { search, status: statusFilter }],
+    queryKey: ['campaigns', { search: debouncedSearch, status: statusFilter }],
     queryFn: () =>
       campaignsApi.list({
-        search: search || undefined,
+        search: debouncedSearch || undefined,
         status: statusFilter || undefined,
       }),
   });
@@ -246,9 +253,12 @@ export default function Campaigns() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (confirm('Eliminar esta campana?')) {
-                          deleteMutation.mutate(id);
-                        }
+                        confirm({
+                          title: 'Eliminar campana?',
+                          description: 'Se eliminara la campana y todos sus datos asociados.',
+                          confirmLabel: 'Eliminar',
+                          onConfirm: () => deleteMutation.mutate(id),
+                        });
                       }}
                       className="p-1 rounded text-slate-400 hover:text-red-600 transition-colors"
                     >
@@ -324,6 +334,8 @@ export default function Campaigns() {
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Table, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/Table';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   Send,
   Loader2,
@@ -21,6 +22,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { formatRelativeDate } from '@/lib/utils';
+import { useConfirmDialog } from '@/hooks/useConfirmDialog';
 import toast from 'react-hot-toast';
 
 function StatusBadge({ status }: { status: string }) {
@@ -43,6 +45,7 @@ export default function Outbox() {
   const queryClient = useQueryClient();
   const [activeFilter, setActiveFilter] = useState('all');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const { dialogProps, confirm: confirmAction } = useConfirmDialog();
   const [previewEmail, setPreviewEmail] = useState<any>(null);
 
   const statusParam = activeFilter === 'all' ? undefined : activeFilter;
@@ -142,9 +145,13 @@ export default function Outbox() {
             <Button
               icon={<Zap className="h-4 w-4" />}
               onClick={() => {
-                if (confirm(`Forzar envio inmediato de ${scheduledCount} email(s) programados?`)) {
-                  sendMutation.mutate(undefined);
-                }
+                confirmAction({
+                  title: `Forzar envio de ${scheduledCount} email(s)?`,
+                  description: 'Los emails programados se enviaran inmediatamente.',
+                  variant: 'warning',
+                  confirmLabel: 'Enviar ahora',
+                  onConfirm: () => sendMutation.mutate(undefined),
+                });
               }}
               loading={sendMutation.isPending}
             >
@@ -329,9 +336,13 @@ export default function Outbox() {
                       {email.status === 'scheduled' && (
                         <button
                           onClick={() => {
-                            if (confirm(`Forzar envio a ${email.prospect_email}?`)) {
-                              sendMutation.mutate([email.id]);
-                            }
+                            confirmAction({
+                              title: 'Forzar envio?',
+                              description: `Se enviara el email a ${email.prospect_email} inmediatamente.`,
+                              variant: 'warning',
+                              confirmLabel: 'Enviar',
+                              onConfirm: () => sendMutation.mutate([email.id]),
+                            });
                           }}
                           className="p-1.5 rounded-lg text-primary-600 hover:bg-primary-50 transition-colors"
                           title="Forzar envio"
@@ -447,10 +458,16 @@ export default function Outbox() {
                     size="sm"
                     icon={<Zap className="h-4 w-4" />}
                     onClick={() => {
-                      if (confirm(`Forzar envio de este email a ${previewEmail.prospect_email}?`)) {
-                        sendMutation.mutate([previewEmail.id]);
-                        setPreviewEmail(null);
-                      }
+                      confirmAction({
+                        title: 'Forzar envio?',
+                        description: `Se enviara el email a ${previewEmail.prospect_email} inmediatamente.`,
+                        variant: 'warning',
+                        confirmLabel: 'Enviar',
+                        onConfirm: () => {
+                          sendMutation.mutate([previewEmail.id]);
+                          setPreviewEmail(null);
+                        },
+                      });
                     }}
                     loading={sendMutation.isPending}
                   >
@@ -462,6 +479,8 @@ export default function Outbox() {
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

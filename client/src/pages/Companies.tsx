@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { companiesApi } from '@/services/api';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -9,16 +10,21 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Table, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/Table';
 import { Pagination } from '@/components/ui/Pagination';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { SkeletonTable } from '@/components/ui/Skeleton';
 import {
   Search,
   Plus,
   Trash2,
   Building2,
-  Loader2,
   AlertCircle,
   ExternalLink,
+  Loader2,
 } from 'lucide-react';
 import { getTierColor, formatNumber } from '@/lib/utils';
+import { useConfirmDialog } from '@/hooks/useConfirmDialog';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import toast from 'react-hot-toast';
 
 const tierOptions = [
@@ -43,7 +49,9 @@ const industryOptions = [
 ];
 
 export default function Companies() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { dialogProps, confirm } = useConfirmDialog();
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -62,14 +70,15 @@ export default function Companies() {
   });
 
   const limit = 20;
+  const debouncedSearch = useDebouncedValue(search, 300);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['companies', { page, limit, search, tier: tierFilter, industry: industryFilter }],
+    queryKey: ['companies', { page, limit, search: debouncedSearch, tier: tierFilter, industry: industryFilter }],
     queryFn: () =>
       companiesApi.list({
         page,
         limit,
-        search: search || undefined,
+        search: debouncedSearch || undefined,
         tier: tierFilter || undefined,
         industry: industryFilter || undefined,
       }),
@@ -212,12 +221,24 @@ export default function Companies() {
                   <TableRow key={id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 text-slate-600">
-                          <Building2 className="h-4 w-4" />
-                        </div>
-                        <span className="text-sm font-medium text-slate-900">
+                        {company.domain ? (
+                          <img
+                            src={`https://www.google.com/s2/favicons?domain=${company.domain}&sz=32`}
+                            alt=""
+                            className="w-8 h-8 rounded-lg bg-slate-100 p-1"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        ) : (
+                          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 text-slate-600">
+                            <Building2 className="h-4 w-4" />
+                          </div>
+                        )}
+                        <button
+                          onClick={() => navigate(`/companies/${id}`)}
+                          className="text-sm font-medium text-primary-600 hover:text-primary-700 hover:underline"
+                        >
                           {company.name as string}
-                        </span>
+                        </button>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -252,11 +273,15 @@ export default function Companies() {
                     <TableCell>
                       <button
                         onClick={() => {
-                          if (confirm('Eliminar esta empresa?')) {
-                            deleteMutation.mutate(id);
-                          }
+                          confirm({
+                            title: 'Eliminar empresa?',
+                            description: `Se eliminara "${company.name}" permanentemente.`,
+                            confirmLabel: 'Eliminar',
+                            onConfirm: () => deleteMutation.mutate(id),
+                          });
                         }}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        aria-label="Eliminar empresa"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -356,6 +381,8 @@ export default function Companies() {
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

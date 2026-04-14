@@ -3,12 +3,13 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore, type TenantOption } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Home, Mail, Lock, Building2 } from 'lucide-react';
+import { Home, Mail, Lock, Building2, Eye, EyeOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [tenantOptions, setTenantOptions] = useState<TenantOption[] | null>(null);
   const [selectedTenant, setSelectedTenant] = useState<string | null>(null);
@@ -80,23 +81,44 @@ export default function Login() {
               onChange={(e) => { setEmail(e.target.value); setTenantOptions(null); setSelectedTenant(null); }}
               icon={<Mail className="h-4 w-4" />}
               autoComplete="email"
+              autoFocus
               required
             />
 
-            <Input
-              label="Contrasena"
-              type="password"
-              placeholder="Tu contrasena"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              icon={<Lock className="h-4 w-4" />}
-              autoComplete="current-password"
-              required
-            />
+            <div className="relative">
+              <Input
+                label="Contrasena"
+                type={showPassword ? 'text' : 'password'}
+                placeholder="Tu contrasena"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                icon={<Lock className="h-4 w-4" />}
+                autoComplete="current-password"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-[34px] p-1 text-slate-400 hover:text-slate-600 transition-colors"
+                aria-label={showPassword ? 'Ocultar contrasena' : 'Mostrar contrasena'}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                className="text-sm text-primary-600 hover:text-primary-700 hover:underline"
+                onClick={() => toast('Contacta al administrador para restablecer tu contrasena')}
+              >
+                Olvidaste tu contrasena?
+              </button>
+            </div>
 
             {/* Tenant selection (shown when user has accounts in multiple tenants) */}
             {tenantOptions && (
-              <div className="space-y-2">
+              <div className="space-y-2 animate-in slide-in-from-top-2 fade-in duration-300">
                 <label className="block text-sm font-medium text-slate-700">Selecciona tu cuenta</label>
                 <div className="space-y-2">
                   {tenantOptions.map((t) => (

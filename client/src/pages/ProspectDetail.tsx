@@ -198,6 +198,53 @@ export default function ProspectDetail() {
         </Badge>
       </div>
 
+      {/* Suggested Next Action */}
+      {(() => {
+        const status = prospect.status || 'new';
+        const hasEnrichment = prospect.enrichment_data && Object.keys(prospect.enrichment_data).length > 0;
+        let actionText = '';
+        let actionIcon = <Lightbulb className="h-4 w-4" />;
+        let actionColor = 'bg-blue-50 border-blue-200 text-blue-800';
+        let actionButton = '';
+        let onAction = () => {};
+
+        if (status === 'new' && !hasEnrichment && score < 40) {
+          actionText = 'Este prospecto necesita enriquecimiento para evaluar su potencial.';
+          actionButton = 'Enriquecer ahora';
+          actionIcon = <Sparkles className="h-4 w-4" />;
+          actionColor = 'bg-amber-50 border-amber-200 text-amber-800';
+          onAction = () => enrichMutation.mutate();
+        } else if (status === 'new' && score >= 60) {
+          actionText = 'Prospecto con score alto. Consideralo para una campana de outreach.';
+          actionButton = 'Ver campanas';
+          actionIcon = <Target className="h-4 w-4" />;
+          actionColor = 'bg-green-50 border-green-200 text-green-800';
+          onAction = () => navigate('/campaigns');
+        } else if (status === 'new' && !hasEnrichment) {
+          actionText = 'Enriquece este prospecto con IA para obtener informacion de su empresa y sector.';
+          actionButton = 'Enriquecer';
+          actionIcon = <Sparkles className="h-4 w-4" />;
+          onAction = () => enrichMutation.mutate();
+        } else if (status === 'contacted' && score >= 50) {
+          actionText = 'Ya contactado con buen score. Revisa si ha respondido en la pestana de Emails.';
+          actionButton = 'Ver emails';
+          actionIcon = <Mail className="h-4 w-4" />;
+          onAction = () => setActiveTab('emails');
+        }
+
+        if (!actionText) return null;
+
+        return (
+          <div className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${actionColor}`}>
+            {actionIcon}
+            <p className="text-sm flex-1">{actionText}</p>
+            <Button size="sm" variant="secondary" onClick={onAction}>
+              {actionButton}
+            </Button>
+          </div>
+        );
+      })()}
+
       {/* Tabs */}
       <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab}>
         {(tab) => {

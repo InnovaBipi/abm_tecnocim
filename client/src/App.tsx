@@ -8,6 +8,7 @@ import Dashboard from '@/pages/Dashboard';
 import Prospects from '@/pages/Prospects';
 import ProspectDetail from '@/pages/ProspectDetail';
 import Companies from '@/pages/Companies';
+import CompanyDetail from '@/pages/CompanyDetail';
 import Campaigns from '@/pages/Campaigns';
 import CampaignDetail from '@/pages/CampaignDetail';
 import Outbox from '@/pages/Outbox';
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/prospects" element={<Prospects />} />
         <Route path="/prospects/:id" element={<ProspectDetail />} />
         <Route path="/companies" element={<Companies />} />
+        <Route path="/companies/:id" element={<CompanyDetail />} />
         <Route path="/campaigns" element={<Campaigns />} />
         <Route path="/campaigns/:id" element={<CampaignDetail />} />
         <Route path="/outbox" element={<Outbox />} />

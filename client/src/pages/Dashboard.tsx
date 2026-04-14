@@ -1,7 +1,14 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { dashboardApi } from '@/services/api';
+import { useAuthStore } from '@/stores/authStore';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { DateRangePicker, type DateRange } from '@/components/ui/DateRangePicker';
+import { SkeletonCard, SkeletonChart, SkeletonTable } from '@/components/ui/Skeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { formatNumber, formatRelativeDate, getScoreColor } from '@/lib/utils';
 import {
   Users,
@@ -10,12 +17,14 @@ import {
   Mail,
   TrendingUp,
   Activity,
-  Loader2,
   AlertCircle,
   Shield,
   Flame,
   ArrowDown,
   MousePointerClick,
+  Upload,
+  UserPlus,
+  Loader2,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -35,38 +44,58 @@ interface StatCardProps {
   icon: React.ReactNode;
   change?: string;
   changeType?: 'positive' | 'negative' | 'neutral';
+  href?: string;
 }
 
-function StatCard({ title, value, icon, change, changeType = 'neutral' }: StatCardProps) {
-  return (
-    <Card className="stat-card">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-medium text-slate-500">{title}</p>
-          <p className="text-2xl font-bold text-slate-900 mt-1">{value}</p>
-          {change && (
-            <p
-              className={`text-xs font-medium mt-2 ${
-                changeType === 'positive'
-                  ? 'text-emerald-600'
-                  : changeType === 'negative'
-                  ? 'text-red-600'
-                  : 'text-slate-500'
-              }`}
-            >
-              {change}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary-50 text-primary-600">
-          {icon}
-        </div>
+function StatCard({ title, value, icon, change, changeType = 'neutral', href }: StatCardProps) {
+  const navigate = useNavigate();
+  const content = (
+    <div className="flex items-start justify-between">
+      <div>
+        <p className="text-sm font-medium text-slate-500">{title}</p>
+        <p className="text-2xl font-bold text-slate-900 mt-1">{value}</p>
+        {change && (
+          <p
+            className={`text-xs font-medium mt-2 ${
+              changeType === 'positive'
+                ? 'text-emerald-600'
+                : changeType === 'negative'
+                ? 'text-red-600'
+                : 'text-slate-500'
+            }`}
+          >
+            {change}
+          </p>
+        )}
       </div>
+      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary-50 text-primary-600">
+        {icon}
+      </div>
+    </div>
+  );
+
+  return (
+    <Card
+      className={`stat-card ${href ? 'cursor-pointer hover:border-primary-200 hover:shadow-md transition-all' : ''}`}
+      {...(href ? { onClick: () => navigate(href) } : {})}
+    >
+      {content}
     </Card>
   );
 }
 
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Buenos dias';
+  if (hour < 18) return 'Buenas tardes';
+  return 'Buenas noches';
+}
+
 export default function Dashboard() {
+  const { user } = useAuthStore();
+  const navigate = useNavigate();
+  const [dateRange, setDateRange] = useState<DateRange>('30d');
+
   const { data: statsData, isLoading: statsLoading } = useQuery({
     queryKey: ['dashboard', 'stats'],
     queryFn: () => dashboardApi.getStats(),
@@ -132,19 +161,52 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-        <p className="text-slate-500 mt-1">Resumen general de tu plataforma ABM</p>
+      {/* Page header with greeting + date range */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">
+            {getGreeting()}, {user?.first_name || 'Usuario'}
+          </h1>
+          <p className="text-slate-500 mt-1">
+            {new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          </p>
+        </div>
+        <DateRangePicker value={dateRange} onChange={setDateRange} />
+      </div>
+
+      {/* Quick actions */}
+      <div className="flex items-center gap-3">
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<UserPlus className="h-4 w-4" />}
+          onClick={() => navigate('/prospects')}
+        >
+          Nuevo Prospecto
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<Megaphone className="h-4 w-4" />}
+          onClick={() => navigate('/campaigns')}
+        >
+          Nueva Campana
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<Upload className="h-4 w-4" />}
+          onClick={() => navigate('/imports')}
+        >
+          Importar CSV
+        </Button>
       </div>
 
       {/* Stat cards */}
       {statsLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map((i) => (
-            <Card key={i} className="stat-card animate-pulse">
-              <div className="h-16 bg-slate-100 rounded" />
-            </Card>
+            <SkeletonCard key={i} />
           ))}
         </div>
       ) : (
@@ -155,16 +217,19 @@ export default function Dashboard() {
             icon={<Users className="h-5 w-5" />}
             change={stats?.new_prospects_this_month ? `+${stats.new_prospects_this_month} este mes` : undefined}
             changeType={stats?.new_prospects_this_month > 0 ? 'positive' : 'neutral'}
+            href="/prospects"
           />
           <StatCard
             title="Empresas"
             value={formatNumber(stats?.total_companies || 0)}
             icon={<Building2 className="h-5 w-5" />}
+            href="/companies"
           />
           <StatCard
             title="Campanas Activas"
             value={formatNumber(stats?.active_campaigns || 0)}
             icon={<Megaphone className="h-5 w-5" />}
+            href="/campaigns"
           />
           <StatCard
             title="Emails Enviados"
@@ -172,6 +237,7 @@ export default function Dashboard() {
             icon={<Mail className="h-5 w-5" />}
             change={stats?.reply_rate ? `${stats.reply_rate}% reply rate` : undefined}
             changeType={stats?.reply_rate > 0 ? 'positive' : 'neutral'}
+            href="/outbox"
           />
         </div>
       )}
@@ -185,9 +251,7 @@ export default function Dashboard() {
         {deliverabilityLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[1, 2, 3, 4].map((i) => (
-              <Card key={i} className="stat-card animate-pulse">
-                <div className="h-16 bg-slate-100 rounded" />
-              </Card>
+              <SkeletonCard key={i} />
             ))}
           </div>
         ) : (
@@ -268,8 +332,8 @@ export default function Dashboard() {
                 <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="gradientEnviados" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15} />
-                      <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#ff7f00" stopOpacity={0.15} />
+                      <stop offset="95%" stopColor="#ff7f00" stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="gradientRespondidos" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#10b981" stopOpacity={0.15} />
@@ -290,7 +354,7 @@ export default function Dashboard() {
                   <Area
                     type="monotone"
                     dataKey="enviados"
-                    stroke="#4f46e5"
+                    stroke="#ff7f00"
                     fill="url(#gradientEnviados)"
                     strokeWidth={2}
                     name="Enviados"
@@ -338,7 +402,11 @@ export default function Dashboard() {
               </div>
             ) : (
               hotProspects.map((prospect: any, index: number) => (
-                <div key={prospect.id || index} className="flex items-center gap-3 px-6 py-3 hover:bg-slate-50 transition-colors">
+                <div
+                  key={prospect.id || index}
+                  className="flex items-center gap-3 px-6 py-3 hover:bg-slate-50 transition-colors cursor-pointer"
+                  onClick={() => prospect.id && navigate(`/prospects/${prospect.id}`)}
+                >
                   <div className="flex items-center justify-center w-8 h-8 rounded-full bg-orange-50 text-orange-500">
                     <Flame className="h-4 w-4" />
                   </div>
@@ -450,7 +518,11 @@ export default function Dashboard() {
               </div>
             ) : (
               topProspects.map((prospect: Record<string, unknown>, index: number) => (
-                <div key={prospect.id as string || index} className="flex items-center gap-3 px-6 py-3 hover:bg-slate-50 transition-colors">
+                <div
+                  key={prospect.id as string || index}
+                  className="flex items-center gap-3 px-6 py-3 hover:bg-slate-50 transition-colors cursor-pointer"
+                  onClick={() => prospect.id && navigate(`/prospects/${prospect.id}`)}
+                >
                   <div className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-slate-600 text-sm font-semibold">
                     {index + 1}
                   </div>
