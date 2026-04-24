@@ -61,7 +61,7 @@ jobs:
         working-directory: client
         run: npm run build
         env:
-          VITE_API_URL: https://api-abm.tecnocim.com/api
+          VITE_API_URL: /api
 
       - name: Run tests
         working-directory: client

@@ -52,7 +52,9 @@ services:
         type: SECRET
         value: REPLACE_ME
       - key: FRONTEND_URL
-        value: "${APP_URL}"
+        value: "https://abm.tecnociminnova.com"
+      - key: VITE_API_URL
+        value: "/api"
     health_check:
       http_path: /api/health
       initial_delay_seconds: 30

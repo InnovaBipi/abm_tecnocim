@@ -11,3 +11,9 @@ ABM Tecnocim was created by mirror-cloning `stark-dev-fit/camiacasa_abm` to `DAT
 **How to apply:** The upstream remote (`stark-dev-fit/camiacasa_abm`) is preserved for future sync. Branch renamed from master to main. Package names changed from camiacasa-abm to abm-tecnocim.
 
 Related project: BIPI (`C:\Users\user\proyectos\bipi`) — another Tecnocim project (tax bonus management) on the same DigitalOcean infrastructure.
+
+**Production domain:** `abm.tecnociminnova.com` (NOT `tecnocim.com` — that's only for the tenant's email config).
+- Full app (frontend + backend) deployed to DigitalOcean App Platform
+- Domain: `abm.tecnociminnova.com` (configured in DO)
+- Landing page at `tecnociminnova.com` is a separate Vercel project ("tecnocim-landing")
+- Deploy repo: `InnovaBipi/abm_tecnocim` (auto-deploy on push to main)

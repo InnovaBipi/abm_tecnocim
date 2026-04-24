@@ -49,6 +49,19 @@ npm run db:seed        # Seed database with sample data
 | Technova Partners | technova | technovapartners.com | AI training consulting |
 | Tecnocim | tecnocim | tecnocim.com | Innovation consulting + I+D+i |
 
+## Production
+
+| Component | URL | Platform |
+|-----------|-----|----------|
+| App (frontend + API) | `https://abm.tecnociminnova.com` | DigitalOcean App Platform |
+| Database | Private networking | DO Managed MySQL |
+
+- GitHub deploy repo: `InnovaBipi/abm_tecnocim` (auto-deploy on push to `main`)
+- Frontend and backend share the same DO app domain (`/` for SPA, `/api/*` for Express)
+- No `VITE_API_URL` needed in production — the default `/api` fallback works
+
+**Note:** `tecnocim.com` is the tenant's business domain (for email config). `tecnociminnova.com` is the platform hosting domain. Landing page is at `tecnociminnova.com` (Vercel, separate project).
+
 ## Project Structure
 
 ```

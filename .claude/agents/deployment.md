@@ -25,7 +25,7 @@ cd server && npm run build 2>&1
 # Expected: exit code 0. If not → BLOCK deployment
 
 # 4. Client builds
-cd client && VITE_API_URL=https://api-abm.tecnocim.com/api npm run build 2>&1
+cd client && npm run build 2>&1
 # Expected: exit code 0. If not → BLOCK deployment
 
 # 5. No .env files staged
@@ -57,7 +57,7 @@ IF all checks pass:
 
 ```bash
 # Health check
-curl -s https://api-abm.tecnocim.com/api/health | jq .
+curl -s https://abm.tecnociminnova.com/api/health | jq .
 # Expected: { "success": true, "data": { "status": "healthy" } }
 
 # If health check fails:
