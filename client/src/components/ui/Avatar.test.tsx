@@ -31,6 +31,6 @@ describe('Avatar', () => {
   it('generates consistent color for same name', () => {
     const { container: c1 } = render(<Avatar name="Alice" />);
     const { container: c2 } = render(<Avatar name="Alice" />);
-    expect(c1.firstChild?.className).toBe(c2.firstChild?.className);
+    expect((c1.firstChild as HTMLElement)?.className).toBe((c2.firstChild as HTMLElement)?.className);
   });
 });

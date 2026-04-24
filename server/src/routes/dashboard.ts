@@ -7,42 +7,59 @@ const router = Router();
 // All routes require authentication
 router.use(authenticate);
 
+// Helper: parse optional date range from query params
+function parseDateRange(req: Request): { dateFrom: string | null; dateTo: string | null } {
+  const dateFrom = req.query.date_from as string | undefined;
+  const dateTo = req.query.date_to as string | undefined;
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  return {
+    dateFrom: dateFrom && re.test(dateFrom) ? dateFrom : null,
+    dateTo: dateTo && re.test(dateTo) ? dateTo : null,
+  };
+}
+
 // --- GET /stats - Key metrics ---
 router.get('/stats', async (req: Request, res: Response): Promise<void> => {
   try {
     const tenantId = req.user!.tenantId;
+    const { dateFrom, dateTo } = parseDateRange(req);
 
-    // Total prospects
+    // Date filter clause for email_events
+    const hasDateFilter = dateFrom && dateTo;
+    const dateClause = hasDateFilter ? ' AND occurred_at >= ? AND occurred_at <= ?' : '';
+    const dateParams = hasDateFilter ? [dateFrom, dateTo + ' 23:59:59'] : [];
+
+    // Total prospects (cumulative, no date filter)
     const prospectCount = await query<any[]>('SELECT COUNT(*) as count FROM prospects WHERE tenant_id = ?', [tenantId]);
 
-    // Total companies
+    // Total companies (cumulative)
     const companyCount = await query<any[]>('SELECT COUNT(*) as count FROM companies WHERE tenant_id = ?', [tenantId]);
 
-    // Active campaigns
+    // Active campaigns (cumulative)
     const activeCampaigns = await query<any[]>(
       "SELECT COUNT(*) as count FROM campaigns WHERE status = 'active' AND tenant_id = ?",
       [tenantId]
     );
 
-    // Emails sent (total)
+    // Emails sent (filtered by date range)
     const emailsSent = await query<any[]>(
-      "SELECT COUNT(*) as count FROM email_events WHERE event_type = 'sent' AND tenant_id = ?",
-      [tenantId]
+      `SELECT COUNT(*) as count FROM email_events WHERE event_type = 'sent' AND tenant_id = ?${dateClause}`,
+      [tenantId, ...dateParams]
     );
 
-    // Reply rate
+    // Reply rate (filtered by date range)
     const emailsReplied = await query<any[]>(
-      "SELECT COUNT(*) as count FROM email_events WHERE event_type = 'replied' AND tenant_id = ?",
-      [tenantId]
+      `SELECT COUNT(*) as count FROM email_events WHERE event_type = 'replied' AND tenant_id = ?${dateClause}`,
+      [tenantId, ...dateParams]
     );
     const sentCount = emailsSent[0].count || 0;
     const repliedCount = emailsReplied[0].count || 0;
     const replyRate = sentCount > 0 ? Math.round((repliedCount / sentCount) * 10000) / 100 : 0;
 
-    // Open rate
+    // Open rate (filtered by date range)
     const emailsOpened = await query<any[]>(
-      "SELECT COUNT(*) as count FROM email_events WHERE event_type = 'opened' AND tenant_id = ?",
-      [tenantId]
+      `SELECT COUNT(*) as count FROM email_events WHERE event_type = 'opened' AND tenant_id = ?${dateClause}`,
+      [tenantId, ...dateParams]
     );
     const openedCount = emailsOpened[0].count || 0;
     const openRate = sentCount > 0 ? Math.round((openedCount / sentCount) * 10000) / 100 : 0;
@@ -166,6 +183,11 @@ router.get('/top-prospects', async (req: Request, res: Response): Promise<void> 
 router.get('/campaign-performance', async (req: Request, res: Response): Promise<void> => {
   try {
     const tenantId = req.user!.tenantId;
+    const { dateFrom, dateTo } = parseDateRange(req);
+
+    const hasDateFilter = dateFrom && dateTo;
+    const dateClause = hasDateFilter ? ' AND ee.occurred_at >= ? AND ee.occurred_at <= ?' : '';
+    const dateParams = hasDateFilter ? [dateFrom, dateTo + ' 23:59:59'] : [];
 
     const campaigns = await query<any[]>(
       `SELECT
@@ -203,12 +225,12 @@ router.get('/campaign-performance', async (req: Request, res: Response): Promise
                 SUM(CASE WHEN ee.event_type = 'bounced' THEN 1 ELSE 0 END) as bounced
          FROM email_events ee
          JOIN email_sequences es ON ee.sequence_id = es.id
-         WHERE es.campaign_id IS NOT NULL AND ee.tenant_id = ?
+         WHERE es.campaign_id IS NOT NULL AND ee.tenant_id = ?${dateClause}
          GROUP BY es.campaign_id
        ) stats ON stats.campaign_id = cam.id
        WHERE cam.tenant_id = ?
        ORDER BY cam.created_at DESC`,
-      [tenantId, tenantId]
+      [tenantId, ...dateParams, tenantId]
     );
 
     res.json({
@@ -228,6 +250,11 @@ router.get('/campaign-performance', async (req: Request, res: Response): Promise
 router.get('/deliverability', async (req: Request, res: Response): Promise<void> => {
   try {
     const tenantId = req.user!.tenantId;
+    const { dateFrom, dateTo } = parseDateRange(req);
+
+    const hasDateFilter = dateFrom && dateTo;
+    const dateClause = hasDateFilter ? ' AND occurred_at >= ? AND occurred_at <= ?' : '';
+    const dateParams = hasDateFilter ? [dateFrom, dateTo + ' 23:59:59'] : [];
 
     const totals = await query<any[]>(
       `SELECT
@@ -239,8 +266,8 @@ router.get('/deliverability', async (req: Request, res: Response): Promise<void>
          SUM(CASE WHEN event_type = 'clicked' THEN 1 ELSE 0 END) as clicked,
          SUM(CASE WHEN event_type = 'replied' THEN 1 ELSE 0 END) as replied
        FROM email_events
-       WHERE tenant_id = ?`,
-      [tenantId]
+       WHERE tenant_id = ?${dateClause}`,
+      [tenantId, ...dateParams]
     );
 
     const t = totals[0] || {};
@@ -375,10 +402,17 @@ router.get('/sequence-step-performance', async (req: Request, res: Response): Pr
   }
 });
 
-// --- GET /engagement-trends - Daily email volumes last 30 days ---
+// --- GET /engagement-trends - Daily email volumes (date range or last 30 days) ---
 router.get('/engagement-trends', async (req: Request, res: Response): Promise<void> => {
   try {
     const tenantId = req.user!.tenantId;
+    const { dateFrom, dateTo } = parseDateRange(req);
+
+    const hasDateFilter = dateFrom && dateTo;
+    const dateClause = hasDateFilter
+      ? 'occurred_at >= ? AND occurred_at <= ?'
+      : 'occurred_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)';
+    const dateParams = hasDateFilter ? [dateFrom, dateTo + ' 23:59:59'] : [];
 
     const trends = await query<any[]>(
       `SELECT
@@ -389,10 +423,10 @@ router.get('/engagement-trends', async (req: Request, res: Response): Promise<vo
          SUM(CASE WHEN event_type = 'clicked' THEN 1 ELSE 0 END) as clicked,
          SUM(CASE WHEN event_type = 'replied' THEN 1 ELSE 0 END) as replied
        FROM email_events
-       WHERE occurred_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND tenant_id = ?
+       WHERE ${dateClause} AND tenant_id = ?
        GROUP BY DATE(occurred_at)
        ORDER BY date ASC`,
-      [tenantId]
+      [...dateParams, tenantId]
     );
 
     res.json({

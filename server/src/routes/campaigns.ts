@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { query } from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { getTenantConfig, buildTenantAIContext } from '../middleware/tenant';
+import { calculateOptimalSendTime, resolveProspectTimezone } from '../services/scheduling';
 
 const router = Router();
 
@@ -544,6 +545,99 @@ router.post('/:id/generate-emails', async (req: Request, res: Response): Promise
   }
 });
 
+// --- GET /:id/metrics - Campaign engagement metrics ---
+// Uses generated_emails as primary source (campaign flow) + email_events for engagement
+router.get('/:id/metrics', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const tenantId = req.user!.tenantId;
+
+    const campaign = await query<any[]>('SELECT id FROM campaigns WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+    if (campaign.length === 0) {
+      res.status(404).json({ success: false, error: 'Campaign not found.' });
+      return;
+    }
+
+    // Pipeline counts from generated_emails (the primary data for campaign emails)
+    const pipelineStats = await query<any[]>(
+      `SELECT
+         SUM(CASE WHEN status IN ('sent', 'opened', 'replied') THEN 1 ELSE 0 END) as sent,
+         SUM(CASE WHEN status = 'bounced' THEN 1 ELSE 0 END) as bounced
+       FROM generated_emails
+       WHERE campaign_id = ? AND tenant_id = ?`,
+      [id, tenantId]
+    );
+
+    // Engagement counts from email_events (webhooks update these for opened/clicked/replied)
+    // Link via campaign_prospects to scope to this campaign's prospects
+    const engagementStats = await query<any[]>(
+      `SELECT
+         SUM(CASE WHEN ee.event_type = 'delivered' THEN 1 ELSE 0 END) as delivered,
+         SUM(CASE WHEN ee.event_type = 'opened' THEN 1 ELSE 0 END) as opened,
+         SUM(CASE WHEN ee.event_type = 'clicked' THEN 1 ELSE 0 END) as clicked,
+         SUM(CASE WHEN ee.event_type = 'replied' THEN 1 ELSE 0 END) as replied
+       FROM email_events ee
+       JOIN campaign_prospects cp ON ee.prospect_id = cp.prospect_id
+       WHERE cp.campaign_id = ? AND ee.tenant_id = ?
+       AND ee.event_type IN ('delivered', 'opened', 'clicked', 'replied')`,
+      [id, tenantId]
+    );
+
+    // Per-step breakdown from generated_emails
+    const stepBreakdown = await query<any[]>(
+      `SELECT
+         ge.step_number,
+         MAX(ge.subject) as step_subject,
+         COUNT(*) as total,
+         SUM(CASE WHEN ge.status IN ('sent', 'opened', 'replied') THEN 1 ELSE 0 END) as sent,
+         SUM(CASE WHEN ge.status = 'bounced' THEN 1 ELSE 0 END) as bounced
+       FROM generated_emails ge
+       WHERE ge.campaign_id = ? AND ge.tenant_id = ?
+       AND ge.status NOT IN ('draft', 'rejected')
+       GROUP BY ge.step_number
+       ORDER BY ge.step_number`,
+      [id, tenantId]
+    );
+
+    const p = pipelineStats[0] || {};
+    const eng = engagementStats[0] || {};
+    const sent = p.sent || 0;
+    const opened = eng.opened || 0;
+    const clicked = eng.clicked || 0;
+    const replied = eng.replied || 0;
+
+    res.json({
+      success: true,
+      data: {
+        totals: {
+          sent,
+          delivered: eng.delivered || 0,
+          opened,
+          clicked,
+          replied,
+          bounced: p.bounced || 0,
+        },
+        rates: {
+          open_rate: sent > 0 ? Math.round((opened / sent) * 10000) / 100 : 0,
+          click_rate: sent > 0 ? Math.round((clicked / sent) * 10000) / 100 : 0,
+          reply_rate: sent > 0 ? Math.round((replied / sent) * 10000) / 100 : 0,
+          bounce_rate: sent > 0 ? Math.round(((p.bounced || 0) / sent) * 10000) / 100 : 0,
+        },
+        step_breakdown: stepBreakdown.map((row: any) => ({
+          step_number: row.step_number,
+          step_subject: row.step_subject,
+          total: row.total,
+          sent: row.sent,
+          bounced: row.bounced,
+        })),
+      },
+    });
+  } catch (error: any) {
+    console.error('Campaign metrics error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred while fetching campaign metrics.' });
+  }
+});
+
 // --- GET /:id/generated-emails - List generated emails for campaign ---
 router.get('/:id/generated-emails', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -662,7 +756,7 @@ router.put('/:id/generated-emails/:emailId', async (req: Request, res: Response)
   }
 });
 
-// --- POST /:id/approve-emails - Bulk approve ---
+// --- POST /:id/approve-emails - Bulk approve → schedule for sending ---
 router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -673,14 +767,48 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
       return;
     }
 
+    // Verify campaign belongs to tenant
+    const campaign = await query<any[]>(
+      'SELECT id, status FROM campaigns WHERE id = ? AND tenant_id = ?',
+      [id, req.user!.tenantId]
+    );
+    if (campaign.length === 0) {
+      res.status(404).json({ success: false, error: 'Campaign not found.' });
+      return;
+    }
+
+    // Get emails with prospect timezone data for smart scheduling
     const placeholders = email_ids.map(() => '?').join(',');
-    await query(
-      `UPDATE generated_emails SET status = 'approved', approved_at = NOW(), approved_by = ?
-       WHERE id IN (${placeholders}) AND campaign_id = ? AND tenant_id = ? AND status IN ('draft', 'rejected')`,
-      [req.user!.id, ...email_ids, id, req.user!.tenantId]
+    const emails = await query<any[]>(
+      `SELECT ge.id, ge.delay_days, ge.step_number, p.timezone, p.country, p.city
+       FROM generated_emails ge
+       JOIN prospects p ON ge.prospect_id = p.id
+       WHERE ge.id IN (${placeholders}) AND ge.campaign_id = ? AND ge.tenant_id = ? AND ge.status IN ('draft', 'rejected')`,
+      [...email_ids, id, req.user!.tenantId]
     );
 
-    res.json({ success: true, data: { message: `Approved ${email_ids.length} email(s).` } });
+    let scheduled = 0;
+    for (const email of emails) {
+      const prospectTz = resolveProspectTimezone(email);
+      const baseDate = new Date();
+      const delayDays = email.delay_days || 0;
+      if (delayDays > 0) {
+        baseDate.setDate(baseDate.getDate() + delayDays);
+      }
+      const scheduledFor = calculateOptimalSendTime(baseDate, prospectTz);
+
+      await query(
+        `UPDATE generated_emails SET status = 'scheduled', approved_at = NOW(), approved_by = ?, scheduled_for = ?
+         WHERE id = ? AND tenant_id = ? AND status IN ('draft', 'rejected')`,
+        [req.user!.id, scheduledFor, email.id, req.user!.tenantId]
+      );
+      scheduled++;
+    }
+
+    res.json({
+      success: true,
+      data: { message: `Programados ${scheduled} email(s) para envío.`, count: scheduled },
+    });
   } catch (error: any) {
     console.error('Approve emails error:', error);
     res.status(500).json({ success: false, error: 'An error occurred while approving emails.' });
@@ -700,12 +828,12 @@ router.post('/:id/reject-emails', async (req: Request, res: Response): Promise<v
 
     const placeholders = email_ids.map(() => '?').join(',');
     await query(
-      `UPDATE generated_emails SET status = 'rejected'
-       WHERE id IN (${placeholders}) AND campaign_id = ? AND tenant_id = ? AND status IN ('draft', 'approved')`,
+      `UPDATE generated_emails SET status = 'rejected', scheduled_for = NULL
+       WHERE id IN (${placeholders}) AND campaign_id = ? AND tenant_id = ? AND status IN ('draft', 'approved', 'scheduled')`,
       [...email_ids, id, req.user!.tenantId]
     );
 
-    res.json({ success: true, data: { message: `Rejected ${email_ids.length} email(s).` } });
+    res.json({ success: true, data: { message: `Rechazados ${email_ids.length} email(s).` } });
   } catch (error: any) {
     console.error('Reject emails error:', error);
     res.status(500).json({ success: false, error: 'An error occurred while rejecting emails.' });

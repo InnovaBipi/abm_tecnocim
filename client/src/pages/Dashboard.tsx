@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { dashboardApi } from '@/services/api';
@@ -96,9 +96,27 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [dateRange, setDateRange] = useState<DateRange>('30d');
 
+  // Convert DateRange to API params
+  const dateParams = useMemo(() => {
+    const now = new Date();
+    const to = now.toISOString().split('T')[0];
+    const daysMap: Record<string, number> = { '7d': 7, '30d': 30, '90d': 90, '12m': 365 };
+    const days = daysMap[dateRange] || 30;
+    const from = new Date(now.getTime() - days * 86400000);
+    return { date_from: from.toISOString().split('T')[0], date_to: to };
+  }, [dateRange]);
+
+  const rangeLabel = useMemo(() => {
+    const labels: Record<string, string> = {
+      '7d': 'Ultimos 7 dias', '30d': 'Ultimos 30 dias',
+      '90d': 'Ultimos 90 dias', '12m': 'Ultimos 12 meses',
+    };
+    return labels[dateRange] || 'Ultimos 30 dias';
+  }, [dateRange]);
+
   const { data: statsData, isLoading: statsLoading } = useQuery({
-    queryKey: ['dashboard', 'stats'],
-    queryFn: () => dashboardApi.getStats(),
+    queryKey: ['dashboard', 'stats', dateRange],
+    queryFn: () => dashboardApi.getStats(dateParams),
   });
 
   const { data: activityData, isLoading: activityLoading } = useQuery({
@@ -112,18 +130,18 @@ export default function Dashboard() {
   });
 
   const { data: campaignPerfData, isLoading: campaignPerfLoading } = useQuery({
-    queryKey: ['dashboard', 'campaign-performance'],
-    queryFn: () => dashboardApi.getCampaignPerformance(),
+    queryKey: ['dashboard', 'campaign-performance', dateRange],
+    queryFn: () => dashboardApi.getCampaignPerformance(dateParams),
   });
 
   const { data: deliverabilityData, isLoading: deliverabilityLoading } = useQuery({
-    queryKey: ['dashboard', 'deliverability'],
-    queryFn: () => dashboardApi.getDeliverability(),
+    queryKey: ['dashboard', 'deliverability', dateRange],
+    queryFn: () => dashboardApi.getDeliverability(dateParams),
   });
 
   const { data: engagementData, isLoading: engagementLoading } = useQuery({
-    queryKey: ['dashboard', 'engagement-trends'],
-    queryFn: () => dashboardApi.getEngagementTrends(),
+    queryKey: ['dashboard', 'engagement-trends', dateRange],
+    queryFn: () => dashboardApi.getEngagementTrends(dateParams),
   });
 
   const { data: hotProspectsData, isLoading: hotProspectsLoading } = useQuery({
@@ -315,7 +333,7 @@ export default function Dashboard() {
               <TrendingUp className="h-5 w-5 text-primary-600" />
               <h3 className="font-semibold text-slate-900">Tendencia de Engagement</h3>
             </div>
-            <p className="text-sm text-slate-500 mt-0.5">Ultimos 30 dias</p>
+            <p className="text-sm text-slate-500 mt-0.5">{rangeLabel}</p>
           </div>
           <div className="p-6">
             {engagementLoading ? (

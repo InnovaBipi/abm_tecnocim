@@ -50,12 +50,12 @@ export default function Outbox() {
 
   const statusParam = activeFilter === 'all' ? undefined : activeFilter;
 
-  const { data: statsData } = useQuery({
+  const { data: statsData, error: statsError } = useQuery({
     queryKey: ['outbox', 'stats'],
     queryFn: () => outboxApi.stats(),
   });
 
-  const { data: emailsData, isLoading } = useQuery({
+  const { data: emailsData, isLoading, error: emailsError } = useQuery({
     queryKey: ['outbox', 'list', activeFilter],
     queryFn: () => outboxApi.list({ status: statusParam, limit: 100 }),
   });
@@ -162,6 +162,12 @@ export default function Outbox() {
       </div>
 
       {/* Stats cards */}
+      {statsError ? (
+        <div className="flex flex-col items-center justify-center py-8 text-red-500">
+          <AlertCircle className="h-8 w-8 mb-2" />
+          <p className="text-sm">Error al cargar las estadisticas</p>
+        </div>
+      ) : (
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card className="stat-card text-center">
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 text-slate-600 mx-auto mb-2">
@@ -199,6 +205,7 @@ export default function Outbox() {
           <p className="text-xl font-bold text-red-600">{stats?.byStatus?.rejected || 0}</p>
         </Card>
       </div>
+      )}
 
       {/* Filter tabs */}
       <div className="flex gap-2 border-b border-slate-200 pb-3">
@@ -222,6 +229,11 @@ export default function Outbox() {
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
           <span className="ml-2 text-slate-500">Cargando emails...</span>
+        </div>
+      ) : emailsError ? (
+        <div className="flex flex-col items-center justify-center py-16 text-red-500">
+          <AlertCircle className="h-8 w-8 mb-2" />
+          <p className="text-sm">Error al cargar los emails</p>
         </div>
       ) : emails.length === 0 ? (
         <Card className="flex flex-col items-center justify-center py-12">

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { campaignsApi, prospectsApi } from '@/services/api';
+import { campaignsApi, prospectsApi, outboxApi } from '@/services/api';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -30,9 +30,14 @@ import {
   ChevronDown,
   ChevronRight,
   Edit3,
+  Send,
+  AlertTriangle,
+  Code,
+  Eye,
 } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { getStatusColor, getScoreColor, formatNumber } from '@/lib/utils';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useConfirmDialog } from '@/hooks/useConfirmDialog';
 import toast from 'react-hot-toast';
 
@@ -78,6 +83,7 @@ export default function CampaignDetail() {
   const [editingEmail, setEditingEmail] = useState<any>(null);
   const [editSubject, setEditSubject] = useState('');
   const [editBody, setEditBody] = useState('');
+  const [editMode, setEditMode] = useState<'edit' | 'preview'>('edit');
   const [expandedProspects, setExpandedProspects] = useState<Set<string>>(new Set());
   const [bandejaFilter, setBandejaFilter] = useState('all');
 
@@ -98,6 +104,12 @@ export default function CampaignDetail() {
     queryKey: ['campaigns', id, 'generated-emails'],
     queryFn: () => campaignsApi.getGeneratedEmails(id!),
     enabled: !!id && (activeTab === 'generate' || activeTab === 'bandeja'),
+  });
+
+  const { data: metricsData, isLoading: metricsLoading } = useQuery({
+    queryKey: ['campaigns', id, 'metrics'],
+    queryFn: () => campaignsApi.getMetrics(id!),
+    enabled: !!id && activeTab === 'metrics',
   });
 
   // --- Mutations ---
@@ -137,11 +149,12 @@ export default function CampaignDetail() {
 
   const approveEmailsMutation = useMutation({
     mutationFn: (emailIds: string[]) => campaignsApi.approveEmails(id!, emailIds),
-    onSuccess: () => {
-      toast.success('Emails aprobados');
+    onSuccess: (res) => {
+      const count = res.data?.data?.count || 0;
+      toast.success(`${count} email(s) programados para envio`);
       refetchEmails();
     },
-    onError: () => toast.error('Error al aprobar'),
+    onError: () => toast.error('Error al programar emails'),
   });
 
   const rejectEmailsMutation = useMutation({
@@ -162,6 +175,17 @@ export default function CampaignDetail() {
       refetchEmails();
     },
     onError: () => toast.error('Error al guardar'),
+  });
+
+  const sendEmailsMutation = useMutation({
+    mutationFn: (emailIds: string[]) => outboxApi.send(emailIds),
+    onSuccess: (res) => {
+      const data = res.data?.data;
+      toast.success(`Enviados: ${data?.sent || 0}, Fallidos: ${data?.failed || 0}`);
+      refetchEmails();
+      queryClient.invalidateQueries({ queryKey: ['campaigns', id] });
+    },
+    onError: () => toast.error('Error al enviar emails'),
   });
 
   const updateStatusMutation = useMutation({
@@ -237,9 +261,10 @@ export default function CampaignDetail() {
       <button
         onClick={() => navigate('/campaigns')}
         className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 transition-colors"
+        aria-label="Volver a la lista de campanas"
       >
         <ArrowLeft className="h-4 w-4" />
-        Volver a Propiedades
+        Volver a Campanas
       </button>
 
       {/* Header */}
@@ -388,6 +413,7 @@ export default function CampaignDetail() {
                               }
                             }}
                             className="rounded border-slate-300 text-primary-600"
+                            aria-label="Seleccionar todos los prospectos"
                           />
                         </TableCell>
                         <TableCell isHeader>Nombre</TableCell>
@@ -418,6 +444,7 @@ export default function CampaignDetail() {
                                   );
                                 }}
                                 className="rounded border-slate-300 text-primary-600"
+                                aria-label={`Seleccionar ${pName}`}
                               />
                             </TableCell>
                             <TableCell>
@@ -454,6 +481,7 @@ export default function CampaignDetail() {
                                   });
                                 }}
                                 className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                aria-label={`Remover ${pName}`}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
@@ -606,8 +634,34 @@ export default function CampaignDetail() {
 
             const allDraftIds = allEmailsList.filter((e: any) => e.status === 'draft').map((e: any) => e.id);
 
+            const allScheduledIds = allEmailsList.filter((e: any) => e.status === 'scheduled').map((e: any) => e.id);
+            const hasScheduledEmails = allScheduledIds.length > 0;
+            const campaignIsDraft = campaign.status === 'draft';
+
             return (
               <div className="space-y-4">
+                {/* Campaign activation alert */}
+                {hasScheduledEmails && campaignIsDraft && (
+                  <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                    <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-amber-800">
+                        Campana en borrador — los emails programados no se enviaran automaticamente
+                      </p>
+                      <p className="text-xs text-amber-600 mt-0.5">
+                        Activa la campana para que el scheduler envie los emails en el horario optimo.
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => updateStatusMutation.mutate('active')}
+                      loading={updateStatusMutation.isPending}
+                    >
+                      Activar Campana
+                    </Button>
+                  </div>
+                )}
+
                 {/* Stats bar */}
                 <div className="flex items-center gap-4 flex-wrap">
                   <div className="flex items-center gap-2 text-sm">
@@ -625,7 +679,7 @@ export default function CampaignDetail() {
                 {/* Filter + bulk actions */}
                 <div className="flex items-center justify-between">
                   <div className="flex gap-2">
-                    {['all', 'draft', 'approved', 'rejected', 'sent'].map((f) => (
+                    {['all', 'draft', 'scheduled', 'rejected', 'sent'].map((f) => (
                       <button
                         key={f}
                         onClick={() => setBandejaFilter(f)}
@@ -635,20 +689,40 @@ export default function CampaignDetail() {
                             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                         }`}
                       >
-                        {f === 'all' ? 'Todos' : f === 'draft' ? 'Pendientes' : f === 'approved' ? 'Aprobados' : f === 'rejected' ? 'Rechazados' : 'Enviados'}
+                        {f === 'all' ? 'Todos' : f === 'draft' ? 'Pendientes' : f === 'scheduled' ? 'Programados' : f === 'rejected' ? 'Rechazados' : 'Enviados'}
                       </button>
                     ))}
                   </div>
-                  {allDraftIds.length > 0 && (
-                    <Button
-                      size="sm"
-                      icon={<Check className="h-4 w-4" />}
-                      onClick={() => approveEmailsMutation.mutate(allDraftIds)}
-                      loading={approveEmailsMutation.isPending}
-                    >
-                      Aprobar Todos ({allDraftIds.length})
-                    </Button>
-                  )}
+                  <div className="flex gap-2">
+                    {hasScheduledEmails && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<Send className="h-4 w-4" />}
+                        onClick={() => {
+                          confirm({
+                            title: 'Enviar emails ahora?',
+                            description: `Se enviaran ${allScheduledIds.length} email(s) programados inmediatamente.`,
+                            confirmLabel: 'Enviar Ahora',
+                            onConfirm: () => sendEmailsMutation.mutate(allScheduledIds),
+                          });
+                        }}
+                        loading={sendEmailsMutation.isPending}
+                      >
+                        Enviar Ahora ({allScheduledIds.length})
+                      </Button>
+                    )}
+                    {allDraftIds.length > 0 && (
+                      <Button
+                        size="sm"
+                        icon={<Check className="h-4 w-4" />}
+                        onClick={() => approveEmailsMutation.mutate(allDraftIds)}
+                        loading={approveEmailsMutation.isPending}
+                      >
+                        Programar Todos ({allDraftIds.length})
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Emails grouped by prospect */}
@@ -695,7 +769,7 @@ export default function CampaignDetail() {
                                     <button
                                       onClick={() => approveEmailsMutation.mutate([email.id])}
                                       className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors"
-                                      title="Aprobar"
+                                      title="Programar envio"
                                     >
                                       <Check className="h-4 w-4" />
                                     </button>
@@ -705,13 +779,14 @@ export default function CampaignDetail() {
                                       setEditingEmail(email);
                                       setEditSubject(email.subject || '');
                                       setEditBody(email.body_html || '');
+                                      setEditMode('edit');
                                     }}
                                     className="p-1.5 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
                                     title="Editar"
                                   >
                                     <Edit3 className="h-4 w-4" />
                                   </button>
-                                  {(email.status === 'draft' || email.status === 'approved') && (
+                                  {(email.status === 'draft' || email.status === 'scheduled') && (
                                     <button
                                       onClick={() => rejectEmailsMutation.mutate([email.id])}
                                       className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
@@ -737,19 +812,32 @@ export default function CampaignDetail() {
           // TAB: METRICAS
           // ========================
           if (tab === 'metrics') {
-            const stats = generatedEmails?.stats || {};
+            const geStats = generatedEmails?.stats || {};
+            const metrics = metricsData?.data?.data;
+            const rates = metrics?.rates || {};
+            const totals = metrics?.totals || {};
+            const stepBreakdown: any[] = metrics?.step_breakdown || [];
+
+            const funnelData = [
+              { name: 'Enviados', value: totals.sent || 0, color: '#ff7f00' },
+              { name: 'Abiertos', value: totals.opened || 0, color: '#f59e0b' },
+              { name: 'Clickeados', value: totals.clicked || 0, color: '#3b82f6' },
+              { name: 'Respondidos', value: totals.replied || 0, color: '#10b981' },
+            ];
+
             return (
               <div className="space-y-6">
-                <h3 className="text-lg font-semibold text-slate-900">Metricas de la Propiedad</h3>
+                <h3 className="text-lg font-semibold text-slate-900">Metricas de la Campana</h3>
 
+                {/* Pipeline stats */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <Card className="stat-card text-center">
-                    <p className="text-xs text-slate-500">Emails Generados</p>
-                    <p className="text-2xl font-bold text-slate-900 mt-1">{stats.draft || 0}</p>
+                    <p className="text-xs text-slate-500">Generados</p>
+                    <p className="text-2xl font-bold text-slate-900 mt-1">{(geStats.draft || 0) + (geStats.scheduled || 0) + (geStats.sent || 0) + (geStats.approved || 0)}</p>
                   </Card>
                   <Card className="stat-card text-center">
-                    <p className="text-xs text-slate-500">Aprobados</p>
-                    <p className="text-2xl font-bold text-blue-600 mt-1">{stats.approved || 0}</p>
+                    <p className="text-xs text-slate-500">Programados</p>
+                    <p className="text-2xl font-bold text-indigo-600 mt-1">{geStats.scheduled || 0}</p>
                   </Card>
                   <Card className="stat-card text-center">
                     <p className="text-xs text-slate-500">Enviados</p>
@@ -761,41 +849,108 @@ export default function CampaignDetail() {
                   </Card>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <Card className="stat-card">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-amber-50 text-amber-600">
-                        <TrendingUp className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-500">Tasa de Respuesta</p>
-                        <p className="text-xl font-bold text-slate-900">{replyRate}%</p>
-                      </div>
+                {/* Engagement rates */}
+                {metricsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                    <span className="ml-2 text-sm text-slate-400">Cargando metricas...</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <Card className="stat-card">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-amber-50 text-amber-600">
+                            <Mail className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-500">Open Rate</p>
+                            <p className="text-xl font-bold text-slate-900">{rates.open_rate || 0}%</p>
+                          </div>
+                        </div>
+                      </Card>
+                      <Card className="stat-card">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-blue-50 text-blue-600">
+                            <TrendingUp className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-500">Click Rate</p>
+                            <p className="text-xl font-bold text-slate-900">{rates.click_rate || 0}%</p>
+                          </div>
+                        </div>
+                      </Card>
+                      <Card className="stat-card">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600">
+                            <MessageSquare className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-500">Reply Rate</p>
+                            <p className="text-xl font-bold text-slate-900">{rates.reply_rate || 0}%</p>
+                          </div>
+                        </div>
+                      </Card>
                     </div>
-                  </Card>
-                  <Card className="stat-card">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-blue-50 text-blue-600">
-                        <Users className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-500">Prospectos Activos</p>
-                        <p className="text-xl font-bold text-slate-900">{prospects.length}</p>
-                      </div>
-                    </div>
-                  </Card>
-                  <Card className="stat-card">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-red-50 text-red-600">
-                        <X className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-500">Rechazados</p>
-                        <p className="text-xl font-bold text-slate-900">{stats.rejected || 0}</p>
-                      </div>
-                    </div>
-                  </Card>
-                </div>
+
+                    {/* Engagement funnel chart */}
+                    {(totals.sent || 0) > 0 && (
+                      <Card>
+                        <h4 className="text-sm font-semibold text-slate-700 mb-4">Embudo de Engagement</h4>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <BarChart data={funnelData} layout="vertical" margin={{ left: 10, right: 30 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                            <XAxis type="number" tick={{ fontSize: 12, fill: '#64748b' }} />
+                            <YAxis dataKey="name" type="category" tick={{ fontSize: 12, fill: '#64748b' }} width={100} />
+                            <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+                            <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                              {funnelData.map((entry, idx) => (
+                                <Cell key={idx} fill={entry.color} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </Card>
+                    )}
+
+                    {/* Per-step breakdown */}
+                    {stepBreakdown.length > 0 && (
+                      <Card padding="none">
+                        <div className="px-5 py-4 border-b border-slate-100">
+                          <h4 className="text-sm font-semibold text-slate-700">Desglose por Paso</h4>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-slate-200 bg-slate-50">
+                                <th scope="col" className="text-center px-4 py-3 font-medium text-slate-500">Paso</th>
+                                <th scope="col" className="text-left px-4 py-3 font-medium text-slate-500">Asunto</th>
+                                <th scope="col" className="text-center px-4 py-3 font-medium text-slate-500">Total</th>
+                                <th scope="col" className="text-center px-4 py-3 font-medium text-slate-500">Enviados</th>
+                                <th scope="col" className="text-center px-4 py-3 font-medium text-slate-500">Rebotados</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {stepBreakdown.map((row: any) => (
+                                <tr key={row.step_number} className="hover:bg-slate-50">
+                                  <td className="text-center px-4 py-3 text-slate-600 font-medium">#{row.step_number}</td>
+                                  <td className="px-4 py-3 text-slate-800 truncate max-w-[200px]">{row.step_subject || '-'}</td>
+                                  <td className="text-center px-4 py-3 text-slate-600">{row.total}</td>
+                                  <td className="text-center px-4 py-3">
+                                    <span className="text-emerald-600 font-medium">{row.sent}</span>
+                                  </td>
+                                  <td className="text-center px-4 py-3">
+                                    <span className={row.bounced > 0 ? 'text-red-600 font-medium' : 'text-slate-600'}>{row.bounced}</span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </Card>
+                    )}
+                  </>
+                )}
               </div>
             );
           }
@@ -907,14 +1062,53 @@ export default function CampaignDetail() {
                 onChange={(e) => setEditSubject(e.target.value)}
               />
             </div>
-            <div>
-              <label className="form-label">Cuerpo (HTML)</label>
-              <textarea
-                className="form-input min-h-[200px] font-mono text-xs"
-                value={editBody}
-                onChange={(e) => setEditBody(e.target.value)}
-              />
-            </div>
+            <Tabs
+              tabs={[
+                { id: 'edit', label: 'Editar', icon: <Code className="h-4 w-4" /> },
+                { id: 'preview', label: 'Vista previa', icon: <Eye className="h-4 w-4" /> },
+              ]}
+              activeTab={editMode}
+              onTabChange={(tab) => setEditMode(tab as 'edit' | 'preview')}
+            >
+              {(tab) => {
+                if (tab === 'edit') {
+                  return (
+                    <div>
+                      <label className="form-label">Cuerpo (HTML)</label>
+                      <textarea
+                        className="form-input min-h-[200px] font-mono text-xs"
+                        value={editBody}
+                        onChange={(e) => setEditBody(e.target.value)}
+                      />
+                    </div>
+                  );
+                }
+                if (tab === 'preview') {
+                  return (
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs font-medium text-slate-500 mb-1">Asunto</p>
+                        <p className="text-base font-semibold text-slate-900">{editSubject || '(sin asunto)'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-slate-500 mb-2">Cuerpo</p>
+                        <div className="border border-slate-200 rounded-lg p-4 bg-white min-h-[200px]">
+                          {editBody ? (
+                            <div
+                              className="prose prose-sm max-w-none text-slate-700"
+                              dangerouslySetInnerHTML={{ __html: editBody }}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-400 italic">Sin contenido</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              }}
+            </Tabs>
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
               <Button variant="secondary" onClick={() => setEditingEmail(null)}>
                 Cancelar

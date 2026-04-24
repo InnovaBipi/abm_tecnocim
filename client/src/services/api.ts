@@ -165,6 +165,9 @@ export const campaignsApi = {
 
   rejectEmails: (id: string, emailIds: string[]) =>
     api.post(`/campaigns/${id}/reject-emails`, { email_ids: emailIds }),
+
+  getMetrics: (id: string) =>
+    api.get(`/campaigns/${id}/metrics`),
 };
 
 // ── Sequences ─────────────────────────────────────────────────────────────────
@@ -262,9 +265,14 @@ export const importsApi = {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
+interface DateRangeParams {
+  date_from?: string;
+  date_to?: string;
+}
+
 export const dashboardApi = {
-  getStats: () =>
-    api.get('/dashboard/stats'),
+  getStats: (params?: DateRangeParams) =>
+    api.get('/dashboard/stats', { params }),
 
   getRecentActivity: (params?: { limit?: number }) =>
     api.get('/dashboard/recent-activity', { params }),
@@ -272,11 +280,11 @@ export const dashboardApi = {
   getTopProspects: (params?: { limit?: number }) =>
     api.get('/dashboard/top-prospects', { params }),
 
-  getCampaignPerformance: () =>
-    api.get('/dashboard/campaign-performance'),
+  getCampaignPerformance: (params?: DateRangeParams) =>
+    api.get('/dashboard/campaign-performance', { params }),
 
-  getDeliverability: () =>
-    api.get('/dashboard/deliverability'),
+  getDeliverability: (params?: DateRangeParams) =>
+    api.get('/dashboard/deliverability', { params }),
 
   getFunnel: () =>
     api.get('/dashboard/funnel'),
@@ -284,8 +292,8 @@ export const dashboardApi = {
   getSequenceStepPerformance: () =>
     api.get('/dashboard/sequence-step-performance'),
 
-  getEngagementTrends: () =>
-    api.get('/dashboard/engagement-trends'),
+  getEngagementTrends: (params?: DateRangeParams) =>
+    api.get('/dashboard/engagement-trends', { params }),
 
   getHotProspects: () =>
     api.get('/dashboard/hot-prospects'),

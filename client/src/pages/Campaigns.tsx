@@ -261,6 +261,7 @@ export default function Campaigns() {
                         });
                       }}
                       className="p-1 rounded text-slate-400 hover:text-red-600 transition-colors"
+                      aria-label={`Eliminar campana ${campaign.name as string}`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>

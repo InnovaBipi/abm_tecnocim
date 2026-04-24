@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { prospectsApi } from '@/services/api';
+import { prospectsApi, campaignsApi } from '@/services/api';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -22,6 +22,7 @@ import {
   Megaphone,
   AlertCircle,
   UserPlus,
+  Loader2,
 } from 'lucide-react';
 import { formatRelativeDate, getStatusColor, getScoreColor } from '@/lib/utils';
 import { useConfirmDialog } from '@/hooks/useConfirmDialog';
@@ -65,6 +66,8 @@ export default function Prospects() {
     title: '',
     source: 'manual',
   });
+  const [showAddToCampaignModal, setShowAddToCampaignModal] = useState(false);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const { dialogProps, confirm } = useConfirmDialog();
   const debouncedSearch = useDebouncedValue(search, 300);
   const [sortBy, setSortBy] = useState<string | null>(null);
@@ -135,6 +138,28 @@ export default function Prospects() {
       toast.error('Error al eliminar los prospectos');
     },
   });
+
+  const { data: campaignsData, isLoading: campaignsLoading } = useQuery({
+    queryKey: ['campaigns', 'for-bulk-add'],
+    queryFn: () => campaignsApi.list({ limit: 50 }),
+    enabled: showAddToCampaignModal,
+  });
+
+  const addToCampaignMutation = useMutation({
+    mutationFn: ({ ids, campaignId }: { ids: string[]; campaignId: string }) =>
+      prospectsApi.bulkAddToCampaign(ids, campaignId),
+    onSuccess: (res) => {
+      const d = res.data?.data;
+      toast.success(`${d?.addedCount || 0} prospecto(s) agregados. ${d?.skippedCount || 0} ya estaban en la campana.`);
+      setShowAddToCampaignModal(false);
+      setSelectedCampaignId(null);
+      setSelectedIds([]);
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+    },
+    onError: () => toast.error('Error al agregar prospectos a la campana'),
+  });
+
+  const availableCampaigns = campaignsData?.data?.data?.campaigns || [];
 
   const prospects = data?.data?.data?.prospects || [];
   const total = data?.data?.data?.pagination?.total || 0;
@@ -245,7 +270,7 @@ export default function Prospects() {
               variant="secondary"
               size="sm"
               icon={<Megaphone className="h-3.5 w-3.5" />}
-              onClick={() => toast('Funcionalidad en desarrollo')}
+              onClick={() => setShowAddToCampaignModal(true)}
             >
               Agregar a campana
             </Button>
@@ -456,6 +481,102 @@ export default function Prospects() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Add to campaign modal */}
+      <Modal
+        isOpen={showAddToCampaignModal}
+        onClose={() => {
+          setShowAddToCampaignModal(false);
+          setSelectedCampaignId(null);
+        }}
+        title="Agregar a Campana"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            <span className="font-medium text-slate-900">{selectedIds.length}</span> prospecto(s) seleccionado(s)
+          </p>
+
+          <div>
+            <label className="form-label">Selecciona una campana</label>
+            <div className="max-h-[300px] overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+              {campaignsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                  <span className="ml-2 text-sm text-slate-400">Cargando campanas...</span>
+                </div>
+              ) : availableCampaigns.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-slate-400">
+                  <Megaphone className="h-6 w-6 mb-1" />
+                  <p className="text-sm">Sin campanas disponibles</p>
+                  <p className="text-xs mt-1">Crea una campana primero</p>
+                </div>
+              ) : (
+                availableCampaigns.map((campaign: Record<string, unknown>) => {
+                  const cId = campaign.id as string;
+                  const isSelected = selectedCampaignId === cId;
+                  return (
+                    <label
+                      key={cId}
+                      className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${
+                        isSelected ? 'bg-primary-50' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="campaign"
+                        checked={isSelected}
+                        onChange={() => setSelectedCampaignId(cId)}
+                        className="text-primary-600"
+                        aria-label={`Seleccionar campana ${campaign.name as string}`}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900">{campaign.name as string}</p>
+                        <p className="text-xs text-slate-500">
+                          {campaign.campaign_type as string || 'outbound'}
+                          {' - '}
+                          {campaign.prospect_count as number || 0} prospectos
+                        </p>
+                      </div>
+                      <Badge className={getStatusColor(campaign.status as string || 'draft')}>
+                        {campaign.status as string || 'borrador'}
+                      </Badge>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+            <span className="text-sm text-slate-500">
+              {selectedIds.length} prospecto(s) a agregar
+            </span>
+            <div className="flex gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setShowAddToCampaignModal(false);
+                  setSelectedCampaignId(null);
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={() => {
+                  if (selectedCampaignId) {
+                    addToCampaignMutation.mutate({ ids: selectedIds, campaignId: selectedCampaignId });
+                  }
+                }}
+                loading={addToCampaignMutation.isPending}
+                disabled={!selectedCampaignId}
+              >
+                Agregar a Campana
+              </Button>
+            </div>
+          </div>
+        </div>
       </Modal>
 
       <ConfirmDialog {...dialogProps} />
