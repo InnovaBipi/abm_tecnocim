@@ -5,6 +5,10 @@ alerts:
   - rule: DEPLOYMENT_FAILED
   - rule: DOMAIN_FAILED
 
+domains:
+  - domain: abm.tecnociminnova.com
+    type: PRIMARY
+
 services:
   - name: api
     github:
