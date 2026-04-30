@@ -142,6 +142,8 @@ router.get('/email', async (req: Request, res: Response): Promise<void> => {
     const emailConfig = tenant.config.email || {};
     const imapConfig = tenant.config.imap || {};
 
+    const effectiveKey = emailConfig.resend_api_key || config.RESEND_API_KEY;
+
     res.json({
       success: true,
       data: {
@@ -149,8 +151,8 @@ router.get('/email', async (req: Request, res: Response): Promise<void> => {
         from_name: emailConfig.from_name || '',
         reply_to: emailConfig.reply_to || '',
         notification_email: emailConfig.notification_email || '',
-        resend_api_key: emailConfig.resend_api_key ? emailConfig.resend_api_key.substring(0, 8) + '...' : '',
-        is_configured: !!emailConfig.resend_api_key,
+        resend_api_key: effectiveKey ? effectiveKey.substring(0, 8) + '...' : '',
+        is_configured: !!effectiveKey,
         imap_host: imapConfig.host || '',
         imap_port: imapConfig.port || 993,
         imap_user: imapConfig.user || '',
