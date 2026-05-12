@@ -38,13 +38,21 @@ const updateSequenceSchema = createSequenceSchema.partial();
 const stepSchema = z.object({
   step_number: z.number().positive(),
   step_type: z.enum(['email', 'wait', 'condition']).optional(),
-  subject: z.string().optional(),
-  body_html: z.string().optional(),
-  body_text: z.string().optional(),
+  subject: z.string().optional().nullable(),
+  body_html: z.string().optional().nullable(),
+  body_text: z.string().optional().nullable(),
   delay_days: z.number().min(0).optional(),
   delay_hours: z.number().min(0).optional(),
   ab_variant: z.string().max(1).optional().nullable(),
   is_active: z.boolean().optional(),
+  branch_label: z.string().max(50).optional().nullable(),
+  condition_config: z.object({
+    type: z.enum(['opened', 'clicked', 'replied']),
+    step_id: z.string().uuid().optional(),
+    threshold_hours: z.number().min(1).optional(),
+  }).optional().nullable(),
+  yes_target_step: z.number().positive().optional().nullable(),
+  no_target_step: z.number().positive().optional().nullable(),
 });
 
 const addStepsSchema = z.object({
@@ -411,8 +419,9 @@ router.post('/:id/steps', async (req: Request, res: Response): Promise<void> => 
         const stepId = uuidv4();
         await conn.execute(
           `INSERT INTO sequence_steps (id, sequence_id, step_number, step_type, subject,
-           body_html, body_text, delay_days, delay_hours, ab_variant, is_active)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           body_html, body_text, delay_days, delay_hours, ab_variant, branch_label,
+           condition_config, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             stepId,
             id,
@@ -424,6 +433,8 @@ router.post('/:id/steps', async (req: Request, res: Response): Promise<void> => 
             step.delay_days || 0,
             step.delay_hours || 0,
             step.ab_variant || null,
+            step.branch_label || null,
+            step.condition_config ? JSON.stringify(step.condition_config) : null,
             step.is_active !== undefined ? step.is_active : true,
           ]
         );
