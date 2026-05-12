@@ -16,7 +16,7 @@ router.use(authenticate);
 router.get('/profile', async (req: Request, res: Response): Promise<void> => {
   try {
     const users = await query<any[]>(
-      'SELECT id, email, first_name, last_name, role, sender_email, sender_name, created_at FROM users WHERE id = ?',
+      'SELECT * FROM users WHERE id = ?',
       [req.user!.id]
     );
 
@@ -89,7 +89,7 @@ router.put('/profile', async (req: Request, res: Response): Promise<void> => {
     await query(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ? AND tenant_id = ?`, params);
 
     const updated = await query<any[]>(
-      'SELECT id, email, first_name, last_name, role, sender_email, sender_name, created_at FROM users WHERE id = ?',
+      'SELECT * FROM users WHERE id = ?',
       [req.user!.id]
     );
 

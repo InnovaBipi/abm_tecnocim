@@ -31,12 +31,10 @@ const updateUserSchema = z.object({
 router.get('/', requireRole('admin'), async (req: Request, res: Response): Promise<void> => {
   try {
     const users = await query<any[]>(
-      `SELECT id, email, first_name, last_name, role, sender_email, sender_name,
-              is_active, last_login, created_at
-       FROM users WHERE tenant_id = ? ORDER BY created_at DESC`,
+      `SELECT * FROM users WHERE tenant_id = ? ORDER BY created_at DESC`,
       [req.user!.tenantId]
     );
-    res.json({ success: true, data: { users } });
+    res.json({ success: true, data: { users: users.map(({ password, ...u }: any) => u) } });
   } catch (error: any) {
     console.error('List users error:', error);
     res.status(500).json({ success: false, error: 'Error listing users.' });
@@ -60,11 +58,15 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response): Prom
     const id = uuidv4();
     const hashedPassword = await hashPassword(data.password);
 
+    const cols = ['id', 'tenant_id', 'email', 'password', 'first_name', 'last_name', 'role'];
+    const vals: any[] = [id, req.user!.tenantId, data.email, hashedPassword, data.first_name, data.last_name, data.role];
+    if (data.sender_email) { cols.push('sender_email'); vals.push(data.sender_email); }
+    if (data.sender_name) { cols.push('sender_name'); vals.push(data.sender_name); }
+    const placeholders = cols.map(() => '?').join(', ');
+
     await query(
-      `INSERT INTO users (id, tenant_id, email, password, first_name, last_name, role, sender_email, sender_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, req.user!.tenantId, data.email, hashedPassword, data.first_name, data.last_name,
-       data.role, data.sender_email || null, data.sender_name || null]
+      `INSERT INTO users (${cols.join(', ')}) VALUES (${placeholders})`,
+      vals
     );
 
     res.status(201).json({
@@ -118,12 +120,12 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response): Pr
     await query(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ? AND tenant_id = ?`, params);
 
     const updated = await query<any[]>(
-      `SELECT id, email, first_name, last_name, role, sender_email, sender_name, is_active, last_login, created_at
-       FROM users WHERE id = ? AND tenant_id = ?`,
+      'SELECT * FROM users WHERE id = ? AND tenant_id = ?',
       [id, req.user!.tenantId]
     );
 
-    res.json({ success: true, data: updated[0] });
+    const { password: _, ...userData } = updated[0] || {};
+    res.json({ success: true, data: userData });
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ success: false, error: error.errors[0].message });

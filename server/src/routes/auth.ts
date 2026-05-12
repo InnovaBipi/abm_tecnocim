@@ -122,7 +122,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     // Find user by email, JOIN with tenant
     const users = await query<any[]>(
-      `SELECT u.id, u.email, u.password, u.first_name, u.last_name, u.role, u.sender_email, u.sender_name,
+      `SELECT u.id, u.email, u.password, u.first_name, u.last_name, u.role,
               u.is_active, u.tenant_id,
               t.name as tenant_name, t.slug as tenant_slug, t.logo_url as tenant_logo_url,
               t.primary_color as tenant_primary_color, t.secondary_color as tenant_secondary_color,
@@ -245,7 +245,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 router.get('/me', authenticate, async (req: Request, res: Response): Promise<void> => {
   try {
     const users = await query<any[]>(
-      'SELECT id, email, first_name, last_name, role, sender_email, sender_name, is_active, last_login, created_at, tenant_id FROM users WHERE id = ? AND tenant_id = ?',
+      'SELECT * FROM users WHERE id = ? AND tenant_id = ?',
       [req.user!.id, req.user!.tenantId]
     );
 

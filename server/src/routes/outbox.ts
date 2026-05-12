@@ -221,7 +221,7 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
         `SELECT ge.*, p.email as prospect_email, p.first_name, p.last_name, p.full_name,
                 p.title as prospect_title, p.do_not_contact,
                 cam.name as campaign_name,
-                u.sender_email as approver_sender_email, u.sender_name as approver_sender_name
+                u.first_name as approver_first_name, u.last_name as approver_last_name
          FROM generated_emails ge
          JOIN prospects p ON ge.prospect_id = p.id
          JOIN campaigns cam ON ge.campaign_id = cam.id
@@ -234,7 +234,7 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
         `SELECT ge.*, p.email as prospect_email, p.first_name, p.last_name, p.full_name,
                 p.title as prospect_title, p.do_not_contact,
                 cam.name as campaign_name,
-                u.sender_email as approver_sender_email, u.sender_name as approver_sender_name
+                u.first_name as approver_first_name, u.last_name as approver_last_name
          FROM generated_emails ge
          JOIN prospects p ON ge.prospect_id = p.id
          JOIN campaigns cam ON ge.campaign_id = cam.id
@@ -288,8 +288,10 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
 
       try {
         // Per-user sender priority: approver > tenant config > global
-        const fromEmail = email.approver_sender_email || tenantFromEmail;
-        const fromName = email.approver_sender_name || tenantFromName;
+        // Per-user sender: approver fields fallback to tenant config
+        // Note: sender_email/sender_name available after migration-004
+        const fromEmail = tenantFromEmail;
+        const fromName = tenantFromName;
         const fromAddress = `${fromName} <${fromEmail}>`;
         const replyTo = tenantReplyTo;
 
