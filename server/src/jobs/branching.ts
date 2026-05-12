@@ -73,6 +73,44 @@ export async function evaluateCondition(
 }
 
 /**
+ * Evaluate a condition step and return the resolved target step (YES or NO path).
+ */
+async function evaluateConditionStep(
+  condStep: any,
+  enrollment: EnrollmentContext
+): Promise<ResolvedStep | null> {
+  const condConfig: ConditionConfig | null = typeof condStep.condition_config === 'string'
+    ? JSON.parse(condStep.condition_config)
+    : condStep.condition_config;
+
+  if (!condConfig) {
+    console.warn(`Condition step ${condStep.id} has no config, defaulting to YES path`);
+    if (condStep.yes_next_step_id) {
+      const yesStep = await query<any[]>(
+        'SELECT * FROM sequence_steps WHERE sequence_id = ? AND id = ? AND is_active = TRUE',
+        [enrollment.sequence_id, condStep.yes_next_step_id]
+      );
+      return yesStep.length > 0 ? { step: yesStep[0], conditionResult: true, conditionStepId: condStep.id } : null;
+    }
+    return null;
+  }
+
+  const result = await evaluateCondition(condConfig, enrollment);
+  const targetStepId = result ? condStep.yes_next_step_id : condStep.no_next_step_id;
+
+  if (!targetStepId) {
+    return null;
+  }
+
+  const targetStep = await query<any[]>(
+    'SELECT * FROM sequence_steps WHERE sequence_id = ? AND id = ? AND is_active = TRUE',
+    [enrollment.sequence_id, targetStepId]
+  );
+
+  return targetStep.length > 0 ? { step: targetStep[0], conditionResult: result, conditionStepId: condStep.id } : null;
+}
+
+/**
  * Resolve the next step for an enrollment, supporting both linear and branched sequences.
  *
  * Linear mode (default): Returns step_number + 1 — identical to existing behavior.
@@ -86,9 +124,33 @@ export async function evaluateCondition(
  */
 export async function resolveNextStep(
   enrollment: EnrollmentContext,
-  currentStep: { id: string; step_number: number; yes_next_step_id?: string; no_next_step_id?: string }
+  currentStep: { id: string; step_number: number; step_type?: string; yes_next_step_id?: string; no_next_step_id?: string }
 ): Promise<ResolvedStep | null> {
-  // Look for the next step in linear order
+  // GRAPH NAVIGATION: If current step has an explicit yes_next_step_id, follow it.
+  // This handles email steps in branched sequences that need to skip to the
+  // correct next step (e.g., step 3 "engaged" → step 5 "condition clicked?"
+  // instead of step 4 "not_engaged").
+  if (currentStep.yes_next_step_id) {
+    const explicitNext = await query<any[]>(
+      'SELECT * FROM sequence_steps WHERE sequence_id = ? AND id = ? AND is_active = TRUE',
+      [enrollment.sequence_id, currentStep.yes_next_step_id]
+    );
+
+    if (explicitNext.length === 0) {
+      return null; // Wired step doesn't exist — sequence ends
+    }
+
+    const nextStep = explicitNext[0];
+
+    // If the explicit next step is a condition, evaluate it
+    if (nextStep.step_type === 'condition') {
+      return evaluateConditionStep(nextStep, enrollment);
+    }
+
+    return { step: nextStep };
+  }
+
+  // LINEAR FALLBACK: No explicit routing — use step_number + 1 (existing behavior)
   const candidateNextNumber = currentStep.step_number + 1;
   const candidates = await query<any[]>(
     `SELECT * FROM sequence_steps
@@ -104,37 +166,7 @@ export async function resolveNextStep(
 
   // If the next step is a condition, evaluate it and route to YES or NO path
   if (nextCandidate.step_type === 'condition') {
-    const condConfig: ConditionConfig | null = typeof nextCandidate.condition_config === 'string'
-      ? JSON.parse(nextCandidate.condition_config)
-      : nextCandidate.condition_config;
-
-    if (!condConfig) {
-      console.warn(`Condition step ${nextCandidate.id} has no config, defaulting to YES path`);
-      if (nextCandidate.yes_next_step_id) {
-        const yesStep = await query<any[]>(
-          'SELECT * FROM sequence_steps WHERE sequence_id = ? AND id = ? AND is_active = TRUE',
-          [enrollment.sequence_id, nextCandidate.yes_next_step_id]
-        );
-        return yesStep.length > 0 ? { step: yesStep[0], conditionResult: true, conditionStepId: nextCandidate.id } : null;
-      }
-      return null;
-    }
-
-    const result = await evaluateCondition(condConfig, enrollment);
-    const targetStepId = result
-      ? nextCandidate.yes_next_step_id
-      : nextCandidate.no_next_step_id;
-
-    if (!targetStepId) {
-      return null; // No routing for this branch — sequence ends
-    }
-
-    const targetStep = await query<any[]>(
-      'SELECT * FROM sequence_steps WHERE sequence_id = ? AND id = ? AND is_active = TRUE',
-      [enrollment.sequence_id, targetStepId]
-    );
-
-    return targetStep.length > 0 ? { step: targetStep[0], conditionResult: result, conditionStepId: nextCandidate.id } : null;
+    return evaluateConditionStep(nextCandidate, enrollment);
   }
 
   // Not a condition — return it directly (linear behavior)

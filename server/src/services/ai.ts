@@ -695,11 +695,13 @@ Return ONLY a JSON array with exactly 5 objects. No markdown, no explanation:
       step_number: 3, step_type: 'email',
       subject: engaged.subject, body_html: engaged.body_html,
       delay_days: 0, delay_hours: 0, branch_label: 'engaged',
+      yes_target_step: 5, // → next condition (skip step 4)
     },
     {
       step_number: 4, step_type: 'email',
       subject: notEngaged.subject, body_html: notEngaged.body_html,
       delay_days: 0, delay_hours: 0, branch_label: 'not_engaged',
+      yes_target_step: 5, // → next condition (converge)
     },
     {
       step_number: 5, step_type: 'condition',
