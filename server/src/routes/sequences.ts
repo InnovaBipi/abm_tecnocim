@@ -1130,4 +1130,60 @@ router.get('/:id/graph', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// --- POST /:id/wire-steps - Wire branching graph (set yes/no next step IDs) ---
+router.post('/:id/wire-steps', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { wiring } = req.body;
+
+    if (!wiring || !Array.isArray(wiring)) {
+      res.status(400).json({ success: false, error: 'wiring array is required.' });
+      return;
+    }
+
+    // Verify sequence belongs to tenant and get all valid step IDs
+    const allSteps = await query<any[]>(
+      `SELECT ss.id FROM sequence_steps ss
+       JOIN email_sequences es ON ss.sequence_id = es.id
+       WHERE es.id = ? AND es.tenant_id = ?`,
+      [id, req.user!.tenantId]
+    );
+
+    if (allSteps.length === 0) {
+      res.status(404).json({ success: false, error: 'Sequence not found or has no steps.' });
+      return;
+    }
+
+    const validIds = new Set(allSteps.map((s: any) => s.id));
+
+    let wired = 0;
+    for (const w of wiring) {
+      if (!w.step_id || !validIds.has(w.step_id)) continue;
+      if (w.yes_next_step_id && !validIds.has(w.yes_next_step_id)) continue;
+      if (w.no_next_step_id && !validIds.has(w.no_next_step_id)) continue;
+
+      await query(
+        `UPDATE sequence_steps ss
+         JOIN email_sequences es ON ss.sequence_id = es.id AND es.tenant_id = ?
+         SET ss.yes_next_step_id = ?, ss.no_next_step_id = ?
+         WHERE ss.id = ? AND ss.sequence_id = ?`,
+        [req.user!.tenantId, w.yes_next_step_id || null, w.no_next_step_id || null, w.step_id, id]
+      );
+      wired++;
+    }
+
+    if (wired > 0) {
+      await query(
+        'UPDATE email_sequences SET sequence_type = ? WHERE id = ? AND tenant_id = ?',
+        ['branched', id, req.user!.tenantId]
+      );
+    }
+
+    res.json({ success: true, data: { wired } });
+  } catch (error: any) {
+    console.error('Wire steps error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred while wiring steps.' });
+  }
+});
+
 export default router;
