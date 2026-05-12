@@ -7,7 +7,7 @@ import { recalculateAllScores } from '../services/scoring';
 import { calculateOptimalSendTime, resolveProspectTimezone, isWithinSendWindow } from '../services/scheduling';
 import { pollImapForReplies } from '../services/imap';
 import { getAllActiveTenants, getTenantConfig } from '../middleware/tenant';
-import { resolveNextStep, EnrollmentContext } from './branching';
+import { resolveNextStep, evaluateConditionStep, EnrollmentContext } from './branching';
 import { evaluateAbTestsForTenant } from './ab-testing';
 
 // Daily digest accumulator: collects send results throughout the day per tenant
@@ -359,6 +359,52 @@ async function processDueSequenceEmails(): Promise<void> {
       }
 
       // Handle different step types
+      // Build enrollment context for branching
+      const enrollmentCtx: EnrollmentContext = {
+        id: enrollment.id,
+        sequence_id: enrollment.sequence_id,
+        prospect_id: enrollment.prospect_id,
+        current_step: enrollment.current_step,
+        current_step_id: enrollment.current_step_id,
+        tenant_id: enrollment.tenant_id,
+      };
+
+      if (step.step_type === 'condition') {
+        // Condition step: evaluate and route to YES/NO target — no email sent
+        const condResult = await evaluateConditionStep(step, enrollmentCtx);
+        if (condResult) {
+          const { step: targetStep, conditionResult, conditionStepId } = condResult;
+          const rawNext = new Date();
+          rawNext.setDate(rawNext.getDate() + (targetStep.delay_days || 0));
+          rawNext.setHours(rawNext.getHours() + (targetStep.delay_hours || 0));
+          const nextSendAt = calculateOptimalSendTime(rawNext, prospectTz, seqSendWindow);
+
+          const pathEntry = JSON.stringify({
+            from_step: step.step_number,
+            condition_step: conditionStepId || step.id,
+            to_step: targetStep.step_number,
+            condition_result: conditionResult,
+            evaluated_at: new Date().toISOString(),
+          });
+
+          await query(
+            `UPDATE sequence_enrollments
+             SET current_step = ?, current_step_id = ?, next_send_at = ?,
+                 path_history = JSON_ARRAY_APPEND(COALESCE(path_history, JSON_ARRAY()), '$', CAST(? AS JSON))
+             WHERE id = ? AND tenant_id = ?`,
+            [targetStep.step_number, targetStep.id, nextSendAt, pathEntry, enrollment.id, enrollment.tenant_id]
+          );
+          console.log(`Condition step ${step.step_number} evaluated: ${conditionResult ? 'YES' : 'NO'} → step ${targetStep.step_number}`);
+        } else {
+          await query(
+            `UPDATE sequence_enrollments SET status = 'completed', completed_at = NOW(), next_send_at = NULL
+             WHERE id = ? AND tenant_id = ?`,
+            [enrollment.id, enrollment.tenant_id]
+          );
+        }
+        continue; // Skip to next enrollment — no email to send
+      }
+
       if (step.step_type === 'email') {
         // Rate limit: wait 600ms before sending (max ~1.6/sec, within Resend's 2/sec limit)
         if (tw.sentToday > 0) {
@@ -389,14 +435,6 @@ async function processDueSequenceEmails(): Promise<void> {
       }
 
       // Resolve next step (supports both linear and branched sequences)
-      const enrollmentCtx: EnrollmentContext = {
-        id: enrollment.id,
-        sequence_id: enrollment.sequence_id,
-        prospect_id: enrollment.prospect_id,
-        current_step: enrollment.current_step,
-        current_step_id: enrollment.current_step_id,
-        tenant_id: enrollment.tenant_id,
-      };
       const nextResult = await resolveNextStep(enrollmentCtx, step);
 
       if (nextResult) {

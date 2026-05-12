@@ -75,7 +75,7 @@ export async function evaluateCondition(
 /**
  * Evaluate a condition step and return the resolved target step (YES or NO path).
  */
-async function evaluateConditionStep(
+export async function evaluateConditionStep(
   condStep: any,
   enrollment: EnrollmentContext
 ): Promise<ResolvedStep | null> {
@@ -142,11 +142,9 @@ export async function resolveNextStep(
 
     const nextStep = explicitNext[0];
 
-    // If the explicit next step is a condition, evaluate it
-    if (nextStep.step_type === 'condition') {
-      return evaluateConditionStep(nextStep, enrollment);
-    }
-
+    // If next step is a condition, return it WITHOUT evaluating.
+    // The scheduler will evaluate it when next_send_at arrives (respecting delay_days).
+    // If next step is an email, return it directly.
     return { step: nextStep };
   }
 
@@ -164,10 +162,8 @@ export async function resolveNextStep(
 
   const nextCandidate = candidates[0];
 
-  // If the next step is a condition, evaluate it and route to YES or NO path
-  if (nextCandidate.step_type === 'condition') {
-    return evaluateConditionStep(nextCandidate, enrollment);
-  }
+  // If the next step is a condition, return it WITHOUT evaluating.
+  // The scheduler handles condition evaluation when the scheduled time arrives.
 
   // Not a condition — return it directly (linear behavior)
   return { step: nextCandidate };
