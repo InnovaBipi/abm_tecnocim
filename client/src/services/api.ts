@@ -339,4 +339,18 @@ export const settingsApi = {
     api.delete(`/settings/scoring-rules/${id}`),
 };
 
+export const usersApi = {
+  list: () =>
+    api.get('/users'),
+
+  create: (data: Record<string, unknown>) =>
+    api.post('/users', data),
+
+  update: (id: string, data: Record<string, unknown>) =>
+    api.put(`/users/${id}`, data),
+
+  deactivate: (id: string) =>
+    api.delete(`/users/${id}`),
+};
+
 export default api;

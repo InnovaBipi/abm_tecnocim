@@ -7,6 +7,8 @@ interface User {
   first_name: string;
   last_name: string;
   role: string;
+  sender_email?: string;
+  sender_name?: string;
 }
 
 export interface TenantConfig {

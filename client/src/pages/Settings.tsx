@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { settingsApi } from '@/services/api';
+import { settingsApi, usersApi } from '@/services/api';
+import { Select } from '@/components/ui/Select';
 import { useAuthStore } from '@/stores/authStore';
 import { Card, CardHeader, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -12,7 +13,9 @@ import { Tabs } from '@/components/ui/Tabs';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   User,
+  Users,
   Mail,
+  Send,
   Key,
   Target,
   Save,
@@ -39,6 +42,16 @@ export default function Settings() {
     first_name: user?.first_name || '',
     last_name: user?.last_name || '',
     email: user?.email || '',
+    sender_email: user?.sender_email || '',
+    sender_name: user?.sender_name || '',
+  });
+
+  // Team management (admin only)
+  const [showCreateUserModal, setShowCreateUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<any>(null);
+  const [userForm, setUserForm] = useState({
+    first_name: '', last_name: '', email: '', password: '',
+    role: 'member', sender_email: '', sender_name: '',
   });
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
@@ -150,6 +163,45 @@ export default function Settings() {
     },
   });
 
+  // Users query & mutations (admin only)
+  const { data: usersData } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => usersApi.list(),
+    enabled: user?.role === 'admin',
+  });
+
+  const createUserMutation = useMutation({
+    mutationFn: (data: Record<string, unknown>) => usersApi.create(data),
+    onSuccess: () => {
+      toast.success('Usuario creado');
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setShowCreateUserModal(false);
+      setUserForm({ first_name: '', last_name: '', email: '', password: '', role: 'member', sender_email: '', sender_name: '' });
+    },
+    onError: () => toast.error('Error al crear usuario'),
+  });
+
+  const updateUserMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) => usersApi.update(id, data),
+    onSuccess: () => {
+      toast.success('Usuario actualizado');
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setEditingUser(null);
+    },
+    onError: () => toast.error('Error al actualizar usuario'),
+  });
+
+  const deactivateUserMutation = useMutation({
+    mutationFn: (id: string) => usersApi.deactivate(id),
+    onSuccess: () => {
+      toast.success('Usuario desactivado');
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: () => toast.error('Error al desactivar usuario'),
+  });
+
+  const teamUsers = usersData?.data?.data?.users || [];
+
   const emailSettings = emailData?.data?.data;
   const apiKeys = apiKeysData?.data?.data?.keys || apiKeysData?.data?.data || [];
   const scoringRules = scoringData?.data?.data?.rules || scoringData?.data?.data || [];
@@ -228,6 +280,7 @@ export default function Settings() {
       <Tabs
         tabs={[
           { id: 'profile', label: 'Perfil', icon: <User className="h-4 w-4" /> },
+          ...(user?.role === 'admin' ? [{ id: 'team', label: 'Equipo', icon: <Users className="h-4 w-4" /> }] : []),
           { id: 'email', label: 'Email', icon: <Mail className="h-4 w-4" /> },
           { id: 'api-keys', label: 'Claves API', icon: <Key className="h-4 w-4" /> },
           { id: 'scoring', label: 'Scoring', icon: <Target className="h-4 w-4" /> },
@@ -265,6 +318,26 @@ export default function Settings() {
                       onChange={(e) => setProfileForm((f) => ({ ...f, email: e.target.value }))}
                       icon={<Mail className="h-4 w-4" />}
                     />
+
+                    <hr className="my-4 border-slate-200" />
+                    <h3 className="text-sm font-semibold text-slate-700 mb-1">Remitente de Emails</h3>
+                    <p className="text-xs text-slate-500 mb-3">Estos datos se usaran como remitente cuando envies emails desde la plataforma.</p>
+
+                    <Input
+                      label="Email de Remitente"
+                      type="email"
+                      value={profileForm.sender_email}
+                      onChange={(e) => setProfileForm((f) => ({ ...f, sender_email: e.target.value }))}
+                      icon={<Send className="h-4 w-4" />}
+                      placeholder="tu@tecnocim.com"
+                    />
+                    <Input
+                      label="Nombre de Remitente"
+                      value={profileForm.sender_name}
+                      onChange={(e) => setProfileForm((f) => ({ ...f, sender_name: e.target.value }))}
+                      placeholder="Tu Nombre Completo"
+                    />
+
                     <Button type="submit" loading={updateProfileMutation.isPending} icon={<Save className="h-4 w-4" />}>
                       Guardar Cambios
                     </Button>
@@ -312,6 +385,135 @@ export default function Settings() {
                 </CardContent>
               </Card>
             )}
+
+            {/* Team Tab (admin only) */}
+            {activeTab === 'team' && user?.role === 'admin' && (
+              <Card padding="none">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-5 w-5 text-primary-600" />
+                      <h2 className="text-lg font-semibold text-slate-900">Equipo</h2>
+                    </div>
+                    <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => {
+                      setUserForm({ first_name: '', last_name: '', email: '', password: '', role: 'member', sender_email: '', sender_name: '' });
+                      setShowCreateUserModal(true);
+                    }}>
+                      Nuevo Usuario
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell isHeader>Nombre</TableCell>
+                        <TableCell isHeader>Email</TableCell>
+                        <TableCell isHeader>Rol</TableCell>
+                        <TableCell isHeader>Email Remitente</TableCell>
+                        <TableCell isHeader>Estado</TableCell>
+                        <TableCell isHeader>Acciones</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {teamUsers.map((u: any) => (
+                        <TableRow key={u.id}>
+                          <TableCell>{u.first_name} {u.last_name}</TableCell>
+                          <TableCell>{u.email}</TableCell>
+                          <TableCell><Badge variant={u.role === 'admin' ? 'info' : 'default'}>{u.role}</Badge></TableCell>
+                          <TableCell className="text-sm text-slate-500">{u.sender_email || '-'}</TableCell>
+                          <TableCell>
+                            <Badge variant={u.is_active ? 'success' : 'danger'}>{u.is_active ? 'Activo' : 'Inactivo'}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <button
+                                className="p-1 text-slate-400 hover:text-primary-600 rounded"
+                                aria-label="Editar usuario"
+                                onClick={() => {
+                                  setEditingUser(u);
+                                  setUserForm({
+                                    first_name: u.first_name, last_name: u.last_name, email: u.email, password: '',
+                                    role: u.role, sender_email: u.sender_email || '', sender_name: u.sender_name || '',
+                                  });
+                                }}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </button>
+                              {u.id !== user?.id && u.is_active && (
+                                <button
+                                  className="p-1 text-slate-400 hover:text-red-600 rounded"
+                                  aria-label="Desactivar usuario"
+                                  onClick={() => {
+                                    confirm({
+                                      title: 'Desactivar usuario',
+                                      description: `Desactivar a ${u.first_name} ${u.last_name}?`,
+                                      onConfirm: () => deactivateUserMutation.mutate(u.id),
+                                    });
+                                  }}
+                                >
+                                  <XCircle className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Create/Edit User Modal */}
+            <Modal
+              isOpen={showCreateUserModal || !!editingUser}
+              onClose={() => { setShowCreateUserModal(false); setEditingUser(null); }}
+              title={editingUser ? 'Editar Usuario' : 'Nuevo Usuario'}
+            >
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (editingUser) {
+                    const { password, ...data } = userForm;
+                    updateUserMutation.mutate({ id: editingUser.id, data });
+                  } else {
+                    createUserMutation.mutate(userForm);
+                  }
+                }}
+                className="space-y-4"
+              >
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label="Nombre" value={userForm.first_name} onChange={(e) => setUserForm(f => ({ ...f, first_name: e.target.value }))} required />
+                  <Input label="Apellido" value={userForm.last_name} onChange={(e) => setUserForm(f => ({ ...f, last_name: e.target.value }))} required />
+                </div>
+                <Input label="Email" type="email" value={userForm.email} onChange={(e) => setUserForm(f => ({ ...f, email: e.target.value }))} required />
+                {!editingUser && (
+                  <Input label="Contrasena" type="password" value={userForm.password} onChange={(e) => setUserForm(f => ({ ...f, password: e.target.value }))} required />
+                )}
+                <Select
+                  label="Rol"
+                  value={userForm.role}
+                  onChange={(val) => setUserForm(f => ({ ...f, role: val }))}
+                  options={[
+                    { value: 'admin', label: 'Admin' },
+                    { value: 'manager', label: 'Manager' },
+                    { value: 'member', label: 'Miembro' },
+                    { value: 'viewer', label: 'Visor' },
+                  ]}
+                />
+                <hr className="border-slate-200" />
+                <p className="text-sm font-medium text-slate-700">Remitente de Emails</p>
+                <Input label="Email de Remitente" type="email" value={userForm.sender_email} onChange={(e) => setUserForm(f => ({ ...f, sender_email: e.target.value }))} placeholder="usuario@tecnocim.com" />
+                <Input label="Nombre de Remitente" value={userForm.sender_name} onChange={(e) => setUserForm(f => ({ ...f, sender_name: e.target.value }))} placeholder="Nombre Apellido" />
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="secondary" type="button" onClick={() => { setShowCreateUserModal(false); setEditingUser(null); }}>Cancelar</Button>
+                  <Button type="submit" loading={createUserMutation.isPending || updateUserMutation.isPending}>
+                    {editingUser ? 'Guardar' : 'Crear Usuario'}
+                  </Button>
+                </div>
+              </form>
+            </Modal>
 
             {/* Email Tab */}
             {activeTab === 'email' && (

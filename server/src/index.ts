@@ -20,6 +20,7 @@ import importRoutes from './routes/imports';
 import dashboardRoutes from './routes/dashboard';
 import settingsRoutes from './routes/settings';
 import outboxRoutes from './routes/outbox';
+import usersRoutes from './routes/users';
 import webhookRoutes from './routes/webhooks';
 import unsubscribeRoutes from './routes/unsubscribe';
 
@@ -112,6 +113,7 @@ async function main(): Promise<void> {
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/settings', settingsRoutes);
   app.use('/api/outbox', outboxRoutes);
+  app.use('/api/users', usersRoutes);
 
   // Email sending rate limit on specific send endpoint
   app.use('/api/outbox/send', sendLimiter);

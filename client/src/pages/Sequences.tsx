@@ -42,6 +42,8 @@ export default function Sequences() {
     name: '',
     campaignId: '',
     description: '',
+    from_email: '',
+    from_name: '',
   });
 
   const { data, isLoading, error } = useQuery({
@@ -60,7 +62,7 @@ export default function Sequences() {
       toast.success('Secuencia creada exitosamente');
       queryClient.invalidateQueries({ queryKey: ['sequences'] });
       setShowCreateModal(false);
-      setCreateForm({ name: '', campaignId: '', description: '' });
+      setCreateForm({ name: '', campaignId: '', description: '', from_email: '', from_name: '' });
     },
     onError: () => {
       toast.error('Error al crear la secuencia');
@@ -117,6 +119,8 @@ export default function Sequences() {
       name: createForm.name,
       campaign_id: createForm.campaignId || undefined,
       description: createForm.description || undefined,
+      from_email: createForm.from_email || undefined,
+      from_name: createForm.from_name || undefined,
     });
   };
 
@@ -294,6 +298,24 @@ export default function Sequences() {
               rows={3}
               className="form-input"
               placeholder="Describe el objetivo de esta secuencia..."
+            />
+          </div>
+          <hr className="border-slate-200" />
+          <p className="text-sm font-medium text-slate-700">Remitente (opcional)</p>
+          <p className="text-xs text-slate-500 mb-2">Dejar vacio para usar tu email de remitente por defecto.</p>
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Email Remitente"
+              type="email"
+              value={createForm.from_email}
+              onChange={(e) => setCreateForm((f) => ({ ...f, from_email: e.target.value }))}
+              placeholder="tu@tecnocim.com"
+            />
+            <Input
+              label="Nombre Remitente"
+              value={createForm.from_name}
+              onChange={(e) => setCreateForm((f) => ({ ...f, from_name: e.target.value }))}
+              placeholder="Tu Nombre"
             />
           </div>
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">

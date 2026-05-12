@@ -220,10 +220,12 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
       emailsToSend = await query<any[]>(
         `SELECT ge.*, p.email as prospect_email, p.first_name, p.last_name, p.full_name,
                 p.title as prospect_title, p.do_not_contact,
-                cam.name as campaign_name
+                cam.name as campaign_name,
+                u.sender_email as approver_sender_email, u.sender_name as approver_sender_name
          FROM generated_emails ge
          JOIN prospects p ON ge.prospect_id = p.id
          JOIN campaigns cam ON ge.campaign_id = cam.id
+         LEFT JOIN users u ON ge.approved_by = u.id
          WHERE ge.id IN (${placeholders}) AND ge.tenant_id = ? AND ge.status = 'scheduled'`,
         [...email_ids, req.user!.tenantId]
       );
@@ -231,10 +233,12 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
       emailsToSend = await query<any[]>(
         `SELECT ge.*, p.email as prospect_email, p.first_name, p.last_name, p.full_name,
                 p.title as prospect_title, p.do_not_contact,
-                cam.name as campaign_name
+                cam.name as campaign_name,
+                u.sender_email as approver_sender_email, u.sender_name as approver_sender_name
          FROM generated_emails ge
          JOIN prospects p ON ge.prospect_id = p.id
          JOIN campaigns cam ON ge.campaign_id = cam.id
+         LEFT JOIN users u ON ge.approved_by = u.id
          WHERE ge.tenant_id = ? AND ge.status = 'scheduled'
          ORDER BY ge.campaign_id, ge.prospect_id, ge.step_number`,
         [req.user!.tenantId]
@@ -251,13 +255,12 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
     let sent = 0;
     let failed = 0;
     const results: any[] = [];
-    // Build from address from tenant config
+    // Build sender fallback from tenant config
     const tenant = await getTenantConfig(req.user!.tenantId);
     const tenantEmail = tenant?.config?.email;
-    const rawFrom = tenantEmail?.from_email || 'noreply@example.com';
-    const fromName = tenantEmail?.from_name || 'ABM Platform';
-    const fromAddress = `${fromName} <${rawFrom}>`;
-    const replyTo = tenantEmail?.reply_to || undefined;
+    const tenantFromEmail = tenantEmail?.from_email || 'noreply@example.com';
+    const tenantFromName = tenantEmail?.from_name || 'ABM Platform';
+    const tenantReplyTo = tenantEmail?.reply_to || undefined;
 
     for (let idx = 0; idx < emailsToSend.length; idx++) {
       const email = emailsToSend[idx];
@@ -284,6 +287,12 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
       }
 
       try {
+        // Per-user sender priority: approver > tenant config > global
+        const fromEmail = email.approver_sender_email || tenantFromEmail;
+        const fromName = email.approver_sender_name || tenantFromName;
+        const fromAddress = `${fromName} <${fromEmail}>`;
+        const replyTo = tenantReplyTo;
+
         const result = await sendEmail(
           email.prospect_email,
           email.subject,

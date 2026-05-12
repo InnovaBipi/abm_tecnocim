@@ -16,7 +16,7 @@ router.use(authenticate);
 router.get('/profile', async (req: Request, res: Response): Promise<void> => {
   try {
     const users = await query<any[]>(
-      'SELECT id, email, first_name, last_name, role, created_at FROM users WHERE id = ?',
+      'SELECT id, email, first_name, last_name, role, sender_email, sender_name, created_at FROM users WHERE id = ?',
       [req.user!.id]
     );
 
@@ -37,6 +37,8 @@ const updateProfileSchema = z.object({
   first_name: z.string().optional(),
   last_name: z.string().optional(),
   email: z.string().email().optional(),
+  sender_email: z.string().email().nullable().optional(),
+  sender_name: z.string().nullable().optional(),
 });
 
 router.put('/profile', async (req: Request, res: Response): Promise<void> => {
@@ -69,6 +71,14 @@ router.put('/profile', async (req: Request, res: Response): Promise<void> => {
       setClauses.push('email = ?');
       params.push(data.email);
     }
+    if (data.sender_email !== undefined) {
+      setClauses.push('sender_email = ?');
+      params.push(data.sender_email);
+    }
+    if (data.sender_name !== undefined) {
+      setClauses.push('sender_name = ?');
+      params.push(data.sender_name);
+    }
 
     if (setClauses.length === 0) {
       res.status(400).json({ success: false, error: 'No fields to update.' });
@@ -79,7 +89,7 @@ router.put('/profile', async (req: Request, res: Response): Promise<void> => {
     await query(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ? AND tenant_id = ?`, params);
 
     const updated = await query<any[]>(
-      'SELECT id, email, first_name, last_name, role, created_at FROM users WHERE id = ?',
+      'SELECT id, email, first_name, last_name, role, sender_email, sender_name, created_at FROM users WHERE id = ?',
       [req.user!.id]
     );
 
