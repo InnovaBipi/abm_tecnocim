@@ -53,10 +53,10 @@ export function getEmailFooter(recipientEmail: string, tenantId?: string, tenant
   const footerHtml = tenant?.config?.branding?.footer_html || `<p>${companyName}</p>`;
 
   return `
-<div style="margin-top:40px;padding-top:20px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;line-height:1.5;">
+<div style="margin-top:32px;font-size:12px;color:#9ca3af;line-height:1.5;">
   ${footerHtml}
-  <p style="margin:4px 0 0 0;">
-    <a href="${unsubscribeUrl}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a>
+  <p style="margin:8px 0 0 0;">
+    <a href="${unsubscribeUrl}" style="color:#9ca3af;text-decoration:none;font-size:11px;">Unsubscribe</a>
   </p>
 </div>`;
 }

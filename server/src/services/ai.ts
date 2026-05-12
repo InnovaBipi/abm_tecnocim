@@ -457,6 +457,7 @@ ${languageInstruction}
 14. IMPORTANT: If enrichment data includes "Suggested Use Cases" or "Pain Points", USE THEM. Propose concrete, specific use cases that demonstrate you understand the prospect's business. Do NOT be vague — the more specific and relevant the use case, the better.
 15. NEVER use "Re:" as a fake reply prefix in subjects. Each subject must be original.
 16. Do NOT include a "P.S." or postscript section.
+17. HTML FORMAT: Start with greeting in its own paragraph: "<p>Hola [Name],</p>" followed by a separate "<p>" for the body. This ensures proper spacing between the greeting and the content. Do NOT combine the greeting with the first paragraph.
 ${ctx.email_style ? `\nSTYLE GUIDE:\n${ctx.email_style}` : ''}
 ${ctx.key_differentiators ? `\nKEY DIFFERENTIATORS (weave naturally, do not list them all in every email):\n${ctx.key_differentiators}` : ''}
 
@@ -631,6 +632,7 @@ CRITICAL RULES:
 6. Write ALL emails in the language specified above.
 7. NEVER use "Re:" prefix. Each subject must be original.
 8. Email 3 (not_engaged) MUST have a completely different subject line approach than Email 1.
+9. HTML FORMAT: Start with greeting in its own paragraph: "<p>Hola [Name],</p>" followed by a separate "<p>" for the body. Do NOT combine greeting with the first paragraph.
 ${ctx.email_style ? `\nSTYLE: ${ctx.email_style}` : ''}
 ${ctx.key_differentiators ? `\nDIFFERENTIATORS: ${ctx.key_differentiators}` : ''}
 
