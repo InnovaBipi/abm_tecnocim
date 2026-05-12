@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { Select } from '@/components/ui/Select';
+import { CompanySelect } from '@/components/ui/CompanySelect';
 import { Tabs } from '@/components/ui/Tabs';
 import {
   ArrowLeft,
@@ -108,6 +109,7 @@ export default function ProspectDetail() {
       phone: prospect?.phone || '',
       title: prospect?.title || '',
       linkedin_url: prospect?.linkedin_url || '',
+      company_id: prospect?.company_id || null,
       status: prospect?.status || 'new',
     });
     setIsEditing(true);
@@ -311,6 +313,12 @@ export default function ProspectDetail() {
                       value={editForm.linkedin_url as string}
                       onChange={(e) => setEditForm((f) => ({ ...f, linkedin_url: e.target.value }))}
                       icon={<Globe className="h-4 w-4" />}
+                    />
+                    <CompanySelect
+                      label="Empresa"
+                      value={editForm.company_id as string | null}
+                      onChange={(id) => setEditForm((f) => ({ ...f, company_id: id }))}
+                      placeholder="Buscar empresa..."
                     />
                     <Select
                       label="Estado"

@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { CompanySelect } from '@/components/ui/CompanySelect';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Table, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/Table';
@@ -62,7 +63,7 @@ export default function Prospects() {
     lastName: '',
     email: '',
     phone: '',
-    company: '',
+    companyId: null as string | null,
     title: '',
     source: 'manual',
   });
@@ -106,7 +107,7 @@ export default function Prospects() {
         lastName: '',
         email: '',
         phone: '',
-        company: '',
+        companyId: null,
         title: '',
         source: 'manual',
       });
@@ -191,6 +192,7 @@ export default function Prospects() {
       last_name: createForm.lastName,
       phone: createForm.phone || undefined,
       title: createForm.title || undefined,
+      company_id: createForm.companyId || undefined,
       source: createForm.source,
     });
   };
@@ -454,11 +456,11 @@ export default function Prospects() {
             onChange={(e) => setCreateForm((f) => ({ ...f, phone: e.target.value }))}
             placeholder="+54 11 1234-5678"
           />
-          <Input
+          <CompanySelect
             label="Empresa"
-            value={createForm.company}
-            onChange={(e) => setCreateForm((f) => ({ ...f, company: e.target.value }))}
-            placeholder="Nombre de la empresa"
+            value={createForm.companyId}
+            onChange={(id) => setCreateForm((f) => ({ ...f, companyId: id }))}
+            placeholder="Buscar empresa..."
           />
           <Input
             label="Cargo"
