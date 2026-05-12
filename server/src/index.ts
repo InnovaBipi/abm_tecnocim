@@ -118,6 +118,22 @@ async function main(): Promise<void> {
   // Email sending rate limit on specific send endpoint
   app.use('/api/outbox/send', sendLimiter);
 
+  // Admin: run pending migrations on-demand
+  app.post('/api/admin/migrate', async (req, res) => {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.includes('Bearer')) {
+      res.status(401).json({ success: false, error: 'Auth required' });
+      return;
+    }
+    try {
+      const { runMigrations } = await import('./config/migrate');
+      await runMigrations();
+      res.json({ success: true, data: { message: 'Migrations applied' } });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // Public routes (no auth, no rate limit on webhooks - Resend needs to reach us)
   app.use('/api/webhooks', webhookRoutes);
   app.use('/api/unsubscribe', unsubscribeRoutes);
