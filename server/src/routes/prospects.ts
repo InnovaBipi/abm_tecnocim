@@ -29,6 +29,9 @@ const createProspectSchema = z.object({
   source: z.string().optional(),
   source_detail: z.string().optional(),
   custom_fields: z.record(z.any()).optional(),
+  notes: z.string().optional().nullable(),
+  enrichment_data: z.record(z.any()).optional().nullable(),
+  company_name: z.string().optional().nullable(),
 });
 
 const updateProspectSchema = createProspectSchema.partial();
@@ -320,6 +323,7 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       status: 'status',
       source: 'source',
       source_detail: 'source_detail',
+      notes: 'notes',
     };
 
     for (const [key, column] of Object.entries(fieldMap)) {
@@ -332,6 +336,11 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
     if (data.custom_fields !== undefined) {
       setClauses.push('custom_fields = ?');
       params.push(JSON.stringify(data.custom_fields));
+    }
+
+    if ((data as any).enrichment_data !== undefined) {
+      setClauses.push('enrichment_data = ?');
+      params.push(JSON.stringify((data as any).enrichment_data));
     }
 
     if (setClauses.length === 0) {
