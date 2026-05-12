@@ -157,6 +157,9 @@ async function main(): Promise<void> {
           "ALTER TABLE sequence_enrollments ADD COLUMN path_history JSON DEFAULT NULL",
           "ALTER TABLE email_sequences ADD COLUMN sequence_type ENUM('linear', 'branched') DEFAULT 'linear' AFTER status",
           "CREATE TABLE IF NOT EXISTS ab_test_results (id CHAR(36) PRIMARY KEY, tenant_id CHAR(36) NOT NULL, sequence_id CHAR(36) NOT NULL, step_number INT NOT NULL, variant CHAR(1) NOT NULL, sends INT DEFAULT 0, opens INT DEFAULT 0, clicks INT DEFAULT 0, replies INT DEFAULT 0, bounces INT DEFAULT 0, is_winner BOOLEAN DEFAULT FALSE, decided_at DATETIME DEFAULT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, UNIQUE KEY idx_abtest_unique (sequence_id, step_number, variant))",
+          // Migration-004: user sender fields
+          "ALTER TABLE users ADD COLUMN sender_email VARCHAR(255) NULL AFTER last_name",
+          "ALTER TABLE users ADD COLUMN sender_name VARCHAR(100) NULL AFTER sender_email",
         ];
         const results: string[] = [];
         for (const stmt of ddl) {
