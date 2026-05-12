@@ -6,8 +6,12 @@ import { config } from './env';
 /**
  * Migration runner: applies schema.sql and all numbered migration-NNN-*.sql files.
  * Tracks applied migrations in a _migrations table to avoid re-running.
+ *
+ * Can be used in two ways:
+ * 1. CLI: `npm run db:migrate` (runs directly via tsx)
+ * 2. Server startup: import { runMigrations } and call before app.listen()
  */
-async function runMigration(): Promise<void> {
+export async function runMigrations(): Promise<void> {
   const dbDir = path.resolve(__dirname, '..', '..', '..', 'database');
   const schemaPath = path.join(dbDir, 'schema.sql');
 
@@ -62,7 +66,6 @@ async function runMigration(): Promise<void> {
         await connection.query('INSERT INTO _migrations (name) VALUES (?)', [file]);
         console.log(`  [done] ${file}`);
       } catch (err: any) {
-        // Handle "column already exists" or "table already exists" gracefully
         if (err.code === 'ER_DUP_FIELDNAME' || err.code === 'ER_TABLE_EXISTS_ERROR') {
           console.log(`  [warn] ${file}: ${err.message} (continuing)`);
           await connection.query('INSERT IGNORE INTO _migrations (name) VALUES (?)', [file]);
@@ -77,14 +80,20 @@ async function runMigration(): Promise<void> {
   } catch (error: any) {
     console.error('Migration failed:', error.message);
     if (error.code !== 'ER_TABLE_EXISTS_ERROR') {
-      process.exit(1);
+      throw error;
     }
   } finally {
     await connection.end();
   }
 }
 
-runMigration().catch((err) => {
-  console.error('Unhandled migration error:', err);
-  process.exit(1);
-});
+// Run directly when executed via CLI (npm run db:migrate)
+const isDirectExecution = require.main === module ||
+  process.argv[1]?.includes('migrate');
+
+if (isDirectExecution) {
+  runMigrations().catch((err) => {
+    console.error('Unhandled migration error:', err);
+    process.exit(1);
+  });
+}

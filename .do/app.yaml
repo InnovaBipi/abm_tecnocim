@@ -17,7 +17,7 @@ services:
       deploy_on_push: true
     source_dir: server
     build_command: npm install --include=dev && npm run build
-    run_command: npm run db:migrate && npm start
+    run_command: npm start
     environment_slug: node-js
     http_port: 3001
     instance_count: 1

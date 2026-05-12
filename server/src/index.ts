@@ -166,6 +166,16 @@ async function main(): Promise<void> {
     console.warn('Make sure your .env file is configured correctly and the MySQL server is running.');
   }
 
+  // --- Auto-run pending database migrations ---
+  if (dbConnected) {
+    try {
+      const { runMigrations } = await import('./config/migrate');
+      await runMigrations();
+    } catch (error: any) {
+      console.warn('WARNING: Migration check failed:', error.message);
+    }
+  }
+
   // --- Start scheduler ---
   try {
     startScheduler();
