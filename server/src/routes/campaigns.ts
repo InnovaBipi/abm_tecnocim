@@ -783,7 +783,7 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
       `SELECT ge.id, ge.delay_days, ge.step_number, p.timezone, p.country, p.city
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id
-       WHERE ge.id IN (${placeholders}) AND ge.campaign_id = ? AND ge.tenant_id = ? AND ge.status IN ('draft', 'rejected')`,
+       WHERE ge.id IN (${placeholders}) AND ge.campaign_id = ? AND ge.tenant_id = ? AND ge.status IN ('draft', 'rejected', 'bounced')`,
       [...email_ids, id, req.user!.tenantId]
     );
 
@@ -799,7 +799,7 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
 
       await query(
         `UPDATE generated_emails SET status = 'scheduled', approved_at = NOW(), approved_by = ?, scheduled_for = ?
-         WHERE id = ? AND tenant_id = ? AND status IN ('draft', 'rejected')`,
+         WHERE id = ? AND tenant_id = ? AND status IN ('draft', 'rejected', 'bounced')`,
         [req.user!.id, scheduledFor, email.id, req.user!.tenantId]
       );
       scheduled++;
