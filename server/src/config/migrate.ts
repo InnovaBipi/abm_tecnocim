@@ -12,7 +12,12 @@ import { config } from './env';
  * 2. Server startup: import { runMigrations } and call before app.listen()
  */
 export async function runMigrations(): Promise<void> {
-  const dbDir = path.resolve(__dirname, '..', '..', '..', 'database');
+  // Resolve database directory: works in both dev (../../../database) and prod (../../database)
+  const candidates = [
+    path.resolve(__dirname, '..', '..', '..', 'database'),  // dev: server/src/config -> root/database
+    path.resolve(__dirname, '..', '..', 'database'),         // prod: server/dist/config -> server/database
+  ];
+  const dbDir = candidates.find(d => fs.existsSync(d)) || candidates[0];
   const schemaPath = path.join(dbDir, 'schema.sql');
 
   const connection = await mysql.createConnection({
@@ -22,7 +27,7 @@ export async function runMigrations(): Promise<void> {
     password: config.DB_PASSWORD,
     database: config.DB_NAME,
     multipleStatements: true,
-    ssl: config.DB_SSL ? { rejectUnauthorized: true } : undefined,
+    ssl: config.DB_SSL ? { rejectUnauthorized: false } : undefined,
   });
 
   try {
