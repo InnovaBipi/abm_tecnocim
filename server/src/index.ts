@@ -66,13 +66,22 @@ async function main(): Promise<void> {
 
   // --- Health check ---
   app.get('/api/health', (_req, res) => {
+    const fs = require('fs');
+    const dbPaths = [
+      path.resolve(__dirname, '..', '..', 'database'),
+      path.resolve(__dirname, '..', 'database'),
+    ];
     res.json({
       success: true,
       data: {
         status: 'healthy',
         timestamp: new Date().toISOString(),
         environment: config.NODE_ENV,
-        version: '1.0.0',
+        version: '1.0.1',
+        migrate: {
+          __dirname,
+          paths: dbPaths.map(p => ({ path: p, exists: fs.existsSync(p) })),
+        },
       },
     });
   });
