@@ -26,6 +26,7 @@ import {
   Eye,
   ChevronDown,
   ChevronUp,
+  GitBranch,
 } from 'lucide-react';
 import { getStatusColor, formatNumber } from '@/lib/utils';
 import toast from 'react-hot-toast';
@@ -116,6 +117,23 @@ export default function SequenceDetail() {
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.error || 'Error al generar secuencia personalizada');
+    },
+  });
+
+  const generateBranchedMutation = useMutation({
+    mutationFn: (prospectId: string) => sequencesApi.generateBranched(id!, prospectId),
+    onSuccess: (response) => {
+      const data = response?.data?.data;
+      if (data?.steps) {
+        setAiPreviewSteps(data.steps);
+        setAiPreviewMeta(data);
+        setExpandedPreviewStep(0);
+        toast.success('Secuencia inteligente con branching generada');
+        queryClient.invalidateQueries({ queryKey: ['sequences', id] });
+      }
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.error || 'Error al generar secuencia inteligente');
     },
   });
 
@@ -416,23 +434,85 @@ export default function SequenceDetail() {
           </div>
         ) : (
           <div className="space-y-3">
-            {steps.map((step: any, index: number) => (
+            {steps.map((step: any, index: number) => {
+              const isCondition = step.step_type === 'condition';
+              const condConfig = step.condition_config
+                ? (typeof step.condition_config === 'string' ? JSON.parse(step.condition_config) : step.condition_config)
+                : null;
+              const branchLabel = step.branch_label;
+
+              return (
               <div
                 key={step.id || index}
-                className="border border-slate-200 rounded-lg p-4 hover:border-primary-200 transition-colors"
+                className={`border rounded-lg p-4 transition-colors ${
+                  isCondition
+                    ? 'border-amber-300 bg-amber-50/50 hover:border-amber-400'
+                    : 'border-slate-200 hover:border-primary-200'
+                }`}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-3">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary-50 text-primary-600 text-sm font-bold shrink-0">
-                      {step.step_number || index + 1}
+                    <div className={`flex items-center justify-center w-8 h-8 rounded-lg text-sm font-bold shrink-0 ${
+                      isCondition
+                        ? 'bg-amber-100 text-amber-700 rotate-45'
+                        : 'bg-primary-50 text-primary-600'
+                    }`}>
+                      {isCondition ? (
+                        <GitBranch className="h-4 w-4 -rotate-45" />
+                      ) : (
+                        step.step_number || index + 1
+                      )}
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-slate-900">
-                        {step.subject || 'Sin asunto'}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-1 line-clamp-2">
-                        {step.body_text || stripHtml(step.body_html || '') || 'Sin contenido'}
-                      </p>
+                      {isCondition ? (
+                        <>
+                          <p className="text-sm font-medium text-amber-800">
+                            {condConfig?.type === 'opened' ? 'Ha abierto el email?' :
+                             condConfig?.type === 'clicked' ? 'Ha clicado un enlace?' :
+                             condConfig?.type === 'replied' ? 'Ha respondido?' : 'Condicion'}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            {condConfig?.threshold_hours && (
+                              <span className="text-xs text-amber-600">
+                                Ventana: {condConfig.threshold_hours}h
+                              </span>
+                            )}
+                            <span className="inline-flex items-center text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700">
+                              SI →
+                            </span>
+                            <span className="inline-flex items-center text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700">
+                              NO →
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-slate-900">
+                              {step.subject || 'Sin asunto'}
+                            </p>
+                            {branchLabel && (
+                              <span className={`inline-flex items-center text-xs px-1.5 py-0.5 rounded font-medium ${
+                                branchLabel === 'engaged' || branchLabel === 'direct_close'
+                                  ? 'bg-green-100 text-green-700'
+                                  : branchLabel === 'not_engaged' || branchLabel === 'soft_close'
+                                  ? 'bg-slate-100 text-slate-600'
+                                  : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {branchLabel === 'initial' ? 'Inicial' :
+                                 branchLabel === 'engaged' ? 'Engaged' :
+                                 branchLabel === 'not_engaged' ? 'No engaged' :
+                                 branchLabel === 'direct_close' ? 'CTA directo' :
+                                 branchLabel === 'soft_close' ? 'Cierre suave' :
+                                 branchLabel}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-400 mt-1 line-clamp-2">
+                            {step.body_text || stripHtml(step.body_html || '') || 'Sin contenido'}
+                          </p>
+                        </>
+                      )}
                       <div className="flex items-center gap-3 mt-2 text-xs text-slate-500">
                         {(step.delay_days > 0 || step.delay_hours > 0) && (
                           <span className="flex items-center gap-1">
@@ -442,7 +522,6 @@ export default function SequenceDetail() {
                             despues
                           </span>
                         )}
-                        {/* Per-step stats from stepStats */}
                         {sequence.stepStats && sequence.stepStats[index] && (
                           <>
                             <span>Enviados: {sequence.stepStats[index].sent || 0}</span>
@@ -453,6 +532,7 @@ export default function SequenceDetail() {
                       </div>
                     </div>
                   </div>
+                  {!isCondition && (
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={() => openEditStep(index)}
@@ -469,9 +549,11 @@ export default function SequenceDetail() {
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
+                  )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>
@@ -687,19 +769,28 @@ export default function SequenceDetail() {
                 </div>
               )}
 
-              {/* Generate Button */}
+              {/* Generate Buttons */}
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                 <Button variant="secondary" onClick={() => setShowAiModal(false)}>
                   Cancelar
                 </Button>
                 <Button
                   onClick={() => generatePersonalizedMutation.mutate(aiSelectedProspect.id)}
-                  disabled={!aiSelectedProspect}
+                  disabled={!aiSelectedProspect || generateBranchedMutation.isPending}
                   loading={generatePersonalizedMutation.isPending}
                   icon={<Wand2 className="h-4 w-4" />}
                   className="!bg-gradient-to-r !from-purple-500 !to-indigo-500 !text-white !border-0 hover:!from-purple-600 hover:!to-indigo-600"
                 >
-                  {generatePersonalizedMutation.isPending ? 'Generando con Gemini...' : 'Generar Secuencia'}
+                  {generatePersonalizedMutation.isPending ? 'Generando...' : 'Lineal'}
+                </Button>
+                <Button
+                  onClick={() => generateBranchedMutation.mutate(aiSelectedProspect.id)}
+                  disabled={!aiSelectedProspect || generatePersonalizedMutation.isPending}
+                  loading={generateBranchedMutation.isPending}
+                  icon={<GitBranch className="h-4 w-4" />}
+                  className="!bg-gradient-to-r !from-amber-500 !to-orange-500 !text-white !border-0 hover:!from-amber-600 hover:!to-orange-600"
+                >
+                  {generateBranchedMutation.isPending ? 'Generando...' : 'Inteligente'}
                 </Button>
               </div>
             </>

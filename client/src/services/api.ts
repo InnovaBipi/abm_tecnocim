@@ -215,6 +215,12 @@ export const sequencesApi = {
 
   generatePersonalized: (id: string, prospectId: string, numSteps?: number) =>
     api.post(`/sequences/${id}/generate-personalized`, { prospect_id: prospectId, num_steps: numSteps }),
+
+  generateBranched: (id: string, prospectId: string) =>
+    api.post(`/sequences/${id}/generate-branched`, { prospect_id: prospectId }),
+
+  getGraph: (id: string) =>
+    api.get(`/sequences/${id}/graph`),
 };
 
 // ── Outbox ───────────────────────────────────────────────────────────────────

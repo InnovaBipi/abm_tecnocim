@@ -290,7 +290,8 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
           email.body_html,
           undefined,
           fromAddress,
-          replyTo
+          replyTo,
+          req.user!.tenantId
         );
 
         if (result.success) {

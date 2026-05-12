@@ -7,6 +7,8 @@ import { recalculateAllScores } from '../services/scoring';
 import { calculateOptimalSendTime, resolveProspectTimezone, isWithinSendWindow } from '../services/scheduling';
 import { pollImapForReplies } from '../services/imap';
 import { getAllActiveTenants, getTenantConfig } from '../middleware/tenant';
+import { resolveNextStep, EnrollmentContext } from './branching';
+import { evaluateAbTestsForTenant } from './ab-testing';
 
 // Daily digest accumulator: collects send results throughout the day per tenant
 const dailyDigest = new Map<string, Array<{ name: string; email: string; subject: string; campaign: string; step: number; status: 'sent' | 'failed' | 'skipped'; reason?: string; tenant_id: string }>>();
@@ -74,6 +76,11 @@ export function startScheduler(): void {
         console.log(`Score recalculation for ${tenant.name}: ${result.processed} processed, ${result.errors} errors.`);
       }
       console.log('Daily score recalculation complete for all tenants.');
+
+      // Also evaluate A/B test winners per tenant
+      for (const tenant of tenants) {
+        await evaluateAbTestsForTenant(tenant.id);
+      }
     } catch (error: any) {
       console.error('Daily score recalculation error:', error.message);
     }
@@ -189,7 +196,7 @@ async function getTotalSentToday(tenantId: string): Promise<number> {
 async function processDueSequenceEmails(): Promise<void> {
   // Find enrollments where it is time to send the next email
   const dueEnrollments = await query<any[]>(
-    `SELECT se.*, es.status as sequence_status, es.settings as sequence_settings, p.tenant_id
+    `SELECT se.*, es.status as sequence_status, es.settings as sequence_settings, es.sequence_type, p.tenant_id
      FROM sequence_enrollments se
      JOIN email_sequences es ON se.sequence_id = es.id
      JOIN prospects p ON se.prospect_id = p.id
@@ -381,33 +388,58 @@ async function processDueSequenceEmails(): Promise<void> {
         sequenceSentCache[enrollment.sequence_id] = (sequenceSentCache[enrollment.sequence_id] || 0) + 1;
       }
 
-      // Calculate next step send time
-      const nextStepNumber = enrollment.current_step + 1;
-      const nextStep = await query<any[]>(
-        `SELECT * FROM sequence_steps
-         WHERE sequence_id = ? AND step_number = ? AND is_active = TRUE`,
-        [enrollment.sequence_id, nextStepNumber]
-      );
+      // Resolve next step (supports both linear and branched sequences)
+      const enrollmentCtx: EnrollmentContext = {
+        id: enrollment.id,
+        sequence_id: enrollment.sequence_id,
+        prospect_id: enrollment.prospect_id,
+        current_step: enrollment.current_step,
+        current_step_id: enrollment.current_step_id,
+        tenant_id: enrollment.tenant_id,
+      };
+      const nextResult = await resolveNextStep(enrollmentCtx, step);
 
-      if (nextStep.length > 0) {
-        // Calculate raw candidate time based on step delay
+      if (nextResult) {
+        const { step: nextStep, conditionResult, conditionStepId } = nextResult;
+
+        // Calculate raw candidate time based on next step delay
         const rawNextSendAt = new Date();
-        rawNextSendAt.setDate(rawNextSendAt.getDate() + (nextStep[0].delay_days || 0));
-        rawNextSendAt.setHours(rawNextSendAt.getHours() + (nextStep[0].delay_hours || 0));
+        rawNextSendAt.setDate(rawNextSendAt.getDate() + (nextStep.delay_days || 0));
+        rawNextSendAt.setHours(rawNextSendAt.getHours() + (nextStep.delay_hours || 0));
 
         // Adjust to optimal send time for prospect's timezone (no weekends)
         const nextSendAt = calculateOptimalSendTime(rawNextSendAt, prospectTz, seqSendWindow);
 
-        await query(
-          `UPDATE sequence_enrollments SET current_step = ?, next_send_at = ? WHERE id = ?`,
-          [nextStepNumber, nextSendAt, enrollment.id]
-        );
+        // Build path_history entry for branched sequences
+        const pathEntry = conditionResult !== undefined ? JSON.stringify({
+          from_step: step.step_number,
+          condition_step: conditionStepId,
+          to_step: nextStep.step_number,
+          condition_result: conditionResult,
+          evaluated_at: new Date().toISOString(),
+        }) : null;
+
+        if (pathEntry) {
+          await query(
+            `UPDATE sequence_enrollments
+             SET current_step = ?, current_step_id = ?, next_send_at = ?,
+                 path_history = JSON_ARRAY_APPEND(COALESCE(path_history, JSON_ARRAY()), '$', CAST(? AS JSON))
+             WHERE id = ? AND tenant_id = ?`,
+            [nextStep.step_number, nextStep.id, nextSendAt, pathEntry, enrollment.id, enrollment.tenant_id]
+          );
+        } else {
+          await query(
+            `UPDATE sequence_enrollments SET current_step = ?, current_step_id = ?, next_send_at = ?
+             WHERE id = ? AND tenant_id = ?`,
+            [nextStep.step_number, nextStep.id, nextSendAt, enrollment.id, enrollment.tenant_id]
+          );
+        }
       } else {
         // No more steps - mark as completed
         await query(
           `UPDATE sequence_enrollments SET status = 'completed', completed_at = NOW(), next_send_at = NULL
-           WHERE id = ?`,
-          [enrollment.id]
+           WHERE id = ? AND tenant_id = ?`,
+          [enrollment.id, enrollment.tenant_id]
         );
       }
     } catch (error: any) {

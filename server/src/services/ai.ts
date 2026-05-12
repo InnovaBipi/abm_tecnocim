@@ -498,3 +498,222 @@ Return ONLY a JSON array with exactly ${numSteps} objects. No markdown, no expla
 
   throw new Error('Gemini did not return a valid sequence. Please try again.');
 }
+
+/**
+ * Branched sequence step definition returned by generateBranchedSequence.
+ * Includes both email and condition nodes with graph navigation metadata.
+ */
+export interface BranchedStep {
+  step_number: number;
+  step_type: 'email' | 'condition';
+  subject?: string;
+  body_html?: string;
+  delay_days: number;
+  delay_hours: number;
+  branch_label?: string;
+  condition_config?: { type: string; threshold_hours?: number };
+  // Wiring references: which step_numbers the condition routes to
+  yes_target_step?: number;
+  no_target_step?: number;
+}
+
+/**
+ * Generate a branched email sequence with decision tree logic.
+ *
+ * Produces 5 email variants for different engagement paths:
+ * - initial: First outreach (day 0)
+ * - engaged: Follow-up for prospects who opened (day 2+)
+ * - not_engaged: Re-engagement with new angle for non-openers (day 2+)
+ * - direct_close: CTA for prospects who clicked (day 7+)
+ * - soft_close: Final soft touch for non-clickers (day 10+)
+ *
+ * The AI generates email CONTENT only. The branching tree structure
+ * (condition nodes, graph wiring) is assembled programmatically.
+ */
+export async function generateBranchedSequence(
+  prospect: {
+    first_name?: string;
+    last_name?: string;
+    title?: string;
+    company_name?: string;
+    industry?: string;
+    city?: string;
+    region?: string;
+    country?: string;
+    linkedin_url?: string;
+  },
+  enrichment: {
+    ai_analysis?: {
+      key_insights?: string[];
+      company_description?: string;
+      recommended_approach?: string;
+      business_relevance?: string;
+      real_estate_relevance?: string;
+      investment_interest_score?: number;
+      company_industry?: string;
+      suggested_use_cases?: string[];
+      pain_points?: string[];
+    };
+    perplexity_research?: string;
+  } | null,
+  campaign: {
+    name: string;
+    description?: string;
+    asset_type?: string;
+    asset_location?: string;
+    asset_price?: number;
+    asset_details?: Record<string, unknown>;
+  },
+  tenantContext?: TenantAIContext
+): Promise<BranchedStep[]> {
+  const ctx = tenantContext || DEFAULT_TENANT_CONTEXT;
+  const ai = enrichment?.ai_analysis;
+  const research = enrichment?.perplexity_research;
+
+  let enrichmentContext = '';
+  if (ai) {
+    enrichmentContext = `
+ENRICHMENT DATA:
+- Company: ${ai.company_description || 'Unknown'}
+- Industry: ${ai.company_industry || 'Unknown'}
+- Business Relevance: ${ai.business_relevance || ai.real_estate_relevance || 'Unknown'}
+- Recommended Approach: ${ai.recommended_approach || 'Unknown'}
+${(ai.key_insights || []).length > 0 ? `- Key Insights:\n${ai.key_insights!.map((k, i) => `  ${i + 1}. ${k}`).join('\n')}` : ''}
+${(ai.suggested_use_cases || []).length > 0 ? `- Use Cases:\n${ai.suggested_use_cases!.map((uc, i) => `  ${i + 1}. ${uc}`).join('\n')}` : ''}
+${(ai.pain_points || []).length > 0 ? `- Pain Points:\n${ai.pain_points!.map((pp, i) => `  ${i + 1}. ${pp}`).join('\n')}` : ''}
+`;
+  }
+  if (research) {
+    enrichmentContext += `\nRESEARCH:\n${research.substring(0, 1500)}\n`;
+  }
+
+  const language = resolveProspectLanguage({
+    region: prospect.region,
+    country: prospect.country,
+    city: prospect.city,
+    title: prospect.title,
+  }, ctx.default_language);
+  const languageInstruction = getLanguageInstruction(language);
+
+  const prompt = `You are a world-class B2B email strategist for ${ctx.company_name}.
+
+SENDER: ${ctx.sender_name} from ${ctx.company_name}.
+${ctx.company_description}
+
+PROSPECT:
+- Name: ${prospect.first_name || ''} ${prospect.last_name || ''}
+- Title: ${prospect.title || 'Unknown'}
+- Company: ${prospect.company_name || 'Unknown'}
+- Location: ${prospect.city || ''}, ${prospect.country || ''}
+- LinkedIn: ${prospect.linkedin_url || 'N/A'}
+${enrichmentContext}
+
+CAMPAIGN: ${campaign.name}
+${campaign.description || ''}
+
+${languageInstruction}
+
+TASK: Generate 5 DIFFERENT emails for a BRANCHED outreach sequence.
+The sequence adapts based on prospect behavior (opens, clicks):
+
+Email 1 "initial" (Day 0): First outreach. Personal connection + specific use case.
+Email 2 "engaged" (Day 3): FOR PROSPECTS WHO OPENED EMAIL 1. They showed interest — deepen the value, reference a second use case or specific benefit.
+Email 3 "not_engaged" (Day 3): FOR PROSPECTS WHO DID NOT OPEN. Completely different subject line and angle to re-engage.
+Email 4 "direct_close" (Day 7): FOR ENGAGED PROSPECTS WHO CLICKED. Direct CTA — propose a meeting or call.
+Email 5 "soft_close" (Day 10): FOR NON-ENGAGED. Final soft touch, leave the door open respectfully.
+
+CRITICAL RULES:
+1. Each email MUST have a UNIQUE angle and subject. No repetition.
+2. BREVITY: 60-100 words MAX per email. Short paragraphs.
+3. SUBJECTS: 5-7 words max, intriguing and specific. Under 40 characters.
+4. Use enrichment data for SPECIFIC connections to the prospect's business.
+5. Professional tone, no salesy language, no exclamation marks.
+6. Write ALL emails in the language specified above.
+7. NEVER use "Re:" prefix. Each subject must be original.
+8. Email 3 (not_engaged) MUST have a completely different subject line approach than Email 1.
+${ctx.email_style ? `\nSTYLE: ${ctx.email_style}` : ''}
+${ctx.key_differentiators ? `\nDIFFERENTIATORS: ${ctx.key_differentiators}` : ''}
+
+Return ONLY a JSON array with exactly 5 objects. No markdown, no explanation:
+[
+  { "branch_label": "initial", "subject": "...", "body_html": "<p>...</p>" },
+  { "branch_label": "engaged", "subject": "...", "body_html": "<p>...</p>" },
+  { "branch_label": "not_engaged", "subject": "...", "body_html": "<p>...</p>" },
+  { "branch_label": "direct_close", "subject": "...", "body_html": "<p>...</p>" },
+  { "branch_label": "soft_close", "subject": "...", "body_html": "<p>...</p>" }
+]`;
+
+  const result = await enrichWithGemini(prompt, { temperature: 0.8, maxOutputTokens: 8192 });
+
+  let emails: Array<{ branch_label: string; subject: string; body_html: string }>;
+  try {
+    const jsonMatch = result.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error('No JSON array found');
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(parsed) || parsed.length < 5) throw new Error('Expected 5 emails');
+    emails = parsed;
+  } catch (e) {
+    console.error('Failed to parse branched sequence JSON:', e);
+    throw new Error('Gemini did not return a valid branched sequence. Please try again.');
+  }
+
+  // Map branch_labels to emails
+  const emailMap: Record<string, typeof emails[0]> = {};
+  for (const email of emails) {
+    emailMap[email.branch_label] = email;
+  }
+
+  const initial = emailMap['initial'] || emails[0];
+  const engaged = emailMap['engaged'] || emails[1];
+  const notEngaged = emailMap['not_engaged'] || emails[2];
+  const directClose = emailMap['direct_close'] || emails[3];
+  const softClose = emailMap['soft_close'] || emails[4];
+
+  // Assemble the decision tree programmatically:
+  // Step 1: Email (initial)         — day 0
+  // Step 2: Condition (opened?)     — +2 days, 48h window
+  // Step 3: Email (engaged)         — immediate after condition YES
+  // Step 4: Email (not_engaged)     — immediate after condition NO
+  // Step 5: Condition (clicked?)    — +4 days, 96h window
+  // Step 6: Email (direct_close)    — immediate after condition YES
+  // Step 7: Email (soft_close)      — immediate after condition NO
+  return [
+    {
+      step_number: 1, step_type: 'email',
+      subject: initial.subject, body_html: initial.body_html,
+      delay_days: 0, delay_hours: 0, branch_label: 'initial',
+    },
+    {
+      step_number: 2, step_type: 'condition',
+      delay_days: 2, delay_hours: 0, branch_label: 'check_opened',
+      condition_config: { type: 'opened', threshold_hours: 48 },
+      yes_target_step: 3, no_target_step: 4,
+    },
+    {
+      step_number: 3, step_type: 'email',
+      subject: engaged.subject, body_html: engaged.body_html,
+      delay_days: 0, delay_hours: 0, branch_label: 'engaged',
+    },
+    {
+      step_number: 4, step_type: 'email',
+      subject: notEngaged.subject, body_html: notEngaged.body_html,
+      delay_days: 0, delay_hours: 0, branch_label: 'not_engaged',
+    },
+    {
+      step_number: 5, step_type: 'condition',
+      delay_days: 4, delay_hours: 0, branch_label: 'check_clicked',
+      condition_config: { type: 'clicked', threshold_hours: 96 },
+      yes_target_step: 6, no_target_step: 7,
+    },
+    {
+      step_number: 6, step_type: 'email',
+      subject: directClose.subject, body_html: directClose.body_html,
+      delay_days: 0, delay_hours: 0, branch_label: 'direct_close',
+    },
+    {
+      step_number: 7, step_type: 'email',
+      subject: softClose.subject, body_html: softClose.body_html,
+      delay_days: 3, delay_hours: 0, branch_label: 'soft_close',
+    },
+  ];
+}
