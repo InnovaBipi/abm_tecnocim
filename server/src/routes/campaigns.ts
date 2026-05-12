@@ -715,7 +715,7 @@ router.get('/:id/generated-emails', async (req: Request, res: Response): Promise
 router.put('/:id/generated-emails/:emailId', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id, emailId } = req.params;
-    const { subject, body_html } = req.body;
+    const { subject, body_html, status, sent_at } = req.body;
 
     const existing = await query<any[]>(
       'SELECT id FROM generated_emails WHERE id = ? AND campaign_id = ? AND tenant_id = ?',
@@ -737,6 +737,14 @@ router.put('/:id/generated-emails/:emailId', async (req: Request, res: Response)
     if (body_html !== undefined) {
       setClauses.push('body_html = ?');
       params.push(body_html);
+    }
+    if (status !== undefined) {
+      setClauses.push('status = ?');
+      params.push(status);
+    }
+    if (sent_at !== undefined) {
+      setClauses.push('sent_at = ?');
+      params.push(sent_at);
     }
 
     if (setClauses.length === 0) {
