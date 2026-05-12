@@ -35,6 +35,13 @@ export interface TenantConfig {
     key_differentiators?: string;
     default_language?: 'spanish' | 'catalan' | 'english';
   };
+  legal: {
+    legal_name: string;
+    cif: string;
+    address: string;
+    privacy_url?: string;
+    data_source?: string;
+  };
   branding: {
     app_name: string;
     tagline: string;
