@@ -180,6 +180,7 @@ async function main(): Promise<void> {
     }
   });
 
+// TEMPORARY DIAGNOSTIC - remove after fixing login  app.get("/api/admin/diag-login", async (req, res) => {    try {      const { getConnection } = await import("./config/database");      const conn = await getConnection();      const [rows] = await conn.execute("SELECT id, email, LEFT(password, 20) as hash_prefix, LENGTH(password) as hash_len, is_active, tenant_id FROM users WHERE email = 'alfons@tecnocim.com'") as any;      const [tenants] = await conn.execute("SELECT id, slug FROM tenants WHERE slug = 'tecnocim'") as any;      const bcrypt = require("bcryptjs");      const freshHash = await bcrypt.hash("Tecnocim2026!", 10);      const [updateResult] = await conn.execute("UPDATE users SET password = ? WHERE email = ? AND tenant_id = (SELECT id FROM tenants WHERE slug = 'tecnocim')", [freshHash, "alfons@tecnocim.com"]) as any;      conn.release();      res.json({ success: true, data: { users: rows, tenants, updateResult: { affectedRows: updateResult.affectedRows }, newHashLen: freshHash.length } });    } catch (e: any) { res.status(500).json({ error: e.message }); }  });
   // Public routes (no auth, no rate limit on webhooks - Resend needs to reach us)
   app.use('/api/webhooks', webhookRoutes);
   app.use('/api/unsubscribe', unsubscribeRoutes);
