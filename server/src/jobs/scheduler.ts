@@ -134,9 +134,11 @@ export function startScheduler(): void {
 // =============================================
 
 /**
- * Calculate the max daily sends based on domain age (warm-up curve).
- * Domain age = days since first email_event of type 'sent'.
- * Day 1-3: 5, Day 4-7: 15, Day 8-14: 30, Day 15-21: 50, Day 22-30: 100, Day 31+: no cap
+ * Calculate the max daily sends based on tenant config + domain age warm-up curve.
+ *
+ * Priority:
+ * 1. Tenant config warmup (daily_limit_base → daily_limit_max over ramp_up_days)
+ * 2. Default curve: Day 1-3: 5, Day 4-7: 15, Day 8-14: 30, Day 15-21: 50, Day 22-30: 100, Day 31+: no cap
  */
 async function getWarmupDailyLimit(tenantId: string): Promise<number> {
   const result = await query<any[]>(
@@ -145,15 +147,31 @@ async function getWarmupDailyLimit(tenantId: string): Promise<number> {
     [tenantId]
   );
 
-  if (!result[0]?.first_sent) {
-    // No emails ever sent — start of warm-up
-    return 5;
+  const firstSent = result[0]?.first_sent ? new Date(result[0].first_sent) : null;
+  const now = new Date();
+  const domainAgeDays = firstSent
+    ? Math.floor((now.getTime() - firstSent.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    : 0;
+
+  // Check tenant config for warmup override
+  try {
+    const tenant = await getTenantConfig(tenantId);
+    const warmup = tenant?.config?.warmup;
+    if (warmup?.daily_limit_base && warmup?.daily_limit_max) {
+      const base = warmup.daily_limit_base;
+      const max = warmup.daily_limit_max;
+      const rampDays = warmup.ramp_up_days || 30;
+      if (domainAgeDays === 0) return base;
+      if (domainAgeDays >= rampDays) return max;
+      // Linear ramp: base + (max - base) * (daysSinceStart / rampDays)
+      return Math.min(max, Math.round(base + (max - base) * (domainAgeDays / rampDays)));
+    }
+  } catch {
+    // Fall through to defaults
   }
 
-  const firstSent = new Date(result[0].first_sent);
-  const now = new Date();
-  const domainAgeDays = Math.floor((now.getTime() - firstSent.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-
+  // Default curve (no tenant config)
+  if (domainAgeDays === 0) return 5;
   if (domainAgeDays <= 3) return 5;
   if (domainAgeDays <= 7) return 15;
   if (domainAgeDays <= 14) return 30;

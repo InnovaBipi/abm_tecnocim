@@ -162,6 +162,8 @@ async function main(): Promise<void> {
           "ALTER TABLE users ADD COLUMN sender_name VARCHAR(100) NULL AFTER sender_email",
           // Migration-006: reset alfons password to Tecnocim2026! (owner-requested)
           "UPDATE users SET password = '$2a$10$hvNPJyX/N3k2LOyCKSBfSOLG1ZCkts9fmFrPMgz0eGHgt7peJ/P9O' WHERE email = 'alfons@tecnocim.com' AND tenant_id = (SELECT id FROM tenants WHERE slug = 'tecnocim')",
+          // Warmup: set base to 25/day for campaign launch
+          "UPDATE tenants SET config = JSON_SET(config, '$.warmup.daily_limit_base', 25, '$.warmup.daily_limit_max', 100) WHERE slug = 'tecnocim'",
         ];
         const results: string[] = [];
         for (const stmt of ddl) {
