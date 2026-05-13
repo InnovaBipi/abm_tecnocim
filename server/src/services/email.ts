@@ -73,6 +73,10 @@ export async function sendEmail(
         'List-Unsubscribe': `<${unsubscribeUrl}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
+      tracking: {
+        opens: true,
+        clicks: true,
+      },
     });
 
     if (result.error) {
