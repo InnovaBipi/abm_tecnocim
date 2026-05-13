@@ -848,6 +848,55 @@ router.post('/:id/reject-emails', async (req: Request, res: Response): Promise<v
   }
 });
 
+// --- POST /:id/bulk-insert-emails - Bulk insert generated emails (bypasses AI, for Claude Code pipeline) ---
+router.post('/:id/bulk-insert-emails', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { emails } = req.body;
+
+    if (!emails || !Array.isArray(emails) || emails.length === 0) {
+      res.status(400).json({ success: false, error: 'emails array is required.' });
+      return;
+    }
+
+    // Verify campaign belongs to tenant
+    const campaign = await query<any[]>('SELECT id FROM campaigns WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
+    if (campaign.length === 0) {
+      res.status(404).json({ success: false, error: 'Campaign not found.' });
+      return;
+    }
+
+    const tenantId = req.user!.tenantId;
+    let inserted = 0;
+    for (const email of emails) {
+      if (!email.prospect_id || !email.subject || !email.body_html) continue;
+
+      // Verify prospect belongs to this tenant
+      const prospect = await query<any[]>('SELECT id FROM prospects WHERE id = ? AND tenant_id = ?', [email.prospect_id, tenantId]);
+      if (prospect.length === 0) continue;
+
+      // Delete any existing draft for this prospect+campaign+step to avoid duplicates
+      await query(
+        'DELETE FROM generated_emails WHERE prospect_id = ? AND campaign_id = ? AND step_number = ? AND tenant_id = ?',
+        [email.prospect_id, id, email.step_number || 1, tenantId]
+      );
+
+      const emailId = uuidv4();
+      await query(
+        `INSERT INTO generated_emails (id, tenant_id, campaign_id, prospect_id, step_number, subject, body_html, delay_days, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
+        [emailId, tenantId, id, email.prospect_id, email.step_number || 1, email.subject, email.body_html, email.delay_days || 0]
+      );
+      inserted++;
+    }
+
+    res.json({ success: true, data: { message: `Inserted ${inserted} email(s).`, inserted } });
+  } catch (error: any) {
+    console.error('Bulk insert emails error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred while inserting emails.' });
+  }
+});
+
 // --- DELETE /:id/prospects/:prospectId - Remove prospect from campaign ---
 router.delete('/:id/prospects/:prospectId', async (req: Request, res: Response): Promise<void> => {
   try {
