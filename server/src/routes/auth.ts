@@ -198,15 +198,26 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Update last login
-    await query('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
+    // Update last login (non-critical, don't let it break login)
+    try {
+      await query('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
+    } catch (lastLoginErr) {
+      console.error('Failed to update last_login (non-critical):', lastLoginErr);
+    }
 
     // Generate JWT with tenantId
     const token = generateToken(user.id, user.email, user.role, user.tenant_id);
 
-    const tenantConfig = typeof user.tenant_config === 'string'
-      ? JSON.parse(user.tenant_config)
-      : user.tenant_config;
+    // Parse tenant config defensively
+    let tenantConfig: any = {};
+    try {
+      tenantConfig = typeof user.tenant_config === 'string'
+        ? JSON.parse(user.tenant_config)
+        : (user.tenant_config || {});
+    } catch (parseErr) {
+      console.error('Failed to parse tenant_config for tenant', user.tenant_slug, ':', parseErr);
+      tenantConfig = {};
+    }
 
     res.json({
       success: true,
@@ -218,8 +229,8 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
           first_name: user.first_name,
           last_name: user.last_name,
           role: user.role,
-          sender_email: user.sender_email,
-          sender_name: user.sender_name,
+          sender_email: user.sender_email ?? null,
+          sender_name: user.sender_name ?? null,
         },
         tenant: {
           id: user.tenant_id,
@@ -233,10 +244,11 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       },
     });
   } catch (error: any) {
-    console.error('Login error:', error);
+    console.error('Login error:', error?.message, error?.stack);
     res.status(500).json({
       success: false,
       error: 'An error occurred during login.',
+      debug: process.env.NODE_ENV !== 'production' ? error?.message : undefined,
     });
   }
 });

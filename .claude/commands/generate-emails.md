@@ -1,6 +1,6 @@
 ---
 name: generate-emails
-description: Generate campaign emails using Claude instead of Gemini. Bypasses Gemini rate limits.
+description: Generate campaign emails using Claude instead of Gemini. Bypasses Gemini rate limits. Uses curl API calls (no browser needed).
 arguments:
   - name: campaign
     description: "Campaign ID or name (default: first active campaign)"
@@ -10,45 +10,53 @@ user_facing: true
 
 # Generate Campaign Emails with Claude
 
-You are a world-class B2B email strategist. Generate personalized outreach emails for an ABM campaign, bypassing Gemini entirely.
+You are a world-class B2B email strategist. Generate personalized outreach emails for an ABM campaign using curl API calls.
 
-## Step 1: Load browser tools and get tab context
+**Skill reference**: Follow `.claude/skills/api-automation/SKILL.md` for all API calls.
 
-Use `mcp__claude-in-chrome__tabs_context_mcp` to find the ABM platform tab (abm.tecnociminnova.com or localhost). If no tab is open, ask the user to open the platform first.
+## Step 1: Authenticate via curl
 
-## Step 2: Fetch all data via browser JS
-
-Execute JavaScript on the ABM tab to fetch campaign, prospects, and existing emails in one call:
-
-```javascript
-(async () => {
-  const token = localStorage.getItem('token');
-  const h = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
-
-  // Find campaign
-  const campsRes = await fetch('/api/campaigns?limit=100', { headers: h }).then(r => r.json());
-  const campaigns = campsRes.data?.campaigns || [];
-  // Use argument $ARGUMENTS.campaign if provided (match by ID or name), otherwise first active
-  const camp = campaigns.find(c => c.id === '$ARGUMENTS.campaign' || c.name?.includes('$ARGUMENTS.campaign')) || campaigns[0];
-  if (!camp) return JSON.stringify({ error: 'No campaigns found' });
-
-  // Fetch campaign emails
-  const emailsRes = await fetch(`/api/campaigns/${camp.id}/generated-emails`, { headers: h }).then(r => r.json());
-  const emails = emailsRes.data?.emails || [];
-
-  // Fetch each prospect's full data
-  const prospectIds = [...new Set(emails.map(e => e.prospect_id))];
-  const prospects = [];
-  for (const pid of prospectIds) {
-    const pRes = await fetch(`/api/prospects/${pid}`, { headers: h }).then(r => r.json());
-    prospects.push(pRes.data);
-  }
-
-  return JSON.stringify({ campaign: camp, emails, prospects }, null, 2);
-})();
+```bash
+BASE="${ABM_BASE_URL:-https://abm.tecnociminnova.com}"
+SLUG="${ABM_TENANT_SLUG:-tecnocim}"
 ```
 
-Parse the result and extract: campaign details, existing emails (with their IDs), and prospect data (including enrichment_data, company info, city/region/country).
+If `ABM_EMAIL` or `ABM_PASSWORD` are not set, ask the user via AskUserQuestion for their email and password.
+
+```bash
+TOKEN=$(curl -s -X POST "${BASE}/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"${ABM_EMAIL}\",\"password\":\"${ABM_PASSWORD}\",\"tenant_slug\":\"${SLUG}\"}" \
+  | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const r=JSON.parse(d);process.stdout.write(r.data?.token||'')}catch(e){}})")
+```
+
+If TOKEN is empty, tell the user login failed and stop.
+
+## Step 2: Fetch campaign and prospect data via curl
+
+```bash
+# List campaigns
+CAMPAIGNS=$(curl -s "${BASE}/api/campaigns?limit=100" \
+  -H "Authorization: Bearer ${TOKEN}")
+```
+
+Parse the response to find the campaign (match by ID or name using `$ARGUMENTS.campaign`, or use the first active one).
+
+```bash
+# Fetch generated emails for the campaign
+EMAILS=$(curl -s "${BASE}/api/campaigns/${CAMPAIGN_ID}/generated-emails" \
+  -H "Authorization: Bearer ${TOKEN}")
+```
+
+For each unique prospect_id in the emails, fetch full prospect data:
+
+```bash
+# Fetch prospect with enrichment_data, company, tags
+PROSPECT=$(curl -s "${BASE}/api/prospects/${PROSPECT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}")
+```
+
+Parse and collect: campaign details, existing emails (with IDs), prospect data (enrichment_data, company info, city/region/country).
 
 ## Step 3: Resolve language per prospect
 
@@ -88,41 +96,51 @@ You ARE the LLM generating these emails. Follow these rules exactly:
 - If generating 1 email (step 1): Personal connection + specific use case relevant to their business.
 - If generating 4 emails: (1) Personal + use case, (2) Value/data deep dive, (3) Social proof/urgency, (4) Soft close.
 
-**OUTPUT FORMAT**: For each prospect, produce:
-```json
-{
-  "emailId": "<existing generated_email ID>",
-  "subject": "...",
-  "body_html": "<p>...</p>"
-}
+## Step 5: Save emails via curl
+
+For each generated email, update via PUT or bulk insert:
+
+**Option A: Update existing emails**
+```bash
+curl -s -X PUT "${BASE}/api/campaigns/${CAMPAIGN_ID}/generated-emails/${EMAIL_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"subject":"...","body_html":"..."}'
 ```
 
-## Step 5: Save each email via browser JS
-
-For each generated email, execute:
-
-```javascript
-(async () => {
-  const token = localStorage.getItem('token');
-  const h = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
-  const campId = '<CAMPAIGN_ID>';
-
-  const res = await fetch(`/api/campaigns/${campId}/generated-emails/<EMAIL_ID>`, {
-    method: 'PUT',
-    headers: h,
-    body: JSON.stringify({ subject: '<SUBJECT>', body_html: '<BODY_HTML>' })
-  }).then(r => r.json());
-
-  return JSON.stringify(res);
-})();
+**Option B: Bulk insert new emails (if no existing drafts)**
+```bash
+curl -s -X POST "${BASE}/api/campaigns/${CAMPAIGN_ID}/bulk-insert-emails" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"emails":[{"prospect_id":"...","step_number":1,"subject":"...","body_html":"...","delay_days":0}]}'
 ```
 
-## Step 6: Report
+Process in batches of 20-30 emails per curl call to avoid timeouts.
 
-After saving all emails, show a summary table:
+## Step 6: Auto-approve (optional)
 
-| Prospect | Language | Subject | Status |
-|----------|----------|---------|--------|
-| Name     | ca/es    | Subject | Saved/Error |
+Ask the user: "Approve all generated emails for sending?"
 
-Note: Emails are saved as 'draft'. The user must approve them from the campaign UI or via `/audit-emails` before sending.
+If yes:
+```bash
+# Get all draft email IDs
+DRAFTS=$(curl -s "${BASE}/api/campaigns/${CAMPAIGN_ID}/generated-emails?status=draft" \
+  -H "Authorization: Bearer ${TOKEN}")
+# Extract IDs, then approve
+curl -s -X POST "${BASE}/api/campaigns/${CAMPAIGN_ID}/approve-emails" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"email_ids":["id1","id2",...]}'
+```
+
+## Step 7: Report
+
+Show a summary table:
+
+| Prospect | Company | Language | Subject | Status |
+|----------|---------|----------|---------|--------|
+| Name     | Company | ca/es    | Subject | Saved/Error |
+
+Report totals: X emails generated, Y saved, Z errors.
+Note: If not auto-approved, emails are in 'draft' status. Run `/audit-emails` or approve manually.

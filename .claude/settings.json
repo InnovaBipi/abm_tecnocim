@@ -45,6 +45,15 @@
             "prompt": "You are a security reviewer for a multi-tenant ABM platform. Check the code being written/edited. If it contains SQL queries (SELECT, INSERT, UPDATE, DELETE on tables like prospects, companies, campaigns, email_sequences, generated_emails, scoring_rules, imports, tags, prospect_activities, email_events, suppression_list, sequence_enrollments, jobs, imap_sync_state, prospect_score_history), verify EVERY query includes tenant_id filtering. The ONLY exceptions are: (1) the 'tenants' table itself, (2) the '_migrations' table, (3) 'sequence_steps' table (child of sequence, no tenant_id column), (4) 'campaign_prospects' and 'prospect_tags' and 'company_tags' junction tables. If a query on a tenant-scoped table is MISSING tenant_id, respond {\"decision\": \"block\", \"reason\": \"SQL query on [table] missing tenant_id filter\"}. Otherwise respond {\"decision\": \"allow\"}."
           }
         ]
+      },
+      {
+        "matcher": "mcp__claude-in-chrome",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "The ABM platform has a full REST API callable via curl. Check if this browser tool call is for an API operation (login, CRUD, import, email generation, approval, sending, user management) that could be done via 'curl' in Bash instead. If yes, respond {\"decision\": \"block\", \"reason\": \"Use curl via Bash for API operations. See .claude/skills/api-automation/SKILL.md\"}. If this is legitimate browser use (website scraping for prospecting, LinkedIn automation, visual testing/debugging, or an operation with no API equivalent), respond {\"decision\": \"allow\"}."
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -63,7 +72,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Review what was accomplished in this session. Check: (1) Are there any incomplete tasks that were started but not finished? (2) Were any SQL queries written without tenant_id on tenant-scoped tables? (3) Were any .env or credential files modified? (4) Were any new UI components created without corresponding .test.tsx files? If so, remind about testing conventions. If everything looks good, respond {\"decision\": \"allow\"}. If there are incomplete tasks or security issues, respond {\"decision\": \"block\", \"reason\": \"<specific issue>\"}."
+            "prompt": "Respond with ONLY a valid JSON object, no other text. Format: {\"decision\":\"allow\"} or {\"decision\":\"block\",\"reason\":\"description\"}. Block if any of these issues exist: (1) SQL written on tenant-scoped tables without tenant_id filter, (2) .env or credential files were modified, (3) new UI components in components/ui/ created without a .test.tsx file. Otherwise respond {\"decision\":\"allow\"}."
           }
         ]
       }

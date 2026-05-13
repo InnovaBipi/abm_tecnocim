@@ -90,6 +90,50 @@ Generate a Legitimate Interest Assessment document for this prospecting campaign
 - Save to scripts/output/lia-{sector}-{region}-{date}.md
 - This is LEGALLY REQUIRED before any email sending
 
+### Phase 7.5: Auto-Import to Platform (optional)
+
+**Skill reference**: Follow `.claude/skills/api-automation/SKILL.md` for all API calls.
+
+Ask the user: "Import prospects to the ABM platform now?"
+
+If yes:
+
+1. **Authenticate via curl**:
+```bash
+BASE="${ABM_BASE_URL:-https://abm.tecnociminnova.com}"
+SLUG="${ABM_TENANT_SLUG:-tecnocim}"
+TOKEN=$(curl -s -X POST "${BASE}/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"${ABM_EMAIL}\",\"password\":\"${ABM_PASSWORD}\",\"tenant_slug\":\"${SLUG}\"}" \
+  | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const r=JSON.parse(d);process.stdout.write(r.data?.token||'')}catch(e){}})")
+```
+If `ABM_EMAIL` or `ABM_PASSWORD` not set, ask the user via AskUserQuestion.
+
+2. **Upload CSV**:
+```bash
+UPLOAD_RESULT=$(curl -s -X POST "${BASE}/api/imports/upload" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -F "file=@scripts/output/prospects-{sector}-{region}-{date}.csv")
+IMPORT_ID=$(echo "$UPLOAD_RESULT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const r=JSON.parse(d);process.stdout.write(r.data?.import_id||'')})")
+```
+
+3. **Map columns and import**:
+```bash
+MAP_RESULT=$(curl -s -X POST "${BASE}/api/imports/${IMPORT_ID}/map" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "column_mapping": {
+      "email":"email","first_name":"first_name","company_name":"company_name",
+      "domain":"domain","industry":"industry","city":"city",
+      "region":"region","country":"country"
+    },
+    "default_tags": ["prospecting-SECTOR-REGION-DATE"]
+  }')
+```
+
+4. **Report**: Show imported/skipped/errors counts.
+
 ### Phase 8: Report
 
 Show the user a complete summary:
@@ -106,6 +150,7 @@ ICP Score >= 30:         22
   Tier C (30-49):        7
 Compliance approved:     20
   Possible autonomos:    2 (review CSV)
+Platform import:         20 imported, 0 skipped (if auto-import ran)
 
 Output Files:
   Main CSV:     scripts/output/prospects-metalurgia-catalunya-20260513.csv (20 rows)
@@ -116,7 +161,7 @@ Output Files:
 Next Steps:
   1. Review LIA document (have legal counsel review before first send)
   2. Check Lista Robinson at listarobinson.es for all emails
-  3. Import main CSV via /imports page in ABM platform
+  3. Run /launch-campaign to create campaign + generate emails
   4. Run /generate-sequence for Tier A prospects
   5. Run /warm-prospects for LinkedIn social warming
 ```
@@ -128,11 +173,40 @@ If the user provided a campaign context:
 1. For each Tier A prospect:
    - Launch **email-generator** agent to create branched sequence
    - Show preview to user
-2. Ask: "Import and enroll these prospects? (y/n)"
-3. If yes:
-   - Import CSV via platform API
-   - Create sequences via API
-   - Enroll prospects
+
+2. Ask: "Create campaign and generate emails? (y/n)"
+
+3. If yes, execute via curl (authenticate if not already done):
+   ```bash
+   # Create campaign
+   CAMPAIGN_RESULT=$(curl -s -X POST "${BASE}/api/campaigns" \
+     -H "Authorization: Bearer ${TOKEN}" \
+     -H "Content-Type: application/json" \
+     -d '{"name":"CAMPAIGN_NAME","description":"CAMPAIGN_CONTEXT","campaign_type":"outbound","status":"draft"}')
+   CAMPAIGN_ID=$(echo "$CAMPAIGN_RESULT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const r=JSON.parse(d);process.stdout.write(r.data?.id||r.data?.campaign?.id||'')})")
+
+   # Find imported prospects and add to campaign
+   PROSPECTS=$(curl -s "${BASE}/api/prospects?search=IMPORT_TAG&limit=100" \
+     -H "Authorization: Bearer ${TOKEN}")
+   # Extract prospect IDs, then:
+   curl -s -X POST "${BASE}/api/campaigns/${CAMPAIGN_ID}/prospects" \
+     -H "Authorization: Bearer ${TOKEN}" \
+     -H "Content-Type: application/json" \
+     -d '{"prospect_ids":["id1","id2",...]}'
+
+   # Bulk insert Claude-generated emails
+   curl -s -X POST "${BASE}/api/campaigns/${CAMPAIGN_ID}/bulk-insert-emails" \
+     -H "Authorization: Bearer ${TOKEN}" \
+     -H "Content-Type: application/json" \
+     -d '{"emails":[...]}'
+
+   # Ask user to approve
+   curl -s -X POST "${BASE}/api/campaigns/${CAMPAIGN_ID}/approve-emails" \
+     -H "Authorization: Bearer ${TOKEN}" \
+     -H "Content-Type: application/json" \
+     -d '{"email_ids":[...]}'
+   ```
+
 4. Ask: "Run LinkedIn warming for top 10? (y/n)"
 5. If yes:
    - Launch **linkedin-warmer** agent for top 10 prospects
