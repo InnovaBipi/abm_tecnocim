@@ -73,6 +73,7 @@ export async function sendEmail(
         'List-Unsubscribe': `<${unsubscribeUrl}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
+      // @ts-expect-error Resend API supports tracking but SDK types may be outdated
       tracking: {
         opens: true,
         clicks: true,
