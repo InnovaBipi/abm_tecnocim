@@ -14,16 +14,21 @@ You receive a sector and region to search. Example: "metalurgia" in "Catalunya".
 
 ## Task
 
-Use WebSearch to find real, existing manufacturing SMEs in the specified sector and region. Run multiple searches with different queries to maximize coverage:
+Use WebSearch to find real, existing SMEs in the specified sector and region. Run multiple searches with different queries to maximize coverage.
 
-1. Search: `"empresas [sector] [region] Spain contacto email"`
-2. Search: `"fabricante [sector] [region] PYME web"`
-3. Search: `"[sector] [region] Spain manufacturer company site:.es OR site:.com"`
+**Use sector-specific keywords** when available (provided by the orchestrator). For example, "automocion" should search "componentes automocion, estampacion, inyeccion, utillajes" rather than just "automocion".
+
+Queries:
+1. Search: `"empresas [sector-keywords] [region] Spain contacto email"`
+2. Search: `"fabricante [sector-keywords] [region] PYME web"`
+3. Search: `"[sector-keywords] [region] Spain manufacturer company site:.es OR site:.com"`
 4. Search: `"directorio industrial [sector] [region] empresas"`
-5. Search: `"poligono industrial [region] empresas [sector] S.L. OR S.A."`
-6. Search: `"asociacion empresarial [sector] [region] miembros socios"`
+5. Search: `"poligono industrial [region] empresas [sector-keywords] S.L. OR S.A."`
+6. Search: `"asociacion empresarial [sector] [region] miembros socios listado"`
 
 Run at least 4 of these queries (prioritize 1, 2, 4, 5). If the first batch returns fewer than 15 companies, run all 6.
+
+**Deduplication**: If you receive a list of existing domains to exclude, skip any company whose domain is already in that list.
 
 ## Selection Criteria
 

@@ -213,14 +213,24 @@ If the user provided a campaign context:
 
 ## Sector Mappings
 
-| Argument | Full Name | CNAE |
-|---|---|---|
-| metalurgia | Metalurgia y productos metalicos | 24-25 |
-| plasticos | Caucho y plasticos | 22 |
-| maquinaria | Maquinaria y equipo | 28 |
-| alimentacion | Alimentacion y bebidas | 10-11 |
-| quimica | Industria quimica | 20 |
-| manufactura | Manufactura diversa | 31-32 |
+| Argument | Full Name | CNAE | Keywords busqueda |
+|---|---|---|---|
+| metalurgia | Metalurgia y productos metalicos | 24-25 | fundicion, forja, mecanizado, tratamiento superficies |
+| plasticos | Caucho y plasticos | 22 | inyeccion plastico, extrusion, moldes, caucho |
+| maquinaria | Maquinaria y equipo | 28 | maquinaria industrial, utillajes, bienes de equipo |
+| alimentacion | Alimentacion y bebidas | 10-11 | alimentacion, conservas, lacteos, bebidas, carnico |
+| quimica | Industria quimica | 20 | quimica industrial, pinturas, adhesivos, detergentes |
+| manufactura | Manufactura diversa | 31-32 | mueble, joyeria, juguetes, articulos deportivos |
+| automocion | Componentes de automocion | 29 | componentes automocion, estampacion, inyeccion, utillajes |
+| farmaceutico | Farmaceutico y cosmetica | 21 | laboratorio farmaceutico, cosmetica, fitosanitarios |
+| electronica | Electronica industrial | 26-27 | electronica industrial, PCB, sensores, automatizacion |
+| envases | Envases y packaging | 17-22 | envases plastico, carton ondulado, packaging alimentario |
+| textil | Textil tecnico | 13-14 | textil tecnico, no-tejidos, fibras, confeccion industrial |
+| ceramica | Ceramica y vidrio | 23 | ceramica industrial, refractarios, vidrio tecnico |
+| software | Software industrial | 62 | software ERP, MES, IoT industrial, industria 4.0 |
+| biotech | Biotecnologia | 72 | biotech, biofarmaceutica, diagnostico, agrobiotech |
+| energia | Energia y renovables | 35 | solar, eolica, hidrogeno, almacenamiento energia |
+| construccion | Construccion avanzada | 41-43 | prefabricados, BIM, materiales avanzados |
 
 ## Region Mappings
 
@@ -232,6 +242,15 @@ If the user provided a campaign context:
 | madrid | Comunidad de Madrid |
 | aragon | Aragon |
 | navarra | Navarra |
+| andalucia | Andalucia |
+| castilla-leon | Castilla y Leon |
+| castilla-mancha | Castilla-La Mancha |
+| galicia | Galicia |
+| asturias | Principado de Asturias |
+| murcia | Region de Murcia |
+| cantabria | Cantabria |
+| extremadura | Extremadura |
+| rioja | La Rioja |
 
 ## Example Usage
 
