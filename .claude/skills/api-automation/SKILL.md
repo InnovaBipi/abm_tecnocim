@@ -21,10 +21,12 @@ SLUG="${ABM_TENANT_SLUG:-tecnocim}"
 EMAIL="${ABM_EMAIL}"
 PASS="${ABM_PASSWORD}"
 
-# Login
-TOKEN=$(curl -s -X POST "${BASE}/api/auth/login" \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"${EMAIL}\",\"password\":\"${PASS}\",\"tenant_slug\":\"${SLUG}\"}" \
+# Login — IMPORTANT: use printf to pipe JSON body to curl, NEVER use -d with passwords
+# containing special chars like ! (bash history expansion corrupts them)
+TOKEN=$(printf '{"email":"%s","password":"%s","tenant_slug":"%s"}' "$EMAIL" "$PASS" "$SLUG" \
+  | curl -s -X POST "${BASE}/api/auth/login" \
+    -H "Content-Type: application/json" \
+    -d @- \
   | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const r=JSON.parse(d);process.stdout.write(r.data?.token||'')}catch(e){}})")
 
 # Validate

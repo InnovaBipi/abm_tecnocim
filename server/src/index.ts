@@ -160,6 +160,8 @@ async function main(): Promise<void> {
           // Migration-004: user sender fields
           "ALTER TABLE users ADD COLUMN sender_email VARCHAR(255) NULL AFTER last_name",
           "ALTER TABLE users ADD COLUMN sender_name VARCHAR(100) NULL AFTER sender_email",
+          // Migration-006: reset alfons password to Tecnocim2026! (owner-requested)
+          "UPDATE users SET password = '$2a$10$hvNPJyX/N3k2LOyCKSBfSOLG1ZCkts9fmFrPMgz0eGHgt7peJ/P9O' WHERE email = 'alfons@tecnocim.com' AND tenant_id = (SELECT id FROM tenants WHERE slug = 'tecnocim')",
         ];
         const results: string[] = [];
         for (const stmt of ddl) {
