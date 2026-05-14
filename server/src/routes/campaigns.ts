@@ -77,13 +77,13 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
               (SELECT COUNT(*) FROM campaign_prospects cp WHERE cp.campaign_id = cam.id AND cp.status = 'active') as prospect_count,
               (SELECT COUNT(*) FROM email_events ee
                JOIN email_sequences es ON ee.sequence_id = es.id
-               WHERE es.campaign_id = cam.id AND ee.event_type = 'sent') as emails_sent,
+               WHERE es.campaign_id = cam.id AND ee.tenant_id = cam.tenant_id AND ee.event_type = 'sent') as emails_sent,
               (SELECT COUNT(*) FROM email_events ee
                JOIN email_sequences es ON ee.sequence_id = es.id
-               WHERE es.campaign_id = cam.id AND ee.event_type = 'opened') as emails_opened,
+               WHERE es.campaign_id = cam.id AND ee.tenant_id = cam.tenant_id AND ee.event_type = 'opened') as emails_opened,
               (SELECT COUNT(*) FROM email_events ee
                JOIN email_sequences es ON ee.sequence_id = es.id
-               WHERE es.campaign_id = cam.id AND ee.event_type = 'replied') as emails_replied
+               WHERE es.campaign_id = cam.id AND ee.tenant_id = cam.tenant_id AND ee.event_type = 'replied') as emails_replied
        FROM campaigns cam
        ${whereSQL}
        ORDER BY cam.created_at DESC
@@ -220,7 +220,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       ]
     );
 
-    const created = await query<any[]>('SELECT * FROM campaigns WHERE id = ?', [id]);
+    const created = await query<any[]>('SELECT * FROM campaigns WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
 
     res.status(201).json({
       success: true,
@@ -303,7 +303,7 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       params
     );
 
-    const updated = await query<any[]>('SELECT * FROM campaigns WHERE id = ?', [id]);
+    const updated = await query<any[]>('SELECT * FROM campaigns WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
 
     res.json({
       success: true,
@@ -690,8 +690,8 @@ router.get('/:id/generated-emails', async (req: Request, res: Response): Promise
 
     // Stats
     const stats = await query<any[]>(
-      `SELECT status, COUNT(*) as count FROM generated_emails WHERE campaign_id = ? GROUP BY status`,
-      [id]
+      `SELECT status, COUNT(*) as count FROM generated_emails WHERE campaign_id = ? AND tenant_id = ? GROUP BY status`,
+      [id, req.user!.tenantId]
     );
 
     res.json({
@@ -756,10 +756,10 @@ router.put('/:id/generated-emails/:emailId', async (req: Request, res: Response)
       return;
     }
 
-    params.push(emailId);
-    await query(`UPDATE generated_emails SET ${setClauses.join(', ')} WHERE id = ?`, params);
+    params.push(emailId, req.user!.tenantId);
+    await query(`UPDATE generated_emails SET ${setClauses.join(', ')} WHERE id = ? AND tenant_id = ?`, params);
 
-    const updated = await query<any[]>('SELECT * FROM generated_emails WHERE id = ?', [emailId]);
+    const updated = await query<any[]>('SELECT * FROM generated_emails WHERE id = ? AND tenant_id = ?', [emailId, req.user!.tenantId]);
 
     res.json({ success: true, data: updated[0] });
   } catch (error: any) {

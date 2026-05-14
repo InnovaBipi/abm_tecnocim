@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import DOMPurify from 'dompurify';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { prospectsApi } from '@/services/api';
@@ -640,18 +641,21 @@ export default function ProspectDetail() {
                       <div
                         className="mt-4 prose prose-sm prose-slate max-w-none bg-slate-50 rounded-lg p-4 text-sm text-slate-600 leading-relaxed [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:mt-4 [&_h3]:mb-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_li]:text-slate-600 [&_strong]:text-slate-800 [&_a]:text-blue-600 [&_a]:underline"
                         dangerouslySetInnerHTML={{
-                          __html: (research as string)
-                            .replace(/### (.+)/g, '<h3>$1</h3>')
-                            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                            .replace(/\[(\d+)\]/g, '<sup class="text-xs text-blue-500">[$1]</sup>')
-                            .replace(/^- (.+)$/gm, '<li>$1</li>')
-                            .replace(/(<li>[\s\S]*?<\/li>)/g, (match) => {
-                              if (!match.startsWith('<ul>')) return '<ul>' + match + '</ul>';
-                              return match;
-                            })
-                            .replace(/<\/ul>\s*<ul>/g, '')
-                            .replace(/\n{2,}/g, '<br/><br/>')
-                            .replace(/\n/g, '<br/>')
+                          __html: DOMPurify.sanitize(
+                            (research as string)
+                              .replace(/### (.+)/g, '<h3>$1</h3>')
+                              .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                              .replace(/\[(\d+)\]/g, '<sup class="text-xs text-blue-500">[$1]</sup>')
+                              .replace(/^- (.+)$/gm, '<li>$1</li>')
+                              .replace(/(<li>[\s\S]*?<\/li>)/g, (match) => {
+                                if (!match.startsWith('<ul>')) return '<ul>' + match + '</ul>';
+                                return match;
+                              })
+                              .replace(/<\/ul>\s*<ul>/g, '')
+                              .replace(/\n{2,}/g, '<br/><br/>')
+                              .replace(/\n/g, '<br/>'),
+                            { ALLOWED_TAGS: ['h3', 'strong', 'sup', 'li', 'ul', 'br', 'p', 'em', 'a'], ALLOWED_ATTR: ['class', 'href', 'target', 'rel'] }
+                          )
                         }}
                       />
                     )}

@@ -121,16 +121,18 @@ Report: "Found X companies, Y with email, Z after dedup"
 
 Launch a **general-purpose** agent that for each company:
 1. Does 1-2 WebSearch queries to find specific products, news, I+D projects
-2. Generates a personalized email step 1:
-   - Identity: Alfons Marques from Tecnocim
+2. Generates a personalized email step 1 following **2026 cold email benchmarks**:
+   - Identity: Alfons Marquès from Tecnocim
    - Topic: Deducciones fiscales I+D+i
    - Tone: professional peer-to-peer, NO salesy, NO exclamation marks
-   - Length: 60-100 words
-   - Subject: 5-7 words, under 40 chars, specific to company
+   - **Length: 50-80 words** (2026 optimal range for highest reply rates)
+   - **Subject: 21-40 chars** (49% open rate sweet spot), specific to company
    - Language: Catalan for Catalunya companies, Spanish otherwise
-   - Reference ONE verified fact about the company
-   - CTA: propose a quick call
-   - Sign as: Alfons Marques / Tecnocim / tecnocim.com
+   - **Reference ONE specific verified fact** (product name, investment, patent, award, employee count)
+   - **CTA: soft interest question** ("¿Tiene sentido explorarlo?", NOT "¿Tendríais 15 minutos?")
+   - **Vary deduction phrasing**: don't always say "25-42%", use alternatives like "hasta el 42%", "incentivos fiscales por innovación", etc.
+   - **Framework**: Use PAS (Problem-Agitate-Solve) for companies unaware of deductions, BAB (Before-After-Bridge) for visibly innovative ones
+   - Sign as: Alfons Marquès / Tecnocim
 
 Returns JSON array: [{company_name, domain, email, language, subject, body_html}]
 
@@ -176,17 +178,50 @@ curl POST /api/sequences/{id}/wire-steps
 curl POST /api/sequences/{id}/enroll with {prospect_ids: [...]}
 ```
 
-## Step 11: Bulk insert personalized emails + approve
+## Step 11: Bulk insert personalized emails
 
 ```bash
 # Map each email to its prospect_id
-# Bulk insert step 1 personalized emails
+# Bulk insert step 1 personalized emails (as drafts)
 curl POST /api/campaigns/{id}/bulk-insert-emails with {emails: [...]}
-# Approve all for sending
+```
+
+**DO NOT approve yet** — Step 11.5 QA must pass first.
+
+## Step 11.5: Email QA (mandatory before approval)
+
+Launch the **email-qa** agent to validate all draft emails against the 20-point checklist:
+- Word count 50-80 (2026 optimal range)
+- Subject 21-40 chars
+- Soft interest CTAs (not time-request)
+- Personalization (specific facts, not generic)
+- Deduction phrasing variety (not all "25-42%")
+- No spam triggers, no unresolved variables
+- Language match (Catalan for Catalunya, Spanish otherwise)
+
+The QA agent will:
+1. **Auto-fix** what it can (subject length, CTA type, phrase variation)
+2. **Reject** emails that fail hard checks (spam, duplicates, suppression list)
+3. **Flag** emails needing manual review (too short, generic, language mismatch)
+
+Wait for QA report before proceeding. If FAIL rate > 10%, investigate and fix before approving.
+
+## Step 12: Approve (warmup-aware)
+
+```bash
+# Get all draft email IDs (post-QA)
+curl GET /api/campaigns/{id}/generated-emails?status=draft&limit=200
+# Approve all — the server automatically distributes across business days
+# respecting the warmup daily limit (e.g., 40/day for Tecnocim)
 curl POST /api/campaigns/{id}/approve-emails with {email_ids: [...]}
 ```
 
-## Step 12: Report
+The response includes the distribution breakdown:
+```json
+{"distribution": {"2026-05-14": 40, "2026-05-15": 40, ...}, "daily_limit": 41}
+```
+
+## Step 13: Report
 
 ```
 Auto-Prospect Complete

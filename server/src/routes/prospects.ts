@@ -474,8 +474,8 @@ router.post('/:id/enrich', async (req: Request, res: Response): Promise<void> =>
       `SELECT p.*, c.name as company_name, c.domain as company_domain
        FROM prospects p
        LEFT JOIN companies c ON p.company_id = c.id
-       WHERE p.id = ?`,
-      [id]
+       WHERE p.id = ? AND p.tenant_id = ?`,
+      [id, req.user!.tenantId]
     );
 
     res.json({

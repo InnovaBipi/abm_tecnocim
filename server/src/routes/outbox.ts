@@ -158,7 +158,7 @@ router.put('/:emailId/reject', async (req: Request, res: Response): Promise<void
       [emailId, req.user!.tenantId]
     );
 
-    const updated = await query<any[]>('SELECT * FROM generated_emails WHERE id = ?', [emailId]);
+    const updated = await query<any[]>('SELECT * FROM generated_emails WHERE id = ? AND tenant_id = ?', [emailId, req.user!.tenantId]);
 
     res.json({ success: true, data: updated[0] });
   } catch (error: any) {
@@ -332,16 +332,16 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
           await query(
             `UPDATE generated_emails SET status = 'sent', sent_at = NOW(),
              metadata = JSON_SET(COALESCE(metadata, '{}'), '$.resend_id', ?)
-             WHERE id = ?`,
-            [result.id, email.id]
+             WHERE id = ? AND tenant_id = ?`,
+            [result.id, email.id, req.user!.tenantId]
           );
 
           // Update prospect last_contacted
           await query(
             `UPDATE prospects SET last_contacted = NOW(),
              status = CASE WHEN status IN ('new', 'enriched', 'qualified') THEN 'contacted' ELSE status END
-             WHERE id = ?`,
-            [email.prospect_id]
+             WHERE id = ? AND tenant_id = ?`,
+            [email.prospect_id, req.user!.tenantId]
           );
 
           // Log activity
@@ -364,8 +364,8 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
           await query(
             `UPDATE generated_emails SET status = 'bounced',
              metadata = JSON_SET(COALESCE(metadata, '{}'), '$.error', 'Send failed')
-             WHERE id = ?`,
-            [email.id]
+             WHERE id = ? AND tenant_id = ?`,
+            [email.id, req.user!.tenantId]
           );
           results.push({ id: email.id, status: 'failed' });
         }
@@ -374,8 +374,8 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
         await query(
           `UPDATE generated_emails SET status = 'bounced',
            metadata = JSON_SET(COALESCE(metadata, '{}'), '$.error', ?)
-           WHERE id = ?`,
-          [sendError.message || 'Unknown error', email.id]
+           WHERE id = ? AND tenant_id = ?`,
+          [sendError.message || 'Unknown error', email.id, req.user!.tenantId]
         );
         results.push({ id: email.id, status: 'failed', error: sendError.message });
       }

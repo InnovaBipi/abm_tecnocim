@@ -9,6 +9,7 @@ import { config } from './config/env';
 import { testConnection } from './config/database';
 import pool from './config/database';
 import { startScheduler } from './jobs/scheduler';
+import { authenticate } from './middleware/auth';
 
 // Import route handlers
 import authRoutes from './routes/auth';
@@ -128,10 +129,9 @@ async function main(): Promise<void> {
   app.use('/api/outbox/send', sendLimiter);
 
   // Admin: run pending migrations on-demand (file-based + hardcoded fallback for prod)
-  app.post('/api/admin/migrate', async (req, res) => {
-    const auth = req.headers.authorization;
-    if (!auth || !auth.includes('Bearer')) {
-      res.status(401).json({ success: false, error: 'Auth required' });
+  app.post('/api/admin/migrate', authenticate, async (req, res) => {
+    if (req.user?.role !== 'admin') {
+      res.status(403).json({ success: false, error: 'Admin role required' });
       return;
     }
     try {
@@ -160,8 +160,6 @@ async function main(): Promise<void> {
           // Migration-004: user sender fields
           "ALTER TABLE users ADD COLUMN sender_email VARCHAR(255) NULL AFTER last_name",
           "ALTER TABLE users ADD COLUMN sender_name VARCHAR(100) NULL AFTER sender_email",
-          // Migration-006: reset alfons password to Tecnocim2026! (owner-requested)
-          "UPDATE users SET password = '$2a$10$hvNPJyX/N3k2LOyCKSBfSOLG1ZCkts9fmFrPMgz0eGHgt7peJ/P9O' WHERE email = 'alfons@tecnocim.com' AND tenant_id = (SELECT id FROM tenants WHERE slug = 'tecnocim')",
           // Warmup: set base to 25/day for campaign launch
           "UPDATE tenants SET config = JSON_SET(config, '$.warmup.daily_limit_base', 40, '$.warmup.daily_limit_max', 50) WHERE slug = 'tecnocim'",
         ];
