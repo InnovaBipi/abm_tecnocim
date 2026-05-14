@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { getTenantConfig } from '../middleware/tenant';
-import { calculateOptimalSendTime, resolveProspectTimezone } from '../services/scheduling';
+import { calculateOptimalSendTime, resolveProspectTimezone, distributeEmailsAcrossBusinessDays, getWarmupDailyLimit } from '../services/scheduling';
 
 const router = Router();
 
@@ -94,10 +94,11 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
-// --- PUT /:emailId/approve - Approve → Schedule single email ---
+// --- PUT /:emailId/approve - Approve → Schedule single email (warmup-aware) ---
 router.put('/:emailId/approve', async (req: Request, res: Response): Promise<void> => {
   try {
     const { emailId } = req.params;
+    const tenantId = req.user!.tenantId;
 
     // Get email with prospect data for timezone calculation
     const emails = await query<any[]>(
@@ -105,7 +106,7 @@ router.put('/:emailId/approve', async (req: Request, res: Response): Promise<voi
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id
        WHERE ge.id = ? AND ge.tenant_id = ? AND ge.status IN ('draft', 'rejected')`,
-      [emailId, req.user!.tenantId]
+      [emailId, tenantId]
     );
 
     if (emails.length === 0) {
@@ -115,21 +116,29 @@ router.put('/:emailId/approve', async (req: Request, res: Response): Promise<voi
 
     const prospect = emails[0];
     const prospectTz = resolveProspectTimezone(prospect);
-    // Add delay_days so step 2/3/4 are staggered into the future
-    const baseDate = new Date();
-    const delayDays = prospect.delay_days || 0;
-    if (delayDays > 0) {
-      baseDate.setDate(baseDate.getDate() + delayDays);
+
+    // Use warmup-aware distribution (even for single email, checks day capacity)
+    const { schedule } = await distributeEmailsAcrossBusinessDays(
+      [{ id: prospect.id, prospectTimezone: prospectTz, delayDays: prospect.delay_days || 0 }],
+      tenantId
+    );
+
+    const scheduledFor = schedule.get(prospect.id);
+    if (!scheduledFor) {
+      res.status(500).json({ success: false, error: 'Could not find available send slot.' });
+      return;
     }
-    const scheduledFor = calculateOptimalSendTime(baseDate, prospectTz);
 
     await query(
       `UPDATE generated_emails SET status = 'scheduled', approved_at = NOW(), approved_by = ?, scheduled_for = ?
        WHERE id = ? AND tenant_id = ? AND status IN ('draft', 'rejected')`,
-      [req.user!.id, scheduledFor, emailId, req.user!.tenantId]
+      [req.user!.id, scheduledFor, emailId, tenantId]
     );
 
-    const updated = await query<any[]>('SELECT * FROM generated_emails WHERE id = ?', [emailId]);
+    const updated = await query<any[]>(
+      'SELECT * FROM generated_emails WHERE id = ? AND tenant_id = ?',
+      [emailId, tenantId]
+    );
 
     res.json({ success: true, data: updated[0] });
   } catch (error: any) {
@@ -158,7 +167,7 @@ router.put('/:emailId/reject', async (req: Request, res: Response): Promise<void
   }
 });
 
-// --- POST /bulk-approve - Bulk approve → schedule emails ---
+// --- POST /bulk-approve - Bulk approve → schedule emails (warmup-aware) ---
 router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> => {
   try {
     const { email_ids } = req.body;
@@ -168,6 +177,8 @@ router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    const tenantId = req.user!.tenantId;
+
     // Get emails with prospect timezone data and delay_days
     const placeholders = email_ids.map(() => '?').join(',');
     const emails = await query<any[]>(
@@ -175,31 +186,42 @@ router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> 
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id
        WHERE ge.id IN (${placeholders}) AND ge.tenant_id = ? AND ge.status IN ('draft', 'rejected')`,
-      [...email_ids, req.user!.tenantId]
+      [...email_ids, tenantId]
+    );
+
+    // Distribute across business days respecting warmup limits
+    const emailsForDistribution = emails.map(e => ({
+      id: e.id,
+      prospectTimezone: resolveProspectTimezone(e),
+      delayDays: e.delay_days || 0,
+    }));
+
+    const { schedule, distribution, dailyLimit } = await distributeEmailsAcrossBusinessDays(
+      emailsForDistribution,
+      tenantId
     );
 
     let scheduled = 0;
     for (const email of emails) {
-      const prospectTz = resolveProspectTimezone(email);
-      // Add delay_days so step 2/3/4 are staggered into the future
-      const baseDate = new Date();
-      const delayDays = email.delay_days || 0;
-      if (delayDays > 0) {
-        baseDate.setDate(baseDate.getDate() + delayDays);
-      }
-      const scheduledFor = calculateOptimalSendTime(baseDate, prospectTz);
+      const scheduledFor = schedule.get(email.id);
+      if (!scheduledFor) continue;
 
       await query(
         `UPDATE generated_emails SET status = 'scheduled', approved_at = NOW(), approved_by = ?, scheduled_for = ?
-         WHERE id = ? AND status IN ('draft', 'rejected')`,
-        [req.user!.id, scheduledFor, email.id]
+         WHERE id = ? AND tenant_id = ? AND status IN ('draft', 'rejected')`,
+        [req.user!.id, scheduledFor, email.id, tenantId]
       );
       scheduled++;
     }
 
     res.json({
       success: true,
-      data: { message: `Programados ${scheduled} email(s).`, count: scheduled },
+      data: {
+        message: `Programados ${scheduled} email(s) para envío.`,
+        count: scheduled,
+        distribution,
+        daily_limit: dailyLimit,
+      },
     });
   } catch (error: any) {
     console.error('Outbox bulk approve error:', error);

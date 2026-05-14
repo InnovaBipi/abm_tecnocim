@@ -337,3 +337,196 @@ export function resolveProspectLanguage(prospect: {
   // 4. Default: English
   return 'english';
 }
+
+// ============================================
+// WARMUP-AWARE SCHEDULING
+// ============================================
+
+import { query } from '../config/database';
+import { getTenantConfig } from '../middleware/tenant';
+
+/**
+ * Calculate the warmup daily limit for a tenant based on domain age.
+ * Uses tenant config warmup curve or sensible defaults.
+ */
+export async function getWarmupDailyLimit(tenantId: string): Promise<number> {
+  const result = await query<any[]>(
+    `SELECT MIN(occurred_at) as first_sent
+     FROM email_events WHERE event_type = 'sent' AND tenant_id = ?`,
+    [tenantId]
+  );
+
+  const firstSent = result[0]?.first_sent ? new Date(result[0].first_sent) : null;
+  const now = new Date();
+  const domainAgeDays = firstSent
+    ? Math.floor((now.getTime() - firstSent.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    : 0;
+
+  try {
+    const tenant = await getTenantConfig(tenantId);
+    const warmup = tenant?.config?.warmup;
+    if (warmup?.daily_limit_base && warmup?.daily_limit_max) {
+      const base = warmup.daily_limit_base;
+      const max = warmup.daily_limit_max;
+      const rampDays = warmup.ramp_up_days || 30;
+      if (domainAgeDays === 0) return base;
+      if (domainAgeDays >= rampDays) return max;
+      return Math.min(max, Math.round(base + (max - base) * (domainAgeDays / rampDays)));
+    }
+  } catch {
+    // Fall through to defaults
+  }
+
+  if (domainAgeDays === 0) return 5;
+  if (domainAgeDays <= 3) return 5;
+  if (domainAgeDays <= 7) return 15;
+  if (domainAgeDays <= 14) return 30;
+  if (domainAgeDays <= 21) return 50;
+  if (domainAgeDays <= 30) return 100;
+  return Infinity;
+}
+
+/**
+ * Count all emails sent on a specific date for a tenant.
+ */
+export async function getSentCountForDate(tenantId: string, dateStr: string): Promise<number> {
+  const result = await query<any[]>(
+    `SELECT COUNT(*) as count FROM email_events
+     WHERE event_type = 'sent' AND tenant_id = ? AND DATE(occurred_at) = ?`,
+    [tenantId, dateStr]
+  );
+  return result[0]?.count || 0;
+}
+
+/**
+ * Get count of already-scheduled emails per future date for a tenant.
+ */
+async function getScheduledCountByDate(tenantId: string): Promise<Map<string, number>> {
+  const rows = await query<any[]>(
+    `SELECT DATE(scheduled_for) as dt, COUNT(*) as cnt
+     FROM generated_emails
+     WHERE tenant_id = ? AND status = 'scheduled' AND scheduled_for >= CURDATE()
+     GROUP BY DATE(scheduled_for)`,
+    [tenantId]
+  );
+
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    if (row.dt) {
+      const dateStr = new Date(row.dt).toISOString().substring(0, 10);
+      map.set(dateStr, row.cnt);
+    }
+  }
+  return map;
+}
+
+/**
+ * Get the next N business days starting from a date.
+ */
+function getNextBusinessDays(startDate: Date, count: number): Date[] {
+  const days: Date[] = [];
+  const d = new Date(startDate);
+  while (days.length < count) {
+    const dow = d.getDay();
+    if (dow >= 1 && dow <= 5) {
+      days.push(new Date(d));
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return days;
+}
+
+/**
+ * Distribute emails across business days respecting the warmup daily limit.
+ * Returns a Map of emailId → scheduled_for Date.
+ *
+ * Takes into account:
+ * - Already-scheduled emails per day
+ * - Already-sent emails for today
+ * - Each email's delay_days (minimum offset from now)
+ * - Prospect timezone for optimal send time within each day
+ */
+export async function distributeEmailsAcrossBusinessDays(
+  emails: Array<{ id: string; prospectTimezone: string; delayDays: number }>,
+  tenantId: string
+): Promise<{ schedule: Map<string, Date>; distribution: Record<string, number>; dailyLimit: number }> {
+  const dailyLimit = await getWarmupDailyLimit(tenantId);
+  const scheduledCounts = await getScheduledCountByDate(tenantId);
+
+  // Get today's sent count and add to capacity tracking
+  const todayStr = new Date().toISOString().substring(0, 10);
+  const sentToday = await getSentCountForDate(tenantId, todayStr);
+  scheduledCounts.set(todayStr, (scheduledCounts.get(todayStr) || 0) + sentToday);
+
+  // Generate enough business days (worst case: all emails on separate days)
+  const daysNeeded = Math.ceil(emails.length / Math.max(dailyLimit, 1)) + 5;
+  const businessDays = getNextBusinessDays(new Date(), daysNeeded);
+
+  const schedule = new Map<string, Date>();
+  const distribution: Record<string, number> = {};
+
+  // Track capacity per day (start with existing scheduled/sent counts)
+  const dayCapacity = new Map<string, number>();
+  for (const day of businessDays) {
+    const dateStr = day.toISOString().substring(0, 10);
+    dayCapacity.set(dateStr, scheduledCounts.get(dateStr) || 0);
+  }
+
+  for (const email of emails) {
+    // Determine earliest allowed date based on delay_days
+    const earliestDate = new Date();
+    if (email.delayDays > 0) {
+      earliestDate.setDate(earliestDate.getDate() + email.delayDays);
+    }
+    const earliestStr = earliestDate.toISOString().substring(0, 10);
+
+    // Find the first business day with available capacity
+    let assignedDay: Date | null = null;
+    for (const day of businessDays) {
+      const dateStr = day.toISOString().substring(0, 10);
+      if (dateStr < earliestStr) continue;
+
+      const currentCount = dayCapacity.get(dateStr) || 0;
+      if (currentCount < dailyLimit) {
+        assignedDay = day;
+        dayCapacity.set(dateStr, currentCount + 1);
+        distribution[dateStr] = (distribution[dateStr] || 0) + 1;
+        break;
+      }
+    }
+
+    if (!assignedDay) {
+      // Fallback: add more days if we ran out
+      const lastDay = businessDays[businessDays.length - 1];
+      const extraDays = getNextBusinessDays(
+        new Date(lastDay.getTime() + 24 * 60 * 60 * 1000),
+        5
+      );
+      businessDays.push(...extraDays);
+      for (const d of extraDays) {
+        dayCapacity.set(d.toISOString().substring(0, 10), 0);
+      }
+      // Retry with the extra days
+      for (const day of extraDays) {
+        const dateStr = day.toISOString().substring(0, 10);
+        const currentCount = dayCapacity.get(dateStr) || 0;
+        if (currentCount < dailyLimit) {
+          assignedDay = day;
+          dayCapacity.set(dateStr, currentCount + 1);
+          distribution[dateStr] = (distribution[dateStr] || 0) + 1;
+          break;
+        }
+      }
+    }
+
+    if (assignedDay) {
+      // Use calculateOptimalSendTime to get the right hour within the day
+      const candidateUtc = new Date(assignedDay);
+      candidateUtc.setUTCHours(9, 0, 0, 0); // Start from 9 AM UTC as seed
+      const optimalTime = calculateOptimalSendTime(candidateUtc, email.prospectTimezone);
+      schedule.set(email.id, optimalTime);
+    }
+  }
+
+  return { schedule, distribution, dailyLimit };
+}

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { query } from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { getTenantConfig, buildTenantAIContext } from '../middleware/tenant';
-import { calculateOptimalSendTime, resolveProspectTimezone } from '../services/scheduling';
+import { calculateOptimalSendTime, resolveProspectTimezone, distributeEmailsAcrossBusinessDays, getWarmupDailyLimit } from '../services/scheduling';
 
 const router = Router();
 
@@ -768,11 +768,12 @@ router.put('/:id/generated-emails/:emailId', async (req: Request, res: Response)
   }
 });
 
-// --- POST /:id/approve-emails - Bulk approve → schedule for sending ---
+// --- POST /:id/approve-emails - Bulk approve → schedule for sending (warmup-aware) ---
 router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const { email_ids } = req.body;
+    const tenantId = req.user!.tenantId;
 
     if (!email_ids || !Array.isArray(email_ids) || email_ids.length === 0) {
       res.status(400).json({ success: false, error: 'email_ids array is required.' });
@@ -782,7 +783,7 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
     // Verify campaign belongs to tenant
     const campaign = await query<any[]>(
       'SELECT id, status FROM campaigns WHERE id = ? AND tenant_id = ?',
-      [id, req.user!.tenantId]
+      [id, tenantId]
     );
     if (campaign.length === 0) {
       res.status(404).json({ success: false, error: 'Campaign not found.' });
@@ -796,30 +797,42 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id
        WHERE ge.id IN (${placeholders}) AND ge.campaign_id = ? AND ge.tenant_id = ? AND ge.status IN ('draft', 'rejected', 'bounced')`,
-      [...email_ids, id, req.user!.tenantId]
+      [...email_ids, id, tenantId]
+    );
+
+    // Distribute across business days respecting warmup limits
+    const emailsForDistribution = emails.map(e => ({
+      id: e.id,
+      prospectTimezone: resolveProspectTimezone(e),
+      delayDays: e.delay_days || 0,
+    }));
+
+    const { schedule, distribution, dailyLimit } = await distributeEmailsAcrossBusinessDays(
+      emailsForDistribution,
+      tenantId
     );
 
     let scheduled = 0;
     for (const email of emails) {
-      const prospectTz = resolveProspectTimezone(email);
-      const baseDate = new Date();
-      const delayDays = email.delay_days || 0;
-      if (delayDays > 0) {
-        baseDate.setDate(baseDate.getDate() + delayDays);
-      }
-      const scheduledFor = calculateOptimalSendTime(baseDate, prospectTz);
+      const scheduledFor = schedule.get(email.id);
+      if (!scheduledFor) continue;
 
       await query(
         `UPDATE generated_emails SET status = 'scheduled', approved_at = NOW(), approved_by = ?, scheduled_for = ?
          WHERE id = ? AND tenant_id = ? AND status IN ('draft', 'rejected', 'bounced')`,
-        [req.user!.id, scheduledFor, email.id, req.user!.tenantId]
+        [req.user!.id, scheduledFor, email.id, tenantId]
       );
       scheduled++;
     }
 
     res.json({
       success: true,
-      data: { message: `Programados ${scheduled} email(s) para envío.`, count: scheduled },
+      data: {
+        message: `Programados ${scheduled} email(s) para envío.`,
+        count: scheduled,
+        distribution,
+        daily_limit: dailyLimit,
+      },
     });
   } catch (error: any) {
     console.error('Approve emails error:', error);
