@@ -25,6 +25,8 @@ import {
   AlertCircle,
   UserPlus,
   Loader2,
+  Pencil,
+  ChevronDown,
 } from 'lucide-react';
 import { formatRelativeDate, getStatusColor, getScoreColor } from '@/lib/utils';
 import { useConfirmDialog } from '@/hooks/useConfirmDialog';
@@ -49,6 +51,18 @@ const sourceOptions = [
   { value: 'linkedin', label: 'LinkedIn' },
 ];
 
+const bulkEditStatusOptions = [
+  { value: 'new', label: 'Nuevo' },
+  { value: 'contacted', label: 'Contactado' },
+  { value: 'qualified', label: 'Calificado' },
+  { value: 'enriched', label: 'Enriquecido' },
+  { value: 'interested', label: 'Interesado' },
+  { value: 'meeting', label: 'Reunion' },
+  { value: 'converted', label: 'Convertido' },
+  { value: 'unsubscribed', label: 'Desuscrito' },
+  { value: 'bounced', label: 'Rebotado' },
+];
+
 export default function Prospects() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -68,6 +82,8 @@ export default function Prospects() {
     title: '',
     source: 'manual',
   });
+  const [showBulkEditDropdown, setShowBulkEditDropdown] = useState(false);
+  const [bulkEditStatus, setBulkEditStatus] = useState('');
   const [showAddToCampaignModal, setShowAddToCampaignModal] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
@@ -140,6 +156,22 @@ export default function Prospects() {
     },
     onError: () => {
       toast.error('Error al eliminar los prospectos');
+    },
+  });
+
+  const bulkUpdateMutation = useMutation({
+    mutationFn: ({ ids, updates }: { ids: string[]; updates: Record<string, unknown> }) =>
+      prospectsApi.bulkUpdate(ids, updates),
+    onSuccess: (res) => {
+      const count = res.data?.data?.updatedCount || 0;
+      toast.success(`${count} prospecto(s) actualizado(s)`);
+      setSelectedIds([]);
+      setShowBulkEditDropdown(false);
+      setBulkEditStatus('');
+      queryClient.invalidateQueries({ queryKey: ['prospects'] });
+    },
+    onError: () => {
+      toast.error('Error al actualizar los prospectos');
     },
   });
 
@@ -305,6 +337,64 @@ export default function Prospects() {
             {selectedIds.length} prospecto(s) seleccionado(s)
           </span>
           <div className="flex items-center gap-2 ml-auto">
+            <div className="relative">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Pencil className="h-3.5 w-3.5" />}
+                onClick={() => setShowBulkEditDropdown((prev) => !prev)}
+              >
+                Editar seleccionados
+                <ChevronDown className="h-3.5 w-3.5 ml-1" />
+              </Button>
+              {showBulkEditDropdown && (
+                <div className="absolute right-0 top-full mt-2 w-64 bg-white border border-slate-200 rounded-lg shadow-lg z-20 p-4 space-y-3">
+                  <div>
+                    <label htmlFor="bulk-edit-status" className="block text-sm font-medium text-slate-700 mb-1">
+                      Estado
+                    </label>
+                    <select
+                      id="bulk-edit-status"
+                      value={bulkEditStatus}
+                      onChange={(e) => setBulkEditStatus(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    >
+                      <option value="">Seleccionar estado...</option>
+                      {bulkEditStatusOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        setShowBulkEditDropdown(false);
+                        setBulkEditStatus('');
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={!bulkEditStatus}
+                      loading={bulkUpdateMutation.isPending}
+                      onClick={() => {
+                        if (bulkEditStatus) {
+                          bulkUpdateMutation.mutate({
+                            ids: selectedIds,
+                            updates: { status: bulkEditStatus },
+                          });
+                        }
+                      }}
+                    >
+                      Aplicar
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
             <Button
               variant="secondary"
               size="sm"

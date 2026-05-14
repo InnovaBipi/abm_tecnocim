@@ -11,7 +11,6 @@ import { Select } from '@/components/ui/Select';
 import { CompanySelect } from '@/components/ui/CompanySelect';
 import { Tabs } from '@/components/ui/Tabs';
 import {
-  ArrowLeft,
   Save,
   RefreshCw,
   User,
@@ -40,6 +39,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { formatDateTime, formatRelativeDate, getScoreColor, getStatusColor } from '@/lib/utils';
+import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import toast from 'react-hot-toast';
 
 const statusOptions = [
@@ -153,14 +153,11 @@ export default function ProspectDetail() {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      {/* Back button */}
-      <button
-        onClick={() => navigate('/prospects')}
-        className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 transition-colors"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Volver a Prospectos
-      </button>
+      {/* Breadcrumb */}
+      <Breadcrumb items={[
+        { label: 'Prospectos', href: '/prospects' },
+        { label: name },
+      ]} />
 
       {/* Header */}
       <div className="flex items-start justify-between">

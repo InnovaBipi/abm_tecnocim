@@ -79,6 +79,9 @@ export const prospectsApi = {
   bulkDelete: (ids: string[]) =>
     api.post('/prospects/bulk-delete', { ids }),
 
+  bulkUpdate: (ids: string[], updates: Record<string, unknown>) =>
+    api.put('/prospects/bulk-update', { prospect_ids: ids, updates }),
+
   bulkAddToCampaign: (ids: string[], campaignId: string) =>
     api.post('/prospects/bulk-add-campaign', { ids, campaign_id: campaignId }),
 

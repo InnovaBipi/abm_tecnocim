@@ -13,7 +13,6 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { SkeletonCard, SkeletonTable } from '@/components/ui/Skeleton';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import {
-  ArrowLeft,
   Building2,
   Globe,
   Users,
@@ -31,6 +30,7 @@ import {
   Info,
 } from 'lucide-react';
 import { getTierColor, formatNumber, getScoreColor, formatRelativeDate } from '@/lib/utils';
+import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { useConfirmDialog } from '@/hooks/useConfirmDialog';
 import toast from 'react-hot-toast';
 
@@ -122,16 +122,15 @@ export default function CompanyDetail() {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
+      {/* Breadcrumb */}
+      <Breadcrumb items={[
+        { label: 'Empresas', href: '/companies' },
+        { label: company.name },
+      ]} />
+
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/companies')}
-            className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
-            aria-label="Volver"
-          >
-            <ArrowLeft className="h-5 w-5 text-slate-600" />
-          </button>
           <div className="flex items-center gap-3">
             {company.domain ? (
               <img

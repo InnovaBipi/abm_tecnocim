@@ -8,7 +8,6 @@ import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import {
-  ArrowLeft,
   Plus,
   Trash2,
   Mail,
@@ -29,6 +28,7 @@ import {
   GitBranch,
 } from 'lucide-react';
 import { getStatusColor, formatNumber } from '@/lib/utils';
+import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import toast from 'react-hot-toast';
 
 export default function SequenceDetail() {
@@ -287,14 +287,11 @@ export default function SequenceDetail() {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      {/* Back button */}
-      <button
-        onClick={() => navigate('/sequences')}
-        className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 transition-colors"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Volver a Secuencias
-      </button>
+      {/* Breadcrumb */}
+      <Breadcrumb items={[
+        { label: 'Campanas', href: '/campaigns' },
+        { label: sequence.name || 'Secuencia' },
+      ]} />
 
       {/* Header */}
       <div className="flex items-start justify-between">

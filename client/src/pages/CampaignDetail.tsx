@@ -11,7 +11,6 @@ import { Tabs } from '@/components/ui/Tabs';
 import { Table, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/Table';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
-  ArrowLeft,
   Users,
   Mail,
   MessageSquare,
@@ -37,6 +36,7 @@ import {
 } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { getStatusColor, getScoreColor, formatNumber } from '@/lib/utils';
+import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useConfirmDialog } from '@/hooks/useConfirmDialog';
 import toast from 'react-hot-toast';
@@ -257,15 +257,11 @@ export default function CampaignDetail() {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      {/* Back button */}
-      <button
-        onClick={() => navigate('/campaigns')}
-        className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 transition-colors"
-        aria-label="Volver a la lista de campanas"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Volver a Campanas
-      </button>
+      {/* Breadcrumb */}
+      <Breadcrumb items={[
+        { label: 'Campanas', href: '/campaigns' },
+        { label: campaign.name },
+      ]} />
 
       {/* Header */}
       <div className="flex items-start justify-between">

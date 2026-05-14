@@ -40,6 +40,18 @@ const bulkDeleteSchema = z.object({
   ids: z.array(z.string().uuid()).min(1, 'At least one ID is required'),
 });
 
+const bulkUpdateSchema = z.object({
+  prospect_ids: z.array(z.string().uuid()).min(1, 'At least one prospect ID is required'),
+  updates: z.object({
+    status: z.enum(['new', 'enriched', 'qualified', 'contacted', 'replied', 'interested', 'meeting', 'converted', 'unsubscribed', 'bounced']).optional(),
+    company_id: z.string().uuid().optional().nullable(),
+    source: z.string().optional(),
+  }).refine(
+    (data) => Object.values(data).some((v) => v !== undefined),
+    { message: 'At least one field to update is required' }
+  ),
+});
+
 // --- GET / - List prospects with pagination, search, filters, sorting ---
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -544,6 +556,72 @@ router.post('/bulk-delete', async (req: Request, res: Response): Promise<void> =
     res.status(500).json({
       success: false,
       error: 'An error occurred while deleting prospects.',
+    });
+  }
+});
+
+// --- PUT /bulk-update - Bulk update multiple prospects ---
+router.put('/bulk-update', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const validation = bulkUpdateSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        details: validation.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const { prospect_ids, updates } = validation.data;
+
+    // Build dynamic SET clause from provided fields
+    const setClauses: string[] = [];
+    const params: any[] = [];
+
+    if (updates.status !== undefined) {
+      setClauses.push('status = ?');
+      params.push(updates.status);
+    }
+
+    if (updates.company_id !== undefined) {
+      setClauses.push('company_id = ?');
+      params.push(updates.company_id);
+    }
+
+    if (updates.source !== undefined) {
+      setClauses.push('source = ?');
+      params.push(updates.source);
+    }
+
+    if (setClauses.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'No fields to update.',
+      });
+      return;
+    }
+
+    const placeholders = prospect_ids.map(() => '?').join(', ');
+    params.push(...prospect_ids, req.user!.tenantId);
+
+    const result = await query<any>(
+      `UPDATE prospects SET ${setClauses.join(', ')} WHERE id IN (${placeholders}) AND tenant_id = ?`,
+      params
+    );
+
+    res.json({
+      success: true,
+      data: {
+        message: `${result.affectedRows || 0} prospect(s) updated successfully.`,
+        updatedCount: result.affectedRows || 0,
+      },
+    });
+  } catch (error: any) {
+    console.error('Bulk update prospects error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'An error occurred while updating prospects.',
     });
   }
 });
