@@ -73,7 +73,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
     // Fetch campaigns with aggregated stats
     const campaigns = await query<any[]>(
-      `SELECT cam.*,
+      `SELECT cam.id, cam.tenant_id, cam.name, cam.description, cam.campaign_type,
+              cam.status, cam.asset_type, cam.asset_location, cam.asset_price,
+              cam.start_date, cam.end_date, cam.created_by, cam.created_at, cam.updated_at,
               (SELECT COUNT(*) FROM campaign_prospects cp WHERE cp.campaign_id = cam.id AND cp.status = 'active') as prospect_count,
               (SELECT COUNT(*) FROM email_events ee
                JOIN email_sequences es ON ee.sequence_id = es.id
@@ -118,7 +120,10 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params;
 
     const campaigns = await query<any[]>(
-      'SELECT * FROM campaigns WHERE id = ? AND tenant_id = ?',
+      `SELECT id, tenant_id, name, description, campaign_type, status,
+              asset_type, asset_location, asset_price, asset_details,
+              start_date, end_date, created_by, created_at, updated_at
+       FROM campaigns WHERE id = ? AND tenant_id = ?`,
       [id, req.user!.tenantId]
     );
 
@@ -143,7 +148,9 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
 
     // Fetch sequences
     const sequences = await query<any[]>(
-      `SELECT es.*,
+      `SELECT es.id, es.tenant_id, es.campaign_id, es.name, es.description,
+              es.status, es.sequence_type, es.from_name, es.from_email, es.reply_to,
+              es.send_window, es.settings, es.created_by, es.created_at, es.updated_at,
               (SELECT COUNT(*) FROM sequence_enrollments se WHERE se.sequence_id = es.id AND se.tenant_id = ?) as enrollment_count,
               (SELECT COUNT(*) FROM sequence_steps ss WHERE ss.sequence_id = es.id) as step_count
        FROM email_sequences es
@@ -220,7 +227,13 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       ]
     );
 
-    const created = await query<any[]>('SELECT * FROM campaigns WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
+    const created = await query<any[]>(
+      `SELECT id, tenant_id, name, description, campaign_type, status,
+              asset_type, asset_location, asset_price, asset_details,
+              start_date, end_date, created_by, created_at, updated_at
+       FROM campaigns WHERE id = ? AND tenant_id = ?`,
+      [id, req.user!.tenantId]
+    );
 
     res.status(201).json({
       success: true,
@@ -303,7 +316,13 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       params
     );
 
-    const updated = await query<any[]>('SELECT * FROM campaigns WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
+    const updated = await query<any[]>(
+      `SELECT id, tenant_id, name, description, campaign_type, status,
+              asset_type, asset_location, asset_price, asset_details,
+              start_date, end_date, created_by, created_at, updated_at
+       FROM campaigns WHERE id = ? AND tenant_id = ?`,
+      [id, req.user!.tenantId]
+    );
 
     res.json({
       success: true,
@@ -424,7 +443,13 @@ router.post('/:id/generate-emails', async (req: Request, res: Response): Promise
     }
 
     // Load campaign
-    const campaigns = await query<any[]>('SELECT * FROM campaigns WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
+    const campaigns = await query<any[]>(
+      `SELECT id, tenant_id, name, description, campaign_type, status,
+              asset_type, asset_location, asset_price, asset_details,
+              start_date, end_date, created_by, created_at, updated_at
+       FROM campaigns WHERE id = ? AND tenant_id = ?`,
+      [id, req.user!.tenantId]
+    );
     if (campaigns.length === 0) {
       res.status(404).json({ success: false, error: 'Campaign not found.' });
       return;
@@ -459,7 +484,10 @@ router.post('/:id/generate-emails', async (req: Request, res: Response): Promise
     for (const prospectId of prospect_ids) {
       // Load prospect with enrichment
       const prospects = await query<any[]>(
-        `SELECT p.*, c.name as company_name, c.industry as company_industry,
+        `SELECT p.id, p.tenant_id, p.email, p.first_name, p.last_name,
+                p.title, p.city, p.region, p.country, p.linkedin_url,
+                p.enrichment_data,
+                c.name as company_name, c.industry as company_industry,
                 c.employee_count, c.annual_revenue
          FROM prospects p
          LEFT JOIN companies c ON p.company_id = c.id
@@ -661,7 +689,11 @@ router.get('/:id/generated-emails', async (req: Request, res: Response): Promise
     const whereSQL = 'WHERE ' + whereClauses.join(' AND ');
 
     const emails = await query<any[]>(
-      `SELECT ge.*, p.first_name, p.last_name, p.full_name, p.email as prospect_email,
+      `SELECT ge.id, ge.tenant_id, ge.campaign_id, ge.prospect_id, ge.step_number,
+              ge.subject, ge.body_html, ge.delay_days, ge.status,
+              ge.approved_at, ge.approved_by, ge.sent_at, ge.scheduled_for,
+              ge.metadata, ge.created_at, ge.updated_at,
+              p.first_name, p.last_name, p.full_name, p.email as prospect_email,
               p.title as prospect_title, c.name as company_name
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id
@@ -759,7 +791,13 @@ router.put('/:id/generated-emails/:emailId', async (req: Request, res: Response)
     params.push(emailId, req.user!.tenantId);
     await query(`UPDATE generated_emails SET ${setClauses.join(', ')} WHERE id = ? AND tenant_id = ?`, params);
 
-    const updated = await query<any[]>('SELECT * FROM generated_emails WHERE id = ? AND tenant_id = ?', [emailId, req.user!.tenantId]);
+    const updated = await query<any[]>(
+      `SELECT id, tenant_id, campaign_id, prospect_id, step_number,
+              subject, body_html, delay_days, status, approved_at,
+              approved_by, sent_at, scheduled_for, metadata, created_at, updated_at
+       FROM generated_emails WHERE id = ? AND tenant_id = ?`,
+      [emailId, req.user!.tenantId]
+    );
 
     res.json({ success: true, data: updated[0] });
   } catch (error: any) {

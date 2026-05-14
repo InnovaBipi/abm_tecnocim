@@ -118,7 +118,11 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
     // Fetch records with company info
     const prospects = await query<any[]>(
-      `SELECT p.*, c.name as company_name, c.domain as company_domain, c.tier as company_tier
+      `SELECT p.id, p.tenant_id, p.email, p.first_name, p.last_name, p.full_name,
+              p.title, p.company_id, p.phone, p.city, p.region, p.country,
+              p.timezone, p.status, p.lead_score, p.source, p.linkedin_url,
+              p.do_not_contact, p.last_contacted, p.created_at, p.updated_at,
+              c.name as company_name, c.domain as company_domain, c.tier as company_tier
        FROM prospects p
        LEFT JOIN companies c ON p.company_id = c.id
        ${whereSQL}
@@ -256,7 +260,14 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params;
 
     const prospects = await query<any[]>(
-      `SELECT p.*, c.name as company_name, c.domain as company_domain,
+      `SELECT p.id, p.tenant_id, p.email, p.first_name, p.last_name, p.full_name,
+              p.title, p.seniority, p.department, p.company_id, p.phone,
+              p.linkedin_url, p.city, p.region, p.country, p.timezone,
+              p.email_verified, p.email_status, p.status, p.lead_score,
+              p.custom_fields, p.enrichment_data, p.source, p.source_detail,
+              p.last_contacted, p.last_replied, p.do_not_contact,
+              p.created_at, p.updated_at,
+              c.name as company_name, c.domain as company_domain,
               c.industry as company_industry, c.tier as company_tier,
               c.website_url as company_website, c.employee_count as company_employee_count
        FROM prospects p
@@ -275,7 +286,9 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
 
     // Fetch recent activities
     const activities = await query<any[]>(
-      `SELECT * FROM prospect_activities
+      `SELECT id, prospect_id, activity_type, title, description, metadata,
+              performed_by, occurred_at
+       FROM prospect_activities
        WHERE prospect_id = ? AND tenant_id = ?
        ORDER BY occurred_at DESC
        LIMIT 20`,
@@ -374,7 +387,15 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     );
 
     // Fetch the created prospect
-    const created = await query<any[]>('SELECT * FROM prospects WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
+    const created = await query<any[]>(
+      `SELECT id, tenant_id, email, first_name, last_name, full_name, title,
+              seniority, department, company_id, phone, linkedin_url, city,
+              region, country, timezone, email_verified, email_status, status,
+              lead_score, custom_fields, enrichment_data, source, source_detail,
+              last_contacted, last_replied, do_not_contact, created_at, updated_at
+       FROM prospects WHERE id = ? AND tenant_id = ?`,
+      [id, req.user!.tenantId]
+    );
 
     res.status(201).json({
       success: true,
@@ -479,7 +500,15 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       [uuidv4(), req.user!.tenantId, id, `Updated fields: ${Object.keys(data).join(', ')}`, req.user!.id]
     );
 
-    const updated = await query<any[]>('SELECT * FROM prospects WHERE id = ? AND tenant_id = ?', [id, req.user!.tenantId]);
+    const updated = await query<any[]>(
+      `SELECT id, tenant_id, email, first_name, last_name, full_name, title,
+              seniority, department, company_id, phone, linkedin_url, city,
+              region, country, timezone, email_verified, email_status, status,
+              lead_score, custom_fields, enrichment_data, source, source_detail,
+              last_contacted, last_replied, do_not_contact, created_at, updated_at
+       FROM prospects WHERE id = ? AND tenant_id = ?`,
+      [id, req.user!.tenantId]
+    );
 
     res.json({
       success: true,
@@ -651,7 +680,14 @@ router.post('/:id/enrich', async (req: Request, res: Response): Promise<void> =>
 
     // Fetch updated prospect
     const updated = await query<any[]>(
-      `SELECT p.*, c.name as company_name, c.domain as company_domain
+      `SELECT p.id, p.tenant_id, p.email, p.first_name, p.last_name, p.full_name,
+              p.title, p.seniority, p.department, p.company_id, p.phone,
+              p.linkedin_url, p.city, p.region, p.country, p.timezone,
+              p.email_verified, p.email_status, p.status, p.lead_score,
+              p.custom_fields, p.enrichment_data, p.source, p.source_detail,
+              p.last_contacted, p.last_replied, p.do_not_contact,
+              p.created_at, p.updated_at,
+              c.name as company_name, c.domain as company_domain
        FROM prospects p
        LEFT JOIN companies c ON p.company_id = c.id
        WHERE p.id = ? AND p.tenant_id = ?`,

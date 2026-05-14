@@ -40,7 +40,11 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const total = countResult[0].total;
 
     const emails = await query<any[]>(
-      `SELECT ge.*, p.first_name, p.last_name, p.full_name, p.email as prospect_email,
+      `SELECT ge.id, ge.tenant_id, ge.campaign_id, ge.prospect_id, ge.step_number,
+              ge.subject, ge.body_html, ge.delay_days, ge.status,
+              ge.approved_at, ge.approved_by, ge.sent_at, ge.scheduled_for,
+              ge.metadata, ge.created_at, ge.updated_at,
+              p.first_name, p.last_name, p.full_name, p.email as prospect_email,
               p.title as prospect_title, cam.name as campaign_name,
               cam.asset_type, cam.asset_location
        FROM generated_emails ge
@@ -136,7 +140,10 @@ router.put('/:emailId/approve', async (req: Request, res: Response): Promise<voi
     );
 
     const updated = await query<any[]>(
-      'SELECT * FROM generated_emails WHERE id = ? AND tenant_id = ?',
+      `SELECT id, tenant_id, campaign_id, prospect_id, step_number,
+              subject, body_html, delay_days, status, approved_at,
+              approved_by, sent_at, scheduled_for, metadata, created_at, updated_at
+       FROM generated_emails WHERE id = ? AND tenant_id = ?`,
       [emailId, tenantId]
     );
 
@@ -158,7 +165,13 @@ router.put('/:emailId/reject', async (req: Request, res: Response): Promise<void
       [emailId, req.user!.tenantId]
     );
 
-    const updated = await query<any[]>('SELECT * FROM generated_emails WHERE id = ? AND tenant_id = ?', [emailId, req.user!.tenantId]);
+    const updated = await query<any[]>(
+      `SELECT id, tenant_id, campaign_id, prospect_id, step_number,
+              subject, body_html, delay_days, status, approved_at,
+              approved_by, sent_at, scheduled_for, metadata, created_at, updated_at
+       FROM generated_emails WHERE id = ? AND tenant_id = ?`,
+      [emailId, req.user!.tenantId]
+    );
 
     res.json({ success: true, data: updated[0] });
   } catch (error: any) {
@@ -240,7 +253,11 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
     if (email_ids && Array.isArray(email_ids) && email_ids.length > 0) {
       const placeholders = email_ids.map(() => '?').join(',');
       emailsToSend = await query<any[]>(
-        `SELECT ge.*, p.email as prospect_email, p.first_name, p.last_name, p.full_name,
+        `SELECT ge.id, ge.tenant_id, ge.campaign_id, ge.prospect_id, ge.step_number,
+                ge.subject, ge.body_html, ge.delay_days, ge.status,
+                ge.approved_at, ge.approved_by, ge.sent_at, ge.scheduled_for,
+                ge.metadata, ge.created_at, ge.updated_at,
+                p.email as prospect_email, p.first_name, p.last_name, p.full_name,
                 p.title as prospect_title, p.do_not_contact,
                 cam.name as campaign_name,
                 u.first_name as approver_first_name, u.last_name as approver_last_name
@@ -253,7 +270,11 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
       );
     } else {
       emailsToSend = await query<any[]>(
-        `SELECT ge.*, p.email as prospect_email, p.first_name, p.last_name, p.full_name,
+        `SELECT ge.id, ge.tenant_id, ge.campaign_id, ge.prospect_id, ge.step_number,
+                ge.subject, ge.body_html, ge.delay_days, ge.status,
+                ge.approved_at, ge.approved_by, ge.sent_at, ge.scheduled_for,
+                ge.metadata, ge.created_at, ge.updated_at,
+                p.email as prospect_email, p.first_name, p.last_name, p.full_name,
                 p.title as prospect_title, p.do_not_contact,
                 cam.name as campaign_name,
                 u.first_name as approver_first_name, u.last_name as approver_last_name
