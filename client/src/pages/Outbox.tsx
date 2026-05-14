@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { outboxApi } from '@/services/api';
 import { Card } from '@/components/ui/Card';
@@ -58,6 +58,7 @@ export default function Outbox() {
   const { data: emailsData, isLoading, error: emailsError } = useQuery({
     queryKey: ['outbox', 'list', activeFilter],
     queryFn: () => outboxApi.list({ status: statusParam, limit: 100 }),
+    placeholderData: keepPreviousData,
   });
 
   const approveMutation = useMutation({

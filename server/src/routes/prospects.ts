@@ -136,6 +136,108 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// --- GET /export - Export prospects as CSV ---
+router.get('/export', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const search = req.query.search as string;
+    const status = req.query.status as string;
+    const source = req.query.source as string;
+    const scoreMin = req.query.score_min ? parseInt(req.query.score_min as string) : undefined;
+    const scoreMax = req.query.score_max ? parseInt(req.query.score_max as string) : undefined;
+    const companyId = req.query.company_id as string;
+
+    let whereClauses: string[] = ['p.tenant_id = ?'];
+    let params: any[] = [req.user!.tenantId];
+
+    if (search && search.trim()) {
+      whereClauses.push('MATCH(p.first_name, p.last_name, p.email, p.title) AGAINST(? IN BOOLEAN MODE)');
+      params.push(search + '*');
+    }
+
+    if (status) {
+      whereClauses.push('p.status = ?');
+      params.push(status);
+    }
+
+    if (source) {
+      whereClauses.push('p.source = ?');
+      params.push(source);
+    }
+
+    if (scoreMin !== undefined) {
+      whereClauses.push('p.lead_score >= ?');
+      params.push(scoreMin);
+    }
+
+    if (scoreMax !== undefined) {
+      whereClauses.push('p.lead_score <= ?');
+      params.push(scoreMax);
+    }
+
+    if (companyId) {
+      whereClauses.push('p.company_id = ?');
+      params.push(companyId);
+    }
+
+    const whereSQL = 'WHERE ' + whereClauses.join(' AND ');
+
+    const prospects = await query<any[]>(
+      `SELECT p.email, p.first_name, p.last_name, p.title, c.name as company_name,
+              c.industry, p.city, p.region, p.country, p.status, p.lead_score,
+              p.source, p.created_at
+       FROM prospects p
+       LEFT JOIN companies c ON p.company_id = c.id
+       ${whereSQL}
+       ORDER BY p.created_at DESC`,
+      params
+    );
+
+    // Build CSV
+    const csvHeaders = ['email', 'first_name', 'last_name', 'title', 'company_name', 'industry', 'city', 'region', 'country', 'status', 'score', 'source', 'created_at'];
+
+    const escapeCsvField = (value: unknown): string => {
+      if (value === null || value === undefined) return '';
+      const str = String(value);
+      if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+        return '"' + str.replace(/"/g, '""') + '"';
+      }
+      return str;
+    };
+
+    const lines: string[] = [csvHeaders.join(',')];
+    for (const row of prospects) {
+      lines.push([
+        escapeCsvField(row.email),
+        escapeCsvField(row.first_name),
+        escapeCsvField(row.last_name),
+        escapeCsvField(row.title),
+        escapeCsvField(row.company_name),
+        escapeCsvField(row.industry),
+        escapeCsvField(row.city),
+        escapeCsvField(row.region),
+        escapeCsvField(row.country),
+        escapeCsvField(row.status),
+        escapeCsvField(row.lead_score),
+        escapeCsvField(row.source),
+        escapeCsvField(row.created_at ? new Date(row.created_at).toISOString() : ''),
+      ].join(','));
+    }
+
+    const csv = '\uFEFF' + lines.join('\r\n');
+    const dateStr = new Date().toISOString().substring(0, 10);
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="prospects-export-${dateStr}.csv"`);
+    res.send(csv);
+  } catch (error: any) {
+    console.error('Export prospects error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'An error occurred while exporting prospects.',
+    });
+  }
+});
+
 // --- GET /:id - Single prospect with company data and recent activities ---
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {

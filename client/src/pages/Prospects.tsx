@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { prospectsApi, campaignsApi } from '@/services/api';
 import { Card } from '@/components/ui/Card';
@@ -19,6 +19,7 @@ import {
   Search,
   Plus,
   Upload,
+  Download,
   Trash2,
   Megaphone,
   AlertCircle,
@@ -68,6 +69,7 @@ export default function Prospects() {
     source: 'manual',
   });
   const [showAddToCampaignModal, setShowAddToCampaignModal] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const { dialogProps, confirm } = useConfirmDialog();
   const debouncedSearch = useDebouncedValue(search, 300);
@@ -94,6 +96,7 @@ export default function Prospects() {
         sortBy: sortBy || undefined,
         sortOrder: sortDirection || undefined,
       }),
+    placeholderData: keepPreviousData,
   });
 
   const createMutation = useMutation({
@@ -197,6 +200,31 @@ export default function Prospects() {
     });
   };
 
+  const handleExport = async () => {
+    try {
+      setExporting(true);
+      const params: Record<string, string> = {};
+      if (debouncedSearch) params.search = debouncedSearch;
+      if (statusFilter) params.status = statusFilter;
+      if (sourceFilter) params.source = sourceFilter;
+
+      const response = await prospectsApi.exportCsv(params);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `prospects-${new Date().toISOString().substring(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('CSV exportado correctamente');
+    } catch {
+      toast.error('Error al exportar prospectos');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="p-6 lg:p-8 space-y-6">
       {/* Header */}
@@ -206,6 +234,15 @@ export default function Prospects() {
           <p className="text-slate-500 mt-1">Gestiona tu base de prospectos</p>
         </div>
         <div className="flex items-center gap-3">
+          <Button
+            variant="secondary"
+            icon={<Download className="h-4 w-4" />}
+            onClick={handleExport}
+            loading={exporting}
+            aria-label="Exportar prospectos a CSV"
+          >
+            Exportar CSV
+          </Button>
           <Button
             variant="secondary"
             icon={<Upload className="h-4 w-4" />}

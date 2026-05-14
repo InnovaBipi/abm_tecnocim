@@ -169,13 +169,13 @@ export default function Dashboard() {
   const funnel = funnelData?.data?.data;
   const stepPerf = stepPerfData?.data?.data || [];
 
-  // Format engagement trends for chart
-  const chartData = engagementTrends.map((d: any) => ({
+  // Format engagement trends for chart (memoized to avoid re-mapping on every render)
+  const chartData = useMemo(() => engagementTrends.map((d: any) => ({
     date: new Date(d.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }),
     enviados: d.sent || 0,
     abiertos: d.opened || 0,
     respondidos: d.replied || 0,
-  }));
+  })), [engagementTrends]);
 
   return (
     <div className="p-6 lg:p-8 space-y-6">

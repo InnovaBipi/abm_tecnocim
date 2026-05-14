@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { companiesApi } from '@/services/api';
 import { Card } from '@/components/ui/Card';
@@ -82,6 +82,7 @@ export default function Companies() {
         tier: tierFilter || undefined,
         industry: industryFilter || undefined,
       }),
+    placeholderData: keepPreviousData,
   });
 
   const createMutation = useMutation({

@@ -87,6 +87,9 @@ export const prospectsApi = {
 
   recalculateScore: (id: string) =>
     api.post(`/prospects/${id}/recalculate-score`),
+
+  exportCsv: (params?: Omit<ProspectFilters, 'page' | 'limit' | 'sortBy' | 'sortOrder'>) =>
+    api.get('/prospects/export', { params, responseType: 'blob' }),
 };
 
 // ── Companies ─────────────────────────────────────────────────────────────────
