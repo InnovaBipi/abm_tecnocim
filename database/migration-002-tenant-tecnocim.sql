@@ -59,7 +59,7 @@ VALUES (
         'branding', JSON_OBJECT(
             'app_name', 'Tecnocim ABM',
             'tagline', 'Consultoría de Innovación - Account-Based Marketing',
-            'footer_html', '<p>Tecnocim - Consultoría de Innovación Tecnológica<br><a href=\"https://tecnocim.com\" style=\"color:#2563EB\">tecnocim.com</a></p>'
+            'footer_html', '<p>Tecnocim Innova · <a href=\"https://tecnociminnova.com\" style=\"color:#2563EB\">tecnociminnova.com</a><br>Consultoría de Innovación Tecnológica</p>'
         ),
         'warmup', JSON_OBJECT(
             'daily_limit_base', 10,
