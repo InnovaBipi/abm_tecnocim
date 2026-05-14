@@ -1,0 +1,255 @@
+/**
+ * Unit tests for scheduling.ts pure functions:
+ *   - resolveProspectTimezone
+ *   - resolveProspectLanguage
+ *   - calculateOptimalSendTime
+ *
+ * No database interaction — the DB-dependent functions (getWarmupDailyLimit,
+ * getSentCountForDate, distributeEmailsAcrossBusinessDays) are covered
+ * separately when integration tests exist.
+ */
+
+import { describe, it, expect, vi } from 'vitest';
+
+// The module imports `query` and `getTenantConfig` at the bottom for the
+// warmup-aware helpers. Mock them so the module can be imported without a
+// live database connection.
+vi.mock('../config/database', () => ({
+  query: vi.fn(),
+}));
+
+vi.mock('../middleware/tenant', () => ({
+  getTenantConfig: vi.fn(),
+}));
+
+import {
+  resolveProspectTimezone,
+  resolveProspectLanguage,
+  calculateOptimalSendTime,
+} from './scheduling';
+
+// ---------------------------------------------------------------------------------
+// resolveProspectTimezone
+// ---------------------------------------------------------------------------------
+
+describe('resolveProspectTimezone', () => {
+  it('uses explicit timezone when provided and not the generic default', () => {
+    const result = resolveProspectTimezone({ timezone: 'America/New_York', country: 'Spain' });
+    expect(result).toBe('America/New_York');
+  });
+
+  it('falls through to country lookup when no explicit timezone is set', () => {
+    const result = resolveProspectTimezone({ country: 'Germany' });
+    expect(result).toBe('Europe/Berlin');
+  });
+
+  it('maps Spain to Europe/Madrid via country', () => {
+    const result = resolveProspectTimezone({ country: 'Spain' });
+    expect(result).toBe('Europe/Madrid');
+  });
+
+  it('maps UK to Europe/London via country', () => {
+    const result = resolveProspectTimezone({ country: 'UK' });
+    expect(result).toBe('Europe/London');
+  });
+
+  it('maps France to Europe/Paris via country', () => {
+    const result = resolveProspectTimezone({ country: 'France' });
+    expect(result).toBe('Europe/Paris');
+  });
+
+  it('defaults to Europe/Madrid when no timezone and no recognisable country', () => {
+    const result = resolveProspectTimezone({ country: 'Atlantis' });
+    expect(result).toBe('Europe/Madrid');
+  });
+
+  it('defaults to Europe/Madrid when prospect object is empty', () => {
+    const result = resolveProspectTimezone({});
+    expect(result).toBe('Europe/Madrid');
+  });
+});
+
+// ---------------------------------------------------------------------------------
+// resolveProspectLanguage
+// ---------------------------------------------------------------------------------
+
+describe('resolveProspectLanguage', () => {
+  it('returns catalan for region Catalunya', () => {
+    const result = resolveProspectLanguage({ region: 'Catalunya', country: 'Spain' });
+    expect(result).toBe('catalan');
+  });
+
+  it('returns catalan for region cataluña (Spanish spelling)', () => {
+    const result = resolveProspectLanguage({ region: 'Cataluña' });
+    expect(result).toBe('catalan');
+  });
+
+  it('returns catalan for city Barcelona', () => {
+    const result = resolveProspectLanguage({ city: 'Barcelona', country: 'Spain' });
+    expect(result).toBe('catalan');
+  });
+
+  it('returns catalan for city Girona', () => {
+    const result = resolveProspectLanguage({ city: 'Girona' });
+    expect(result).toBe('catalan');
+  });
+
+  it('returns catalan for city Sant Cugat', () => {
+    const result = resolveProspectLanguage({ city: 'Sant Cugat', country: 'Spain' });
+    expect(result).toBe('catalan');
+  });
+
+  it('returns spanish for country Spain (non-Catalan location)', () => {
+    const result = resolveProspectLanguage({ country: 'Spain', city: 'Madrid' });
+    expect(result).toBe('spanish');
+  });
+
+  it('returns spanish for country España', () => {
+    const result = resolveProspectLanguage({ country: 'España' });
+    expect(result).toBe('spanish');
+  });
+
+  it('returns english for country UK', () => {
+    const result = resolveProspectLanguage({ country: 'UK' });
+    expect(result).toBe('english');
+  });
+
+  it('returns english for country Germany', () => {
+    const result = resolveProspectLanguage({ country: 'Germany' });
+    expect(result).toBe('english');
+  });
+
+  it('returns english for international role title regardless of country', () => {
+    const result = resolveProspectLanguage({ country: 'Spain', title: 'Global Sales Director' });
+    expect(result).toBe('english');
+  });
+
+  it('returns english for EMEA role title', () => {
+    const result = resolveProspectLanguage({ country: 'Spain', title: 'EMEA Account Manager' });
+    expect(result).toBe('english');
+  });
+
+  it('defaults to english when no location data', () => {
+    const result = resolveProspectLanguage({});
+    expect(result).toBe('english');
+  });
+
+  it('respects defaultLanguage override — returns spanish for non-Catalan location', () => {
+    const result = resolveProspectLanguage({ country: 'Germany' }, 'spanish');
+    expect(result).toBe('spanish');
+  });
+
+  it('respects defaultLanguage but still overrides to catalan for Catalan region', () => {
+    const result = resolveProspectLanguage({ region: 'Catalunya' }, 'spanish');
+    expect(result).toBe('catalan');
+  });
+
+  it('does NOT apply international-title override when defaultLanguage is set', () => {
+    // With defaultLanguage='spanish', the "international title → english" logic is skipped
+    const result = resolveProspectLanguage({ title: 'Global Director' }, 'spanish');
+    expect(result).toBe('spanish');
+  });
+});
+
+// ---------------------------------------------------------------------------------
+// calculateOptimalSendTime
+//
+// Timezone note for UTC-hour assertions:
+// We use 'Atlantic/Reykjavik' (always UTC+0, no DST) when we need local time = UTC.
+// Europe/London in summer is UTC+1 (BST), so local 9am = 8am UTC — do NOT use it
+// when asserting getUTCHours() === 9.
+// ---------------------------------------------------------------------------------
+
+describe('calculateOptimalSendTime', () => {
+  it('candidate within 9-11 window returns same day (Reykjavik = UTC+0)', () => {
+    // Tuesday 2025-06-10 09:30 UTC = 09:30 Reykjavik (UTC+0 always)
+    // 09:30 is within the [9, 11) window
+    const candidate = new Date('2025-06-10T09:30:00.000Z');
+    const result = calculateOptimalSendTime(candidate, 'Atlantic/Reykjavik');
+
+    expect(result.toISOString().startsWith('2025-06-10')).toBe(true);
+    expect(result.getUTCHours()).toBe(9);
+  });
+
+  it('candidate before window pushes to start_hour on same day (Reykjavik = UTC+0)', () => {
+    // Tuesday 2025-06-10 07:00 UTC = 07:00 Reykjavik — before the 9-11 window
+    const candidate = new Date('2025-06-10T07:00:00.000Z');
+    const result = calculateOptimalSendTime(candidate, 'Atlantic/Reykjavik');
+
+    expect(result.toISOString().startsWith('2025-06-10')).toBe(true);
+    // Pushed to start_hour=9 local time. Reykjavik=UTC+0 → 9 UTC
+    expect(result.getUTCHours()).toBe(9);
+  });
+
+  it('Friday after window advances to Monday (Reykjavik = UTC+0)', () => {
+    // Friday 2025-06-13 16:00 UTC = 16:00 Reykjavik — past the 9-11 window
+    const candidate = new Date('2025-06-13T16:00:00.000Z');
+    const result = calculateOptimalSendTime(candidate, 'Atlantic/Reykjavik');
+
+    // Friday (5) past window → next Mon (1), which is 2025-06-16
+    expect(result.getUTCDay()).toBe(1); // Monday
+    expect(result.getUTCHours()).toBe(9);
+  });
+
+  it('Saturday candidate moves to Monday (Reykjavik = UTC+0)', () => {
+    // Saturday 2025-06-14 08:00 UTC
+    const candidate = new Date('2025-06-14T08:00:00.000Z');
+    const result = calculateOptimalSendTime(candidate, 'Atlantic/Reykjavik');
+
+    expect(result.getUTCDay()).toBe(1); // Monday
+    expect(result.getUTCHours()).toBe(9);
+  });
+
+  it('Sunday candidate moves to Monday (Reykjavik = UTC+0)', () => {
+    // Sunday 2025-06-15 08:00 UTC
+    const candidate = new Date('2025-06-15T08:00:00.000Z');
+    const result = calculateOptimalSendTime(candidate, 'Atlantic/Reykjavik');
+
+    expect(result.getUTCDay()).toBe(1); // Monday
+    expect(result.getUTCHours()).toBe(9);
+  });
+
+  it('respects custom sendWindow days — skips Wednesday if not in allowed list', () => {
+    // Wednesday 2025-06-11 09:00 UTC = 09:00 Reykjavik — within hour window but day blocked
+    const candidate = new Date('2025-06-11T09:00:00.000Z');
+    const result = calculateOptimalSendTime(candidate, 'Atlantic/Reykjavik', {
+      days: [1, 2, 4, 5], // Mon, Tue, Thu, Fri — no Wednesday (3)
+      start_hour: 9,
+      end_hour: 11,
+    });
+
+    // Wednesday (3) is not allowed, next is Thursday (4)
+    expect(result.getUTCDay()).toBe(4); // Thursday
+  });
+
+  it('New York timezone: candidate at 14:00 UTC (10:00 NYC) lands in window', () => {
+    // Tuesday 2025-06-10 14:00 UTC = 10:00 America/New_York (UTC-4 in summer, EDT)
+    // 10:00 is within the 9-11 window
+    const candidate = new Date('2025-06-10T14:00:00.000Z');
+    const result = calculateOptimalSendTime(candidate, 'America/New_York');
+
+    expect(result.toISOString().startsWith('2025-06-10')).toBe(true);
+    // 9-11 NYC local = 13-15 UTC (EDT = UTC-4)
+    expect(result.getUTCHours()).toBeGreaterThanOrEqual(13);
+    expect(result.getUTCHours()).toBeLessThan(15);
+  });
+
+  it('Madrid timezone: candidate at 07:00 UTC (09:00 Madrid CEST) lands in window', () => {
+    // Tuesday 2025-06-10 07:00 UTC = 09:00 Madrid (CEST = UTC+2)
+    // 09:00 is exactly at the start of the window
+    const candidate = new Date('2025-06-10T07:00:00.000Z');
+    const result = calculateOptimalSendTime(candidate, 'Europe/Madrid');
+
+    expect(result.toISOString().startsWith('2025-06-10')).toBe(true);
+    // Result should be 9:xx Madrid local = 7:xx UTC
+    expect(result.getUTCHours()).toBeGreaterThanOrEqual(7);
+    expect(result.getUTCHours()).toBeLessThan(9);
+  });
+
+  it('returns a Date object and is never NaN', () => {
+    const candidate = new Date('2025-06-10T09:00:00.000Z');
+    const result = calculateOptimalSendTime(candidate, 'Europe/Madrid');
+    expect(result).toBeInstanceOf(Date);
+    expect(isNaN(result.getTime())).toBe(false);
+  });
+});
