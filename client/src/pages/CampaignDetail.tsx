@@ -769,7 +769,7 @@ export default function CampaignDetail() {
                                     <button
                                       onClick={() => approveEmailsMutation.mutate([email.id])}
                                       className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors"
-                                      title="Programar envio"
+                                      title="Programar envio" aria-label="Programar envio"
                                     >
                                       <Check className="h-4 w-4" />
                                     </button>
@@ -782,7 +782,7 @@ export default function CampaignDetail() {
                                       setEditMode('edit');
                                     }}
                                     className="p-1.5 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
-                                    title="Editar"
+                                    title="Editar" aria-label="Editar email"
                                   >
                                     <Edit3 className="h-4 w-4" />
                                   </button>
@@ -791,6 +791,7 @@ export default function CampaignDetail() {
                                       onClick={() => rejectEmailsMutation.mutate([email.id])}
                                       className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
                                       title="Rechazar"
+                                      aria-label="Rechazar email"
                                     >
                                       <X className="h-4 w-4" />
                                     </button>
@@ -995,10 +996,20 @@ export default function CampaignDetail() {
                     className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${
                       isSelected ? 'bg-primary-50' : 'hover:bg-slate-50'
                     }`}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => {
                       setSelectedProspectIds((prev) =>
                         isSelected ? prev.filter((i) => i !== pId) : [...prev, pId]
                       );
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedProspectIds((prev) =>
+                          isSelected ? prev.filter((i) => i !== pId) : [...prev, pId]
+                        );
+                      }
                     }}
                   >
                     <input

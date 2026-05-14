@@ -74,6 +74,7 @@ export function TableCell({ children, className, isHeader = false }: TableCellPr
   if (isHeader) {
     return (
       <th
+        scope="col"
         className={cn(
           'px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider',
           className

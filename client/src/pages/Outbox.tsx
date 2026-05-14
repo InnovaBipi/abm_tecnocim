@@ -333,7 +333,7 @@ export default function Outbox() {
                       <button
                         onClick={() => setPreviewEmail(email)}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
-                        title="Ver email"
+                        title="Ver email" aria-label="Ver email"
                       >
                         <Eye className="h-4 w-4" />
                       </button>
@@ -341,7 +341,7 @@ export default function Outbox() {
                         <button
                           onClick={() => approveMutation.mutate(email.id)}
                           className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors"
-                          title="Aprobar y programar"
+                          title="Aprobar y programar" aria-label="Aprobar y programar"
                         >
                           <Check className="h-4 w-4" />
                         </button>
@@ -358,7 +358,7 @@ export default function Outbox() {
                             });
                           }}
                           className="p-1.5 rounded-lg text-primary-600 hover:bg-primary-50 transition-colors"
-                          title="Forzar envio"
+                          title="Forzar envio" aria-label="Forzar envio"
                         >
                           <Zap className="h-4 w-4" />
                         </button>
@@ -367,7 +367,7 @@ export default function Outbox() {
                         <button
                           onClick={() => rejectMutation.mutate(email.id)}
                           className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
-                          title="Rechazar"
+                          title="Rechazar" aria-label="Rechazar"
                         >
                           <X className="h-4 w-4" />
                         </button>

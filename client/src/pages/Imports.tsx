@@ -359,7 +359,7 @@ export default function Imports() {
                   <thead className="bg-slate-50">
                     <tr>
                       {uploadResult.columns.map((col) => (
-                        <th key={col} className="px-3 py-2 text-left font-medium text-slate-600">
+                        <th key={col} scope="col" className="px-3 py-2 text-left font-medium text-slate-600">
                           {col}
                         </th>
                       ))}
@@ -477,10 +477,10 @@ export default function Imports() {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50">
                       <tr>
-                        <th className="px-4 py-2 text-left font-medium text-slate-600">Fila</th>
-                        <th className="px-4 py-2 text-left font-medium text-slate-600">Email</th>
-                        <th className="px-4 py-2 text-left font-medium text-slate-600">Nombre</th>
-                        <th className="px-4 py-2 text-left font-medium text-slate-600">Tipo</th>
+                        <th scope="col" className="px-4 py-2 text-left font-medium text-slate-600">Fila</th>
+                        <th scope="col" className="px-4 py-2 text-left font-medium text-slate-600">Email</th>
+                        <th scope="col" className="px-4 py-2 text-left font-medium text-slate-600">Nombre</th>
+                        <th scope="col" className="px-4 py-2 text-left font-medium text-slate-600">Tipo</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
