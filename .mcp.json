@@ -2,10 +2,52 @@
   "mcpServers": {
     "serena": {
       "command": "uvx",
-      "args": ["serena-mcp"],
+      "args": [
+        "serena-mcp"
+      ],
       "env": {
         "SERENA_PROJECT_DIR": "."
       }
+    },
+    "linkedin": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["linkedin-scraper-mcp@latest"],
+      "env": { "UV_HTTP_TIMEOUT": "300" },
+      "description": "LinkedIn profile/company enrichment for prospect research"
+    },
+    "brightdata": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@anthropic/mcp-bright-data"],
+      "env": {
+        "API_TOKEN": "${BRIGHT_DATA_API_TOKEN}",
+        "BROWSER_AUTH": "${BRIGHT_DATA_BROWSER_AUTH}"
+      },
+      "description": "Web scraping with 5000 free requests/month - used for email extraction from company websites"
+    },
+    "firecrawl": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "firecrawl-mcp"],
+      "env": {
+        "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}"
+      },
+      "description": "Web scraping and crawling - extract emails from company contact pages"
+    },
+    "asana": {
+      "type": "stdio",
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@roychri/mcp-server-asana"
+      ],
+      "env": {
+        "ASANA_ACCESS_TOKEN": "${ASANA_ACCESS_TOKEN}"
+      },
+      "description": "Asana project management"
     }
   }
 }
