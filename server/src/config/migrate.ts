@@ -72,7 +72,7 @@ export async function runMigrations(): Promise<void> {
         await connection.query('INSERT INTO _migrations (name) VALUES (?)', [file]);
         logger.info('Migration applied', { file });
       } catch (err: any) {
-        if (err.code === 'ER_DUP_FIELDNAME' || err.code === 'ER_TABLE_EXISTS_ERROR') {
+        if (err.code === 'ER_DUP_FIELDNAME' || err.code === 'ER_TABLE_EXISTS_ERROR' || err.code === 'ER_DUP_KEYNAME') {
           logger.warn('Migration warning, continuing', { file, error: err.message });
           await connection.query('INSERT IGNORE INTO _migrations (name) VALUES (?)', [file]);
         } else {
