@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && cp -r ../database ./dist/database 2>/dev/null || true",
     "start": "node dist/index.js",
     "db:migrate": "tsx src/config/migrate.ts"
   },

@@ -70,8 +70,10 @@ async function main(): Promise<void> {
   app.get('/api/health', (_req, res) => {
     const fs = require('fs');
     const dbPaths = [
-      path.resolve(__dirname, '..', '..', '..', 'database'),  // dev: dist/config -> root/database
-      path.resolve(__dirname, '..', '..', 'database'),         // prod: dist/config -> server/database
+      path.resolve(__dirname, '..', '..', '..', 'database'),  // dev: dist -> root/database
+      path.resolve(__dirname, '..', '..', 'database'),         // prod: dist -> server/database
+      path.resolve(__dirname, '..', 'database'),               // prod alt: dist -> dist/database (cp in build)
+      path.resolve(__dirname, 'database'),                     // prod alt2: dist/database direct
     ];
     res.json({
       success: true,

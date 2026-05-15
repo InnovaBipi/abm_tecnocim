@@ -17,6 +17,7 @@ export async function runMigrations(): Promise<void> {
   const candidates = [
     path.resolve(__dirname, '..', '..', '..', 'database'),  // dev: server/src/config -> root/database
     path.resolve(__dirname, '..', '..', 'database'),         // prod: server/dist/config -> server/database
+    path.resolve(__dirname, '..', 'database'),               // prod alt: server/dist/config -> dist/database
   ];
   const dbDir = candidates.find(d => fs.existsSync(d)) || candidates[0];
   const schemaPath = path.join(dbDir, 'schema.sql');
