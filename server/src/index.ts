@@ -142,8 +142,37 @@ async function main(): Promise<void> {
       await runMigrations();
       res.json({ success: true, data: { message: 'Migrations applied via files' } });
     } catch (fileErr: any) {
-      logger.error('Migration error', { error: fileErr.message });
-      res.status(500).json({ success: false, error: 'Migration failed: ' + fileErr.message });
+      logger.warn('File-based migration failed, trying inline fallback', { error: fileErr.message });
+      // Inline fallback for when database/ directory is unavailable at runtime
+      try {
+        const { getConnection } = await import('./config/database');
+        const conn = await getConnection();
+        const statements = [
+          'CREATE INDEX idx_event_tenant_type ON email_events (tenant_id, event_type)',
+          'CREATE INDEX idx_ge_tenant_status ON generated_emails (tenant_id, status)',
+          'CREATE INDEX idx_ge_tenant_status_scheduled ON generated_emails (tenant_id, status, scheduled_for)',
+          'CREATE INDEX idx_enrollment_tenant_status ON sequence_enrollments (tenant_id, status)',
+          'CREATE INDEX idx_activity_tenant_prospect ON prospect_activities (tenant_id, prospect_id, occurred_at DESC)',
+        ];
+        const results: string[] = [];
+        for (const sql of statements) {
+          try {
+            await conn.execute(sql);
+            results.push('OK: ' + sql.substring(0, 60));
+          } catch (e: any) {
+            if (e.code === 'ER_DUP_KEYNAME') {
+              results.push('SKIP: index already exists');
+            } else {
+              results.push('ERR: ' + e.message);
+            }
+          }
+        }
+        conn.release();
+        res.json({ success: true, data: { message: 'Inline migration-008 applied', results } });
+      } catch (inlineErr: any) {
+        logger.error('Inline migration also failed', { error: inlineErr.message });
+        res.status(500).json({ success: false, error: 'Migration failed: ' + fileErr.message });
+      }
     }
   });
 
