@@ -688,7 +688,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
       const tenant = await getTenantConfig(emailTenantId);
       const tenantEmail = tenant?.config?.email;
       const rawFrom = tenantEmail?.from_email || 'noreply@example.com';
-      const fromName = tenantEmail?.from_name || 'ABM Platform';
+      const fromName = tenantEmail?.from_name || 'Tecnocim Innova';
       const fromAddress = `${fromName} <${rawFrom}>`;
       const replyTo = tenantEmail?.reply_to || undefined;
 
@@ -799,9 +799,9 @@ async function sendOutboxNotification(
 
   const tenantEmail = tenant.config?.email;
   const rawFrom = tenantEmail?.from_email || 'noreply@example.com';
-  const fromName = tenantEmail?.from_name || 'ABM Platform';
+  const fromName = tenantEmail?.from_name || 'Tecnocim Innova';
   const fromAddress = `${fromName} <${rawFrom}>`;
-  const tenantName = tenant.name || 'ABM Platform';
+  const tenantName = tenant.name || 'Tecnocim Innova';
   const skipped = results.filter(r => r.status === 'skipped').length;
   const now = new Date().toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Madrid' });
 

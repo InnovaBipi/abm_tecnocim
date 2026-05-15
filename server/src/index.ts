@@ -241,7 +241,7 @@ async function main(): Promise<void> {
 
   // --- Start server ---
   const server = app.listen(config.PORT, () => {
-    logger.info('ABM Platform Server started', {
+    logger.info('Prospecting Tecnocim Innova started', {
       environment: config.NODE_ENV,
       port: config.PORT,
       dbConnected,

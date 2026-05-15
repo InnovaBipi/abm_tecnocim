@@ -164,7 +164,7 @@ export async function sendSequenceEmail(
     const tenantEmail = tenant?.config?.email;
 
     // Determine from address (sequence > tenant > global)
-    const defaultFromName = tenantEmail?.from_name || 'ABM Platform';
+    const defaultFromName = tenantEmail?.from_name || 'Tecnocim Innova';
     const defaultFromEmail = tenantEmail?.from_email || config.EMAIL_FROM;
     const fromAddress = sequence?.from_email
       ? `${sequence.from_name || defaultFromName} <${sequence.from_email}>`

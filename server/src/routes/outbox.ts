@@ -302,7 +302,7 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
     const tenant = await getTenantConfig(req.user!.tenantId);
     const tenantEmail = tenant?.config?.email;
     const tenantFromEmail = tenantEmail?.from_email || 'noreply@example.com';
-    const tenantFromName = tenantEmail?.from_name || 'ABM Platform';
+    const tenantFromName = tenantEmail?.from_name || 'Tecnocim Innova';
     const tenantReplyTo = tenantEmail?.reply_to || undefined;
 
     for (let idx = 0; idx < emailsToSend.length; idx++) {

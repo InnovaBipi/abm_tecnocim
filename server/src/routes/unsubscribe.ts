@@ -53,7 +53,7 @@ export function getUnsubscribeUrl(email: string, tenantId?: string): string {
  */
 export function getEmailFooter(recipientEmail: string, tenantId?: string, tenant?: Tenant | null): string {
   const unsubscribeUrl = getUnsubscribeUrl(recipientEmail, tenantId);
-  const companyName = tenant?.name || 'ABM Platform';
+  const companyName = tenant?.name || 'Tecnocim Innova';
   const footerHtml = tenant?.config?.branding?.footer_html || `<p>${companyName}</p>`;
   const legal = tenant?.config?.legal;
   const legalName = legal?.legal_name || companyName;
@@ -178,7 +178,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       );
     }
 
-    const companyName = tenant?.name || 'our platform';
+    const companyName = tenant?.name || 'Tecnocim Innova';
     res.status(200).send(unsubscribePage(
       'Unsubscribed',
       `The address <strong>${email}</strong> has been removed from our mailing lists. You will no longer receive commercial emails from ${companyName}.`
@@ -198,7 +198,7 @@ function unsubscribePage(title: string, message: string): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title} - Tecnocim</title>
+  <title>${title} - Tecnocim Innova</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #f9fafb; color: #374151; }
     .card { background: white; border-radius: 12px; padding: 40px; max-width: 480px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center; }

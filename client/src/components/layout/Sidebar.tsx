@@ -17,8 +17,8 @@ export function Sidebar() {
   const { user, tenant, logout } = useAuthStore();
 
   const entityLabel = tenant?.config?.entity?.type_label_plural || 'Propiedades';
-  const appName = tenant?.config?.branding?.app_name || tenant?.name || 'Tecnocim';
-  const tagline = tenant?.config?.branding?.tagline || 'ABM Platform';
+  const appName = tenant?.config?.branding?.app_name || tenant?.name || 'Tecnocim Innova';
+  const tagline = tenant?.config?.branding?.tagline || 'Prospecting';
   const logoUrl = tenant?.logo_url || '/logo.png';
 
   const navItems = [
