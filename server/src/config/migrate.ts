@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import mysql from 'mysql2/promise';
 import { config } from './env';
+import { logger } from './logger';
 
 /**
  * Migration runner: applies schema.sql and all numbered migration-NNN-*.sql files.
@@ -33,10 +34,10 @@ export async function runMigrations(): Promise<void> {
   try {
     // 1. Apply schema.sql (idempotent via CREATE TABLE IF NOT EXISTS)
     if (fs.existsSync(schemaPath)) {
-      console.log('Applying schema.sql...');
+      logger.debug('Applying schema.sql');
       const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
       await connection.query(schemaSql);
-      console.log('schema.sql applied.');
+      logger.debug('schema.sql applied');
     }
 
     // 2. Ensure _migrations tracking table exists
@@ -59,31 +60,31 @@ export async function runMigrations(): Promise<void> {
     // 5. Apply pending migrations in order
     for (const file of migrationFiles) {
       if (appliedSet.has(file)) {
-        console.log(`  [skip] ${file} (already applied)`);
+        logger.debug('Migration already applied, skipping', { file });
         continue;
       }
 
-      console.log(`  [apply] ${file}...`);
+      logger.info('Applying migration', { file });
       const sql = fs.readFileSync(path.join(dbDir, file), 'utf-8');
 
       try {
         await connection.query(sql);
         await connection.query('INSERT INTO _migrations (name) VALUES (?)', [file]);
-        console.log(`  [done] ${file}`);
+        logger.info('Migration applied', { file });
       } catch (err: any) {
         if (err.code === 'ER_DUP_FIELDNAME' || err.code === 'ER_TABLE_EXISTS_ERROR') {
-          console.log(`  [warn] ${file}: ${err.message} (continuing)`);
+          logger.warn('Migration warning, continuing', { file, error: err.message });
           await connection.query('INSERT IGNORE INTO _migrations (name) VALUES (?)', [file]);
         } else {
-          console.error(`  [FAIL] ${file}: ${err.message}`);
+          logger.error('Migration failed', { file, error: err.message });
           throw err;
         }
       }
     }
 
-    console.log('All migrations applied successfully.');
+    logger.info('All migrations applied successfully');
   } catch (error: any) {
-    console.error('Migration failed:', error.message);
+    logger.error('Migration failed', { error: error.message });
     if (error.code !== 'ER_TABLE_EXISTS_ERROR') {
       throw error;
     }
@@ -98,7 +99,7 @@ const isDirectExecution = require.main === module ||
 
 if (isDirectExecution) {
   runMigrations().catch((err) => {
-    console.error('Unhandled migration error:', err);
+    logger.error('Unhandled migration error', { error: err.message || String(err) });
     process.exit(1);
   });
 }

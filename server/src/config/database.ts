@@ -1,5 +1,6 @@
 import mysql from 'mysql2/promise';
 import { config } from './env';
+import { logger } from './logger';
 
 const poolConfig: mysql.PoolOptions = {
   host: config.DB_HOST,
@@ -50,10 +51,10 @@ export async function getConnection(): Promise<mysql.PoolConnection> {
 export async function testConnection(): Promise<boolean> {
   try {
     await pool.execute('SELECT 1');
-    console.log('Database connection successful.');
+    logger.info('Database connection successful');
     return true;
-  } catch (error) {
-    console.error('Database connection failed:', error);
+  } catch (error: any) {
+    logger.error('Database connection failed', { error: error.message || String(error) });
     return false;
   }
 }
