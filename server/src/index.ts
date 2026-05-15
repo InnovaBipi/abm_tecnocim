@@ -145,8 +145,7 @@ async function main(): Promise<void> {
       logger.warn('File-based migration failed, trying inline fallback', { error: fileErr.message });
       // Inline fallback for when database/ directory is unavailable at runtime
       try {
-        const { getConnection } = await import('./config/database');
-        const conn = await getConnection();
+        const { query: dbQuery } = await import('./config/database');
         const statements = [
           'CREATE INDEX idx_event_tenant_type ON email_events (tenant_id, event_type)',
           'CREATE INDEX idx_ge_tenant_status ON generated_emails (tenant_id, status)',
@@ -157,17 +156,16 @@ async function main(): Promise<void> {
         const results: string[] = [];
         for (const sql of statements) {
           try {
-            await conn.execute(sql);
+            await dbQuery(sql);
             results.push('OK: ' + sql.substring(0, 60));
           } catch (e: any) {
             if (e.code === 'ER_DUP_KEYNAME') {
               results.push('SKIP: index already exists');
             } else {
-              results.push('ERR: ' + e.message);
+              results.push('ERR: ' + (e.code || '') + ' ' + e.message?.substring(0, 80));
             }
           }
         }
-        conn.release();
         res.json({ success: true, data: { message: 'Inline migration-008 applied', results } });
       } catch (inlineErr: any) {
         logger.error('Inline migration also failed', { error: inlineErr.message });
