@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
+import { logger } from '../config/logger';
 import { processJobs, addJob } from './queue';
 import { sendEmail, sendSequenceEmail } from '../services/email';
 import { recalculateAllScores } from '../services/scoring';
@@ -18,7 +19,7 @@ let lastDigestDate = '';
  * Initialize all scheduled jobs using node-cron.
  */
 export function startScheduler(): void {
-  console.log('Starting job scheduler...');
+  logger.info('Starting job scheduler');
 
   // =============================================
   // Every 5 minutes: Check and send due sequence emails
@@ -27,7 +28,7 @@ export function startScheduler(): void {
     try {
       await processDueSequenceEmails();
     } catch (error: any) {
-      console.error('Sequence email processing error:', error.message);
+      logger.error('Sequence email processing error', { error: error.message });
     }
   });
 
@@ -46,10 +47,10 @@ export function startScheduler(): void {
       } while (batchCount > 0 && processed < 10);
 
       if (processed > 0) {
-        console.log(`Processed ${processed} queued job(s).`);
+        logger.info('Processed queued jobs', { count: processed });
       }
     } catch (error: any) {
-      console.error('Job queue processing error:', error.message);
+      logger.error('Job queue processing error', { error: error.message });
     }
   });
 
@@ -60,7 +61,7 @@ export function startScheduler(): void {
     try {
       await processPendingEnrichments();
     } catch (error: any) {
-      console.error('Enrichment processing error:', error.message);
+      logger.error('Enrichment processing error', { error: error.message });
     }
   });
 
@@ -69,20 +70,20 @@ export function startScheduler(): void {
   // =============================================
   cron.schedule('0 2 * * *', async () => {
     try {
-      console.log('Starting daily score recalculation...');
+      logger.info('Starting daily score recalculation');
       const tenants = await getAllActiveTenants();
       for (const tenant of tenants) {
         const result = await recalculateAllScores(tenant.id);
-        console.log(`Score recalculation for ${tenant.name}: ${result.processed} processed, ${result.errors} errors.`);
+        logger.info('Score recalculation complete', { tenant: tenant.name, processed: result.processed, errors: result.errors });
       }
-      console.log('Daily score recalculation complete for all tenants.');
+      logger.info('Daily score recalculation complete for all tenants');
 
       // Also evaluate A/B test winners per tenant
       for (const tenant of tenants) {
         await evaluateAbTestsForTenant(tenant.id);
       }
     } catch (error: any) {
-      console.error('Daily score recalculation error:', error.message);
+      logger.error('Daily score recalculation error', { error: error.message });
     }
   });
 
@@ -93,7 +94,7 @@ export function startScheduler(): void {
     try {
       await processScheduledOutboxEmails();
     } catch (error: any) {
-      console.error('Scheduled outbox processing error:', error.message);
+      logger.error('Scheduled outbox processing error', { error: error.message });
     }
   });
 
@@ -104,7 +105,7 @@ export function startScheduler(): void {
     try {
       await pollImapForReplies();
     } catch (error: any) {
-      console.error('IMAP polling error:', error.message);
+      logger.error('IMAP polling error', { error: error.message });
     }
   });
 
@@ -116,17 +117,13 @@ export function startScheduler(): void {
     try {
       await sendDailyOutboxDigest();
     } catch (error: any) {
-      console.error('Daily outbox digest error:', error.message);
+      logger.error('Daily outbox digest error', { error: error.message });
     }
   });
 
-  console.log('Job scheduler started successfully.');
-  console.log('  - Sequence emails: every 5 minutes');
-  console.log('  - Job queue: every 5 minutes');
-  console.log('  - Scheduled outbox: every 2 minutes');
-  console.log('  - IMAP reply polling: every 3 minutes');
-  console.log('  - Enrichments: every hour');
-  console.log('  - Score recalculation: daily at 2 AM');
+  logger.info('Job scheduler started', {
+    jobs: 'sequences:5m, queue:5m, outbox:2m, imap:3m, enrichments:1h, scoring:2am, digest:17utc',
+  });
 }
 
 // =============================================
@@ -192,7 +189,7 @@ async function processDueSequenceEmails(): Promise<void> {
     return;
   }
 
-  console.log(`Processing ${dueEnrollments.length} due sequence email(s)...`);
+  logger.info('Processing due sequence emails', { count: dueEnrollments.length });
 
   // Per-tenant warm-up cache: tenantId -> { limit, sentToday }
   const tenantWarmup = new Map<string, { limit: number; sentToday: number }>();
@@ -291,7 +288,7 @@ async function processDueSequenceEmails(): Promise<void> {
           'UPDATE sequence_enrollments SET next_send_at = ? WHERE id = ?',
           [nextOptimal, enrollment.id]
         );
-        console.log(`Rescheduled enrollment ${enrollment.id} to ${nextOptimal.toISOString()} (outside send window for ${prospectTz})`);
+        logger.info('Rescheduled enrollment outside send window', { enrollmentId: enrollment.id, nextSendAt: nextOptimal.toISOString(), timezone: prospectTz });
         continue;
       }
 
@@ -316,7 +313,7 @@ async function processDueSequenceEmails(): Promise<void> {
           'UPDATE sequence_enrollments SET next_send_at = ? WHERE id = ?',
           [tomorrow, enrollment.id]
         );
-        console.log(`Warm-up limit reached for tenant ${enrollmentTenantId} (${tw.limit}/day). Rescheduled enrollment ${enrollment.id} to tomorrow.`);
+        logger.warn('Warm-up limit reached, rescheduled to tomorrow', { tenantId: enrollmentTenantId, dailyLimit: tw.limit, enrollmentId: enrollment.id });
         continue;
       }
 
@@ -335,7 +332,7 @@ async function processDueSequenceEmails(): Promise<void> {
           'UPDATE sequence_enrollments SET next_send_at = ? WHERE id = ?',
           [tomorrow, enrollment.id]
         );
-        console.log(`Sequence daily limit reached (${seqDailyLimit}/day) for sequence ${enrollment.sequence_id}. Rescheduled enrollment ${enrollment.id}.`);
+        logger.warn('Sequence daily limit reached, rescheduled', { sequenceId: enrollment.sequence_id, dailyLimit: seqDailyLimit, enrollmentId: enrollment.id });
         continue;
       }
 
@@ -375,7 +372,7 @@ async function processDueSequenceEmails(): Promise<void> {
              WHERE id = ? AND tenant_id = ?`,
             [targetStep.step_number, targetStep.id, nextSendAt, pathEntry, enrollment.id, enrollment.tenant_id]
           );
-          console.log(`Condition step ${step.step_number} evaluated: ${conditionResult ? 'YES' : 'NO'} → step ${targetStep.step_number}`);
+          logger.info('Condition step evaluated', { stepNumber: step.step_number, result: conditionResult ? 'YES' : 'NO', targetStep: targetStep.step_number });
         } else {
           await query(
             `UPDATE sequence_enrollments SET status = 'completed', completed_at = NOW(), next_send_at = NULL
@@ -462,7 +459,7 @@ async function processDueSequenceEmails(): Promise<void> {
         );
       }
     } catch (error: any) {
-      console.error(`Failed to process enrollment ${enrollment.id}:`, error.message);
+      logger.error('Failed to process enrollment', { enrollmentId: enrollment.id, error: error.message });
 
       // Log activity about the failure
       await query(
@@ -527,7 +524,7 @@ async function cancelRepliedFollowups(): Promise<void> {
     );
 
     if (result.affectedRows > 0) {
-      console.log(`Cancelled ${result.affectedRows} scheduled email(s) for replied prospect ${r.prospect_id} in campaign ${r.campaign_id}`);
+      logger.info('Cancelled scheduled emails for replied prospect', { count: result.affectedRows, prospectId: r.prospect_id, campaignId: r.campaign_id });
     }
 
     // If reply was classified as negative/unsubscribe, mark prospect
@@ -590,7 +587,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
     return;
   }
 
-  console.log(`Processing ${emailsToSend.length} scheduled outbox email(s)...`);
+  logger.info('Processing scheduled outbox emails', { count: emailsToSend.length });
 
   // Per-tenant warm-up cache: tenantId -> { limit, sentToday }
   const tenantWarmup = new Map<string, { limit: number; sentToday: number }>();
@@ -614,7 +611,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
 
     // Check tenant warm-up limit
     if (tw.sentToday >= tw.limit) {
-      console.log(`Warm-up limit reached for tenant ${emailTenantId} (${tw.limit}/day). Skipping email ${email.id}.`);
+      logger.warn('Warm-up limit reached, skipping email', { tenantId: emailTenantId, dailyLimit: tw.limit, emailId: email.id });
       results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: `Limite warm-up alcanzado (${tw.limit}/dia)`, tenant_id: emailTenantId });
       continue;
     }
@@ -631,7 +628,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
       [email.prospect_id]
     );
     if (prospectReplied.length > 0) {
-      console.log(`Skipping scheduled email ${email.id} - prospect replied`);
+      logger.info('Skipping scheduled email, prospect replied', { emailId: email.id });
       await query(
         `UPDATE generated_emails SET status = 'rejected',
          metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'prospect_replied')
@@ -644,7 +641,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
 
     // Skip do_not_contact
     if (email.do_not_contact) {
-      console.log(`Skipping scheduled email ${email.id} - do_not_contact`);
+      logger.info('Skipping scheduled email, do_not_contact', { emailId: email.id });
       await query(
         `UPDATE generated_emails SET status = 'rejected',
          metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'do_not_contact')
@@ -661,7 +658,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
       [email.prospect_email, emailTenantId]
     );
     if (suppressed.length > 0) {
-      console.log(`Skipping scheduled email ${email.id} - suppressed`);
+      logger.info('Skipping scheduled email, suppressed', { emailId: email.id });
       await query(
         `UPDATE generated_emails SET status = 'rejected',
          metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'suppressed')
@@ -758,7 +755,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
   }
 
   if (sent > 0 || failed > 0) {
-    console.log(`Scheduled outbox: sent ${sent}, failed ${failed}`);
+    logger.info('Scheduled outbox cycle complete', { sent, failed });
   }
 
   // Results are now queried from DB at digest time — no in-memory accumulation needed
@@ -776,13 +773,13 @@ async function sendOutboxNotification(
 ): Promise<void> {
   const tenant = await getTenantConfig(tenantId);
   if (!tenant) {
-    console.warn(`Cannot send outbox notification: tenant ${tenantId} not found.`);
+    logger.warn('Cannot send outbox notification, tenant not found', { tenantId });
     return;
   }
 
   const notificationEmail = tenant.config?.email?.notification_email;
   if (!notificationEmail) {
-    console.warn(`No notification_email configured for tenant ${tenant.name}. Skipping notification.`);
+    logger.warn('No notification_email configured, skipping notification', { tenant: tenant.name });
     return;
   }
 
@@ -863,7 +860,7 @@ async function sendOutboxNotification(
     undefined,
     tenantId
   );
-  console.log(`Outbox notification sent to ${notificationEmail} (tenant: ${tenantName})`);
+  logger.info('Outbox notification sent', { to: notificationEmail, tenant: tenantName });
 }
 
 /**
@@ -888,7 +885,7 @@ async function sendDailyOutboxDigest(): Promise<void> {
       );
 
       if (alreadySent.length > 0) {
-        console.log(`Daily digest already sent today for ${tenant.name}, skipping.`);
+        logger.debug('Daily digest already sent today, skipping', { tenant: tenant.name });
         continue;
       }
 
@@ -933,7 +930,7 @@ async function sendDailyOutboxDigest(): Promise<void> {
       const totalFailed = failedEmails.length;
 
       if (totalSent === 0 && totalFailed === 0) {
-        console.log(`Daily digest: nothing to report for ${tenant.name}.`);
+        logger.debug('Daily digest: nothing to report', { tenant: tenant.name });
         continue;
       }
 
@@ -976,9 +973,9 @@ async function sendDailyOutboxDigest(): Promise<void> {
         );
       }
 
-      console.log(`Daily digest sent for ${tenant.name}: ${totalSent} sent, ${totalFailed} failed`);
+      logger.info('Daily digest sent', { tenant: tenant.name, sent: totalSent, failed: totalFailed });
     } catch (err: any) {
-      console.error(`Failed to send daily digest for ${tenant.name}:`, err.message);
+      logger.error('Failed to send daily digest', { tenant: tenant.name, error: err.message });
     }
   }
 
@@ -1005,7 +1002,7 @@ async function processPendingEnrichments(): Promise<void> {
     return;
   }
 
-  console.log(`Queuing ${prospects.length} prospect(s) for enrichment...`);
+  logger.info('Queuing prospects for enrichment', { count: prospects.length });
 
   for (const prospect of prospects) {
     await addJob('enrich_prospect', { prospect_id: prospect.id, tenant_id: prospect.tenant_id }, {

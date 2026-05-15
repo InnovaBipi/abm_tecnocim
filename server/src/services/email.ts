@@ -1,6 +1,7 @@
 import { Resend } from 'resend';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config/env';
+import { logger } from '../config/logger';
 import { query } from '../config/database';
 import { getEmailFooter, getUnsubscribeUrl } from '../routes/unsubscribe';
 import { getTenantConfig, type Tenant } from '../middleware/tenant';
@@ -81,13 +82,13 @@ export async function sendEmail(
     });
 
     if (result.error) {
-      console.error('Resend send error:', result.error);
+      logger.error('Resend send error', { error: result.error });
       return { id: '', success: false };
     }
 
     return { id: result.data?.id || '', success: true };
   } catch (error: any) {
-    console.error('Email send failed:', error.message);
+    logger.error('Email send failed', { to, error: error.message });
     throw error;
   }
 }
@@ -132,13 +133,13 @@ export async function sendSequenceEmail(
     );
 
     if (suppressed.length > 0) {
-      console.log(`Skipping email to ${prospect.email} - on suppression list.`);
+      logger.info('Skipping email, on suppression list', { prospectEmail: prospect.email });
       return { success: false };
     }
 
     // Check do_not_contact flag
     if (prospect.do_not_contact) {
-      console.log(`Skipping email to ${prospect.email} - do_not_contact flag is set.`);
+      logger.info('Skipping email, do_not_contact flag set', { prospectEmail: prospect.email });
       return { success: false };
     }
 
@@ -222,7 +223,7 @@ export async function sendSequenceEmail(
 
     return { success: true, resendEmailId: result.id };
   } catch (error: any) {
-    console.error('Send sequence email failed:', error.message);
+    logger.error('Send sequence email failed', { enrollmentId: enrollment.id, prospectId: enrollment.prospect_id, error: error.message });
 
     // Record the failure
     await query(

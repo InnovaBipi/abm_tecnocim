@@ -6,6 +6,7 @@ import path from 'path';
 import rateLimit from 'express-rate-limit';
 
 import { config } from './config/env';
+import { logger } from './config/logger';
 import { testConnection } from './config/database';
 import pool from './config/database';
 import { startScheduler } from './jobs/scheduler';
@@ -28,7 +29,7 @@ import unsubscribeRoutes from './routes/unsubscribe';
 async function main(): Promise<void> {
   // --- Production safety checks ---
   if (config.NODE_ENV === 'production' && config.JWT_SECRET.includes('change')) {
-    console.error('CRITICAL: JWT_SECRET must be changed from default in production!');
+    logger.error('CRITICAL: JWT_SECRET must be changed from default in production!');
     process.exit(1);
   }
 
@@ -139,7 +140,7 @@ async function main(): Promise<void> {
       await runMigrations();
       res.json({ success: true, data: { message: 'Migrations applied via files' } });
     } catch (fileErr: any) {
-      console.error('Migration error:', fileErr.message);
+      logger.error('Migration error', { error: fileErr.message });
       res.status(500).json({ success: false, error: 'Migration failed: ' + fileErr.message });
     }
   });
@@ -158,7 +159,7 @@ async function main(): Promise<void> {
 
   // --- Global error handler ---
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error('Unhandled error:', err);
+    logger.error('Unhandled error', { message: err.message, stack: err.stack });
 
     // Handle multer errors
     if (err.code === 'LIMIT_FILE_SIZE') {
@@ -188,8 +189,8 @@ async function main(): Promise<void> {
   // --- Test database connection ---
   const dbConnected = await testConnection();
   if (!dbConnected) {
-    console.warn('WARNING: Could not connect to the database. The server will start but database operations will fail.');
-    console.warn('Make sure your .env file is configured correctly and the MySQL server is running.');
+    logger.warn('Could not connect to the database. The server will start but database operations will fail.');
+    logger.warn('Make sure your .env file is configured correctly and the MySQL server is running.');
   }
 
   // --- Auto-run pending database migrations ---
@@ -198,7 +199,7 @@ async function main(): Promise<void> {
       const { runMigrations } = await import('./config/migrate');
       await runMigrations();
     } catch (error: any) {
-      console.warn('WARNING: Migration check failed:', error.message);
+      logger.warn('Migration check failed', { error: error.message });
     }
   }
 
@@ -206,43 +207,31 @@ async function main(): Promise<void> {
   try {
     startScheduler();
   } catch (error: any) {
-    console.warn('WARNING: Scheduler failed to start:', error.message);
+    logger.warn('Scheduler failed to start', { error: error.message });
   }
 
   // --- Start server ---
   const server = app.listen(config.PORT, () => {
-    console.log('');
-    console.log('=========================================');
-    console.log('  ABM Platform Server');
-    console.log('=========================================');
-    console.log(`  Environment: ${config.NODE_ENV}`);
-    console.log(`  Port:        ${config.PORT}`);
-    console.log(`  Frontend:    ${config.FRONTEND_URL}`);
-    console.log(`  Database:    ${config.DB_HOST}:${config.DB_PORT}/${config.DB_NAME}`);
-    console.log(`  DB Connected: ${dbConnected ? 'Yes' : 'No'}`);
-    console.log('=========================================');
-    console.log('');
-    console.log('API endpoints:');
-    console.log('  GET  /api/health           - Health check');
-    console.log('  POST /api/auth/register    - Register');
-    console.log('  POST /api/auth/login       - Login');
-    console.log('  CRUD /api/prospects        - Prospects');
-    console.log('  CRUD /api/companies        - Companies');
-    console.log('  CRUD /api/campaigns        - Campaigns');
-    console.log('  CRUD /api/sequences        - Email sequences');
-    console.log('  CRUD /api/outbox           - Outbox (generated emails)');
-    console.log('  POST /api/webhooks/resend  - Resend webhook');
-    console.log('  GET  /api/unsubscribe      - Unsubscribe link');
-    console.log('');
+    logger.info('ABM Platform Server started', {
+      environment: config.NODE_ENV,
+      port: config.PORT,
+      dbConnected,
+    });
+    logger.debug('Server details', {
+      frontend: config.FRONTEND_URL,
+      dbHost: config.DB_HOST,
+      dbPort: config.DB_PORT,
+      dbName: config.DB_NAME,
+    });
   });
 
   // --- Graceful shutdown ---
   const shutdown = (signal: string) => {
-    console.log(`\n${signal} received. Shutting down gracefully...`);
+    logger.info('Shutting down gracefully', { signal });
     server.close(() => {
-      console.log('HTTP server closed.');
+      logger.info('HTTP server closed');
       pool.end().then(() => {
-        console.log('Database pool closed.');
+        logger.info('Database pool closed');
         process.exit(0);
       }).catch(() => {
         process.exit(1);
@@ -251,7 +240,7 @@ async function main(): Promise<void> {
 
     // Force exit after 30 seconds
     setTimeout(() => {
-      console.error('Forced shutdown after 30s timeout.');
+      logger.error('Forced shutdown after 30s timeout');
       process.exit(1);
     }, 30000);
   };
@@ -262,6 +251,6 @@ async function main(): Promise<void> {
 
 // Start the application
 main().catch((error) => {
-  console.error('Failed to start server:', error);
+  logger.error('Failed to start server', { error: error.message || String(error) });
   process.exit(1);
 });
