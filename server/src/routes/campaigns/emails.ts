@@ -345,6 +345,14 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
       scheduled++;
     }
 
+    // Auto-activate campaign if it's in draft — scheduled emails need an active campaign
+    if (scheduled > 0 && campaign[0].status === 'draft') {
+      await query(
+        `UPDATE campaigns SET status = 'active' WHERE id = ? AND tenant_id = ?`,
+        [id, tenantId]
+      );
+    }
+
     res.json({
       success: true,
       data: {

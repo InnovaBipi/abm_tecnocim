@@ -172,6 +172,13 @@ async function getTotalSentToday(tenantId: string): Promise<number> {
  * and process them.
  */
 async function processDueSequenceEmails(): Promise<void> {
+  // Hard block: never send on weekends (Saturday=6, Sunday=0) in CET
+  const nowCet = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Madrid' }));
+  const dayOfWeek = nowCet.getDay();
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    return;
+  }
+
   // Find enrollments where it is time to send the next email
   const dueEnrollments = await query<any[]>(
     `SELECT se.*, es.status as sequence_status, es.settings as sequence_settings, es.sequence_type, p.tenant_id
@@ -558,6 +565,13 @@ async function cancelRepliedFollowups(): Promise<void> {
  * Sends up to 20 emails per cycle with 600ms delay between sends.
  */
 async function processScheduledOutboxEmails(): Promise<void> {
+  // Hard block: never send on weekends (Saturday=6, Sunday=0) in CET
+  const nowCet = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Madrid' }));
+  const dayOfWeek = nowCet.getDay();
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    return;
+  }
+
   // Auto-cancel follow-ups after bounces and replies
   await cancelBouncedFollowups();
   await cancelRepliedFollowups();
