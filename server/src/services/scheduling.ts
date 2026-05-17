@@ -54,6 +54,34 @@ const OPTIMAL_START_HOUR = 9;
 const OPTIMAL_END_HOUR = 11;
 
 /**
+ * Check if a date falls on a business day (Mon-Fri) in Europe/Madrid timezone.
+ */
+export function isBusinessDay(date: Date): boolean {
+  const madridDate = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Madrid' }));
+  const dow = madridDate.getDay();
+  return dow >= 1 && dow <= 5;
+}
+
+/**
+ * Get the next business day (Mon-Fri) from a given date.
+ * If the given date IS a business day, returns a copy of the same date.
+ * If on weekend, advances to next Monday.
+ */
+export function getNextBusinessDay(date: Date): Date {
+  const result = new Date(date);
+  let madridDate = new Date(result.toLocaleString('en-US', { timeZone: 'Europe/Madrid' }));
+  let dow = madridDate.getDay();
+
+  while (dow === 0 || dow === 6) {
+    result.setDate(result.getDate() + 1);
+    madridDate = new Date(result.toLocaleString('en-US', { timeZone: 'Europe/Madrid' }));
+    dow = madridDate.getDay();
+  }
+
+  return result;
+}
+
+/**
  * Resolve the IANA timezone for a prospect based on their data.
  * Priority: explicit timezone field > country lookup > default Europe/Madrid.
  */
@@ -423,7 +451,7 @@ async function getScheduledCountByDate(tenantId: string): Promise<Map<string, nu
 /**
  * Get the next N business days starting from a date.
  */
-function getNextBusinessDays(startDate: Date, count: number): Date[] {
+export function getNextBusinessDays(startDate: Date, count: number): Date[] {
   const days: Date[] = [];
   const d = new Date(startDate);
   while (days.length < count) {

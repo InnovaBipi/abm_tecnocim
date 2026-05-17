@@ -561,6 +561,29 @@ async function cancelRepliedFollowups(): Promise<void> {
 }
 
 /**
+ * Rescue emails that were incorrectly scheduled on weekend dates.
+ * Runs on Mondays only. Reschedules them to NOW() so they get picked up this cycle.
+ */
+async function rescueWeekendEmails(): Promise<void> {
+  const tenants = await getAllActiveTenants();
+  for (const tenant of tenants) {
+    const [result] = await query<any[]>(
+      `SELECT COUNT(*) as cnt FROM generated_emails
+       WHERE tenant_id = ? AND status = 'scheduled' AND DAYOFWEEK(scheduled_for) IN (1, 7) AND scheduled_for < NOW()`,
+      [tenant.id]
+    );
+    if (result.cnt > 0) {
+      logger.info('Monday rescue: rescheduling weekend-dated emails', { tenant: tenant.name, count: result.cnt });
+      await query(
+        `UPDATE generated_emails SET scheduled_for = NOW()
+         WHERE tenant_id = ? AND status = 'scheduled' AND DAYOFWEEK(scheduled_for) IN (1, 7) AND scheduled_for < NOW()`,
+        [tenant.id]
+      );
+    }
+  }
+}
+
+/**
  * Process scheduled outbox emails whose scheduled_for time has arrived.
  * Sends up to 20 emails per cycle with 600ms delay between sends.
  */
@@ -570,6 +593,11 @@ async function processScheduledOutboxEmails(): Promise<void> {
   const dayOfWeek = nowCet.getDay();
   if (dayOfWeek === 0 || dayOfWeek === 6) {
     return;
+  }
+
+  // Monday rescue: reschedule emails incorrectly set for weekend dates
+  if (dayOfWeek === 1) {
+    await rescueWeekendEmails();
   }
 
   // Auto-cancel follow-ups after bounces and replies
@@ -585,6 +613,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
      JOIN prospects p ON ge.prospect_id = p.id
      JOIN campaigns cam ON ge.campaign_id = cam.id
      WHERE ge.status = 'scheduled' AND ge.scheduled_for <= NOW()
+       AND DAYOFWEEK(ge.scheduled_for) NOT IN (1, 7)
        AND cam.status = 'active'
        AND (ge.step_number = 1 OR EXISTS (
          SELECT 1 FROM generated_emails prev

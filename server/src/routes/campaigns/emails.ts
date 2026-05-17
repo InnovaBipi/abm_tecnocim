@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../config/database';
 import { getTenantConfig, buildTenantAIContext } from '../../middleware/tenant';
-import { resolveProspectTimezone, distributeEmailsAcrossBusinessDays } from '../../services/scheduling';
+import { resolveProspectTimezone, distributeEmailsAcrossBusinessDays, isBusinessDay, getNextBusinessDay } from '../../services/scheduling';
 
 const router = Router();
 
@@ -261,8 +261,19 @@ router.put('/:id/generated-emails/:emailId', async (req: Request, res: Response)
       params.push(sent_at);
     }
     if (scheduled_for !== undefined) {
+      const scheduledDate = new Date(scheduled_for);
+      if (isNaN(scheduledDate.getTime())) {
+        res.status(400).json({ success: false, error: 'Invalid scheduled_for date format.' });
+        return;
+      }
+      // Auto-adjust weekend dates to next Monday
+      let finalDate = scheduledDate;
+      if (!isBusinessDay(scheduledDate)) {
+        finalDate = getNextBusinessDay(scheduledDate);
+        finalDate.setUTCHours(scheduledDate.getUTCHours(), scheduledDate.getUTCMinutes(), 0, 0);
+      }
       setClauses.push('scheduled_for = ?');
-      params.push(scheduled_for);
+      params.push(finalDate.toISOString().replace('T', ' ').substring(0, 19));
     }
 
     if (setClauses.length === 0) {

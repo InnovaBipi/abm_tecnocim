@@ -26,6 +26,8 @@ import {
   resolveProspectTimezone,
   resolveProspectLanguage,
   calculateOptimalSendTime,
+  isBusinessDay,
+  getNextBusinessDay,
 } from './scheduling';
 
 // ---------------------------------------------------------------------------------
@@ -251,5 +253,67 @@ describe('calculateOptimalSendTime', () => {
     const result = calculateOptimalSendTime(candidate, 'Europe/Madrid');
     expect(result).toBeInstanceOf(Date);
     expect(isNaN(result.getTime())).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────
+// isBusinessDay
+// ─────────────────────────────────────────────────
+
+describe('isBusinessDay', () => {
+  it('returns true for Monday', () => {
+    // 2025-06-09 is a Monday
+    expect(isBusinessDay(new Date('2025-06-09T10:00:00.000Z'))).toBe(true);
+  });
+
+  it('returns true for Friday', () => {
+    // 2025-06-13 is a Friday
+    expect(isBusinessDay(new Date('2025-06-13T10:00:00.000Z'))).toBe(true);
+  });
+
+  it('returns false for Saturday', () => {
+    // 2025-06-14 is a Saturday
+    expect(isBusinessDay(new Date('2025-06-14T10:00:00.000Z'))).toBe(false);
+  });
+
+  it('returns false for Sunday', () => {
+    // 2025-06-15 is a Sunday
+    expect(isBusinessDay(new Date('2025-06-15T10:00:00.000Z'))).toBe(false);
+  });
+
+  it('handles Friday-to-Saturday timezone edge case (UTC 23:00 = CET Saturday)', () => {
+    // Friday 23:00 UTC = Saturday 01:00 CET
+    expect(isBusinessDay(new Date('2025-06-13T23:00:00.000Z'))).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────
+// getNextBusinessDay
+// ─────────────────────────────────────────────────
+
+describe('getNextBusinessDay', () => {
+  it('returns same date for a Monday', () => {
+    const monday = new Date('2025-06-09T10:00:00.000Z');
+    const result = getNextBusinessDay(monday);
+    expect(result.toISOString().substring(0, 10)).toBe('2025-06-09');
+  });
+
+  it('returns Monday for Saturday input', () => {
+    const saturday = new Date('2025-06-14T10:00:00.000Z');
+    const result = getNextBusinessDay(saturday);
+    expect(result.toISOString().substring(0, 10)).toBe('2025-06-16');
+  });
+
+  it('returns Monday for Sunday input', () => {
+    const sunday = new Date('2025-06-15T10:00:00.000Z');
+    const result = getNextBusinessDay(sunday);
+    expect(result.toISOString().substring(0, 10)).toBe('2025-06-16');
+  });
+
+  it('does not mutate the input date', () => {
+    const saturday = new Date('2025-06-14T10:00:00.000Z');
+    const original = saturday.toISOString();
+    getNextBusinessDay(saturday);
+    expect(saturday.toISOString()).toBe(original);
   });
 });

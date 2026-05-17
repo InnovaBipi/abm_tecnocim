@@ -307,12 +307,39 @@ curl -s "${BASE}/api/outbox?status=scheduled&limit=100" \
 curl -s "${BASE}/api/outbox/stats" \
   -H "Authorization: Bearer ${TOKEN}"
 
-# Send scheduled emails (respects warm-up limits, 200/hr rate limit)
-curl -s -X POST "${BASE}/api/outbox/send" \
+# Redistribute emails across business days (warmup-aware, Mon-Fri only)
+# By campaign:
+curl -s -X POST "${BASE}/api/outbox/redistribute" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
-  -d '{"email_ids": ["uuid1", "uuid2"]}'
-# Omit email_ids to send ALL scheduled
+  -d '{"campaign_id": "'${CAMPAIGN_ID}'"}'
+# All scheduled emails:
+curl -s -X POST "${BASE}/api/outbox/redistribute" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+> **IMPORTANT**: Do NOT use `POST /api/outbox/send` for batch sending.
+> It is blocked on weekends and bypasses warmup scheduling.
+> Use the approve flow instead — the scheduler sends automatically every 2 min.
+
+### Campaign Launch (Weekend-Safe Workflow)
+
+The correct flow for creating and launching a campaign via Claude Code:
+
+```bash
+# 1. Approve emails (auto-distributes across Mon-Fri, respects warmup)
+curl -s -X POST "${BASE}/api/campaigns/${CAMPAIGN_ID}/approve-emails" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{\"email_ids\": ${EMAIL_IDS_JSON}}"
+# This automatically:
+# - Distributes across business days only (never weekends)
+# - Respects tenant warmup daily limit
+# - Sets optimal send time per prospect timezone (9-11h local)
+# - Activates the campaign if still in draft
+# - The scheduler sends at the scheduled times (every 2 min, Mon-Fri)
 ```
 
 ### Users

@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { getTenantConfig } from '../middleware/tenant';
-import { calculateOptimalSendTime, resolveProspectTimezone, distributeEmailsAcrossBusinessDays, getWarmupDailyLimit } from '../services/scheduling';
+import { calculateOptimalSendTime, resolveProspectTimezone, distributeEmailsAcrossBusinessDays, getWarmupDailyLimit, isBusinessDay } from '../services/scheduling';
 
 const router = Router();
 
@@ -245,6 +245,17 @@ router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> 
 // --- POST /send - Force send scheduled emails via Resend ---
 router.post('/send', async (req: Request, res: Response): Promise<void> => {
   try {
+    // Weekend guard: reject force-sends on weekends (CET)
+    const nowCet = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Madrid' }));
+    const dayOfWeek = nowCet.getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      res.status(400).json({
+        success: false,
+        error: 'No se pueden enviar emails en fin de semana. Los emails programados se enviarán automáticamente el próximo día laborable.',
+      });
+      return;
+    }
+
     const { email_ids } = req.body;
 
     // If email_ids provided, send only those. Otherwise, send all scheduled.
@@ -415,6 +426,73 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
   } catch (error: any) {
     console.error('Outbox send error:', error);
     res.status(500).json({ success: false, error: 'An error occurred while sending emails.' });
+  }
+});
+
+// --- POST /redistribute - Redistribute scheduled emails across business days (warmup-aware) ---
+router.post('/redistribute', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email_ids, campaign_id } = req.body;
+    const tenantId = req.user!.tenantId;
+
+    let whereClause = 'ge.tenant_id = ? AND p.tenant_id = ? AND ge.status = \'scheduled\'';
+    const params: any[] = [tenantId, tenantId];
+
+    if (email_ids && Array.isArray(email_ids) && email_ids.length > 0) {
+      const placeholders = email_ids.map(() => '?').join(',');
+      whereClause += ` AND ge.id IN (${placeholders})`;
+      params.push(...email_ids);
+    } else if (campaign_id) {
+      whereClause += ' AND ge.campaign_id = ?';
+      params.push(campaign_id);
+    }
+
+    const emails = await query<any[]>(
+      `SELECT ge.id, ge.delay_days, p.timezone, p.country, p.city
+       FROM generated_emails ge
+       JOIN prospects p ON ge.prospect_id = p.id AND p.tenant_id = ge.tenant_id
+       WHERE ${whereClause}`,
+      params
+    );
+
+    if (emails.length === 0) {
+      res.json({ success: true, data: { message: 'No hay emails programados para redistribuir.', count: 0 } });
+      return;
+    }
+
+    const emailsForDistribution = emails.map((e: any) => ({
+      id: e.id,
+      prospectTimezone: resolveProspectTimezone(e),
+      delayDays: e.delay_days || 0,
+    }));
+
+    const { schedule, distribution, dailyLimit } = await distributeEmailsAcrossBusinessDays(
+      emailsForDistribution,
+      tenantId
+    );
+
+    let updated = 0;
+    for (const [emailId, scheduledFor] of schedule) {
+      const dateStr = scheduledFor.toISOString().replace('T', ' ').substring(0, 19);
+      await query(
+        'UPDATE generated_emails SET scheduled_for = ? WHERE id = ? AND tenant_id = ?',
+        [dateStr, emailId, tenantId]
+      );
+      updated++;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        message: `Redistribuidos ${updated} email(s) en días laborables.`,
+        count: updated,
+        distribution,
+        daily_limit: dailyLimit,
+      },
+    });
+  } catch (error: any) {
+    console.error('Outbox redistribute error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred while redistributing.' });
   }
 });
 
