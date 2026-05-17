@@ -217,6 +217,42 @@ router.put('/email', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// --- Warmup Settings ---
+
+router.put('/warmup', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { daily_limit_base, daily_limit_max, ramp_up_days } = req.body;
+
+    const updates: string[] = [];
+    const params: any[] = [];
+
+    if (daily_limit_base !== undefined) { updates.push("'$.warmup.daily_limit_base', CAST(? AS UNSIGNED)"); params.push(daily_limit_base); }
+    if (daily_limit_max !== undefined) { updates.push("'$.warmup.daily_limit_max', CAST(? AS UNSIGNED)"); params.push(daily_limit_max); }
+    if (ramp_up_days !== undefined) { updates.push("'$.warmup.ramp_up_days', CAST(? AS UNSIGNED)"); params.push(ramp_up_days); }
+
+    if (updates.length === 0) {
+      res.status(400).json({ success: false, error: 'No fields to update.' });
+      return;
+    }
+
+    params.push(req.user!.tenantId);
+    await query(
+      `UPDATE tenants SET config = JSON_SET(config, ${updates.join(', ')}) WHERE id = ?`,
+      params
+    );
+
+    clearTenantCache(req.user!.tenantId);
+
+    res.json({
+      success: true,
+      data: { message: 'Warmup settings updated successfully.' },
+    });
+  } catch (error: any) {
+    console.error('Update warmup settings error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
 // --- API Keys ---
 
 router.get('/api-keys', async (_req: Request, res: Response): Promise<void> => {
