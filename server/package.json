@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && (cp -r database dist/database 2>/dev/null || echo 'WARN: database/ not found for copy')",
+    "build": "tsc -p tsconfig.build.json && (cp -r database dist/database 2>/dev/null || echo 'WARN: database/ not found for copy')",
     "start": "node dist/index.js",
     "db:migrate": "tsx src/config/migrate.ts"
   },
