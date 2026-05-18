@@ -6,7 +6,7 @@ SET name = 'Tecnocim Innova',
     config = JSON_SET(
       config,
       '$.branding.tagline', 'Prospecting',
-      '$.branding.footer_html', '<p>Tecnocim Innova - Consultoría de Innovación Tecnológica<br><a href=\"https://tecnocim.com\" style=\"color:#2563EB\">tecnocim.com</a></p>'
+      '$.branding.footer_html', '<p>Tecnocim Innova - Consultoría de Innovación Tecnológica<br><a href=\"https://tecnociminnova.com\" style=\"color:#ff7f00\">tecnociminnova.com</a></p>'
     )
 WHERE slug = 'tecnocim';
 

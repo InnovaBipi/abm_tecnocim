@@ -9,7 +9,7 @@ SET name = 'Tecnocim Innova',
       '$.ai.company_description', 'Tecnocim Innova - Consultora de innovación tecnológica. Especializados en gestión integral de bonificaciones fiscales I+D+i, transformación digital y desarrollo de software a medida.',
       '$.branding.app_name', 'Tecnocim Innova',
       '$.branding.tagline', 'Prospecting',
-      '$.branding.footer_html', '<p>Tecnocim Innova - Consultoría de Innovación Tecnológica<br><a href=\"https://tecnocim.com\" style=\"color:#2563EB\">tecnocim.com</a></p>'
+      '$.branding.footer_html', '<p>Tecnocim Innova - Consultoría de Innovación Tecnológica<br><a href=\"https://tecnociminnova.com\" style=\"color:#ff7f00\">tecnociminnova.com</a></p>'
     )
 WHERE slug = 'tecnocim';
 
