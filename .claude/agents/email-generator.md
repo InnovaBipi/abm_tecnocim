@@ -54,22 +54,46 @@ Always aim for Level 2+. Use enrichment data and web research.
 ### Language
 
 Detect language from prospect data:
-- Catalunya / Catalan names -> write in CATALAN
+- Catalunya / Catalan cities+regions -> write in CATALAN
 - Rest of Spain -> write in SPANISH
 - International -> write in ENGLISH
 
-If tenant has `default_language` configured, use that.
+If tenant has `default_language` configured, use that as default for non-Catalan prospects.
+
+**Catalan rules (STRICT — apply when writing in Catalan):**
+- NEVER mix Spanish words or phrases. Not a single Spanish word.
+- ACCENTS obligatoris: innovació, inversió, producció, deducció, bonificació, salutació, projecte, experiència, tecnològic, electrònic, automàtic, fabricació, certificació, optimització
+- Catalan does NOT use inverted punctuation: NO ¿ NO ¡ — only ? and ! at the end
+- Closings: "Salutacions," / "Atentament," / "Una salutació," (NEVER "Saludos" / "Atentamente" / "Un saludo")
+- CTAs: "Té sentit explorar-ho?", "Us interessaria valorar-ho?", "Podríem parlar-ne?", "Tindria sentit revisar-ho?"
+- Common traps: "equipo"->"equip", "proyecto"->"projecte", "servicio"->"servei", "también"->"també", "pero"->"però", "puede"->"pot", "resultados"->"resultats", "experiencia"->"experiència"
+- Pronouns: "us", "el vostre", "la vostra", "tindríeu", "voldríeu", "podríeu"
+- When tenant context (style guide, differentiators) is in Spanish, TRANSLATE to natural Catalan — do NOT copy Spanish phrases
+
+**Spanish rules:**
+- Use proper Castilian Spanish. Use ¿ and ¡ where appropriate.
+- Closings: "Saludos cordiales," / "Atentamente," / "Un saludo,"
+- CTAs: "¿Tiene sentido explorarlo?", "¿Os resulta interesante?", "¿Merece la pena revisarlo?"
 
 ## Sequence Structures
 
-### Linear (4 steps)
+### Linear (4 steps) — Spanish
 
 | Step | Day | Angle | CTA |
 |---|---|---|---|
-| 1 | 0 | Value proposition + pain point | "Le interesaria explorar esto?" |
-| 2 | 3 | Case study / social proof | "Hemos ayudado a empresas como..." |
-| 3 | 7 | Specific benefit + urgency | "La semana que viene estare por [city]" |
-| 4 | 12 | Breakup / last chance | "Ultimo mensaje - sin respuesta lo entiendo" |
+| 1 | 0 | Value proposition + pain point | "¿Tiene sentido explorarlo?" |
+| 2 | 3 | Case study / social proof | "¿Os resulta interesante?" |
+| 3 | 7 | Specific benefit + urgency | "¿Merece la pena revisarlo?" |
+| 4 | 12 | Breakup / last chance | "Sin respuesta lo entiendo" |
+
+### Linear (4 steps) — Catalan
+
+| Step | Day | Angle | CTA |
+|---|---|---|---|
+| 1 | 0 | Value proposition + pain point | "Té sentit explorar-ho?" |
+| 2 | 3 | Case study / social proof | "Us resulta interessant?" |
+| 3 | 7 | Specific benefit + urgency | "Tindria sentit revisar-ho?" |
+| 4 | 12 | Breakup / last chance | "Sense resposta ho entenc" |
 
 ### Branched (7 steps)
 
@@ -91,8 +115,22 @@ If tenant has `default_language` configured, use that.
   {
     "step_number": 1,
     "step_type": "email",
-    "subject": "Automatizacion en metalurgia: caso practico",
+    "subject": "Automatización en metalurgia: caso práctico",
     "body_html": "<p>Hola,</p><p>En Tecnocim hemos ayudado a...</p>",
+    "delay_days": 0,
+    "delay_hours": 0
+  }
+]
+```
+
+### For Linear Sequences — Catalan example
+```json
+[
+  {
+    "step_number": 1,
+    "step_type": "email",
+    "subject": "Innovació fiscal a la vostra indústria",
+    "body_html": "<p>Hola,</p><p>A Tecnocim Innova hem ajudat empreses del vostre sector a recuperar fins al 42% de la inversió en innovació mitjançant deduccions fiscals d'I+D+i.</p><p>Té sentit explorar-ho?</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
     "delay_days": 0,
     "delay_hours": 0
   }
@@ -105,7 +143,7 @@ If tenant has `default_language` configured, use that.
   {
     "step_number": 1,
     "step_type": "email",
-    "subject": "Formacion IA para su equipo industrial",
+    "subject": "Formación IA para su equipo industrial",
     "body_html": "<p>...</p>",
     "delay_days": 0,
     "delay_hours": 0,
@@ -127,13 +165,33 @@ If tenant has `default_language` configured, use that.
   {
     "step_number": 3,
     "step_type": "email",
-    "subject": "Caso de exito: [sector] + IA",
+    "subject": "Caso de éxito: [sector] + IA",
     "body_html": "<p>...</p>",
     "delay_days": 0,
     "branch_label": "engaged"
   }
 ]
 ```
+
+## Follow-Up Email Rules
+
+When generating multi-step sequences (steps 1-3):
+- **Step 1**: Standalone personalized email (connection + use case)
+- **Step 2**: Builds on step 1 with DIFFERENT angle (value/data, second use case)
+- **Step 3**: Brief close referencing step 1 (40-60 words max)
+
+Each step must have a **unique subject line** with a different angle.
+
+### NEVER include in ANY email:
+- The word **"Unknown"** (anywhere in subject or body)
+- Campaign internal names: "Batch 1", "Batch 2", "Batch 3", "Batch 4", "Deducciones I+D+i 2026"
+- Template variables: `{{first_name}}`, `{{company}}`, `%%VARIABLE%%`
+- **"Estimado/a"** followed by a name placeholder
+
+### Greeting rule for generic contacts:
+Since prospects are imported as **"Contacto"** (generic email: info@, contacto@), always use:
+- **"Hola,"** as greeting (no name after it)
+- Reference the **COMPANY name** in the body instead of the person's name
 
 ## Anti-Spam Rules
 
@@ -155,3 +213,5 @@ Before returning, verify each email:
 - [ ] No spam trigger words (gratis, oferta, descuento, urgente, exclusivo)
 - [ ] Pain point referenced from enrichment data
 - [ ] Language matches prospect's region
+- [ ] If Catalan: no ¿ or ¡, no Spanish words (saludos, también, pero, equipo), correct accents
+- [ ] If Spanish: no Catalan words (salutacions, atentament, també), ¿ used correctly

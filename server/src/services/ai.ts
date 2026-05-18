@@ -132,16 +132,75 @@ function getLanguageInstruction(language: ProspectLanguage): string {
   switch (language) {
     case 'catalan':
       return `MANDATORY: Write the ENTIRE email (subject line AND body) in CATALAN (Català).
-Use natural Catalan: "Hola", "Bon dia", "Salutacions", "Atentament". Use proper Catalan grammar and vocabulary.
+
+CATALAN LANGUAGE RULES (strict):
+- Use proper Catalan grammar, vocabulary, and spelling. Not a single word or phrase in Spanish.
+- ACCENTS: Always use correct Catalan accents: à, è, é, í, ò, ó, ú, ï, ü, ç. Examples: innovació, inversió, producció, tecnològic, deducció, bonificació, salutació, projecte, experiència, fabricació, certificació, optimització.
+- PUNCTUATION: Catalan does NOT use ¿ or ¡. NEVER write ¿ or ¡. Only use ? and ! at the end.
+- GREETINGS: "Hola,", "Bon dia,". NEVER "Buenos días" or "Buenas tardes".
+- CLOSINGS: "Salutacions,", "Atentament,", "Una salutació,". NEVER "Saludos", "Atentamente", "Un saludo".
+- PRONOUNS: "us", "el vostre", "la vostra", "tindríeu", "voldríeu", "podríeu".
+- FORBIDDEN SPANISH: NEVER use "también", "pero", "porque", "además", "puede", "interesaría", "gustaría", "equipo", "proyecto", "servicio", "resultados". Use Catalan: "també", "però", "perquè", "a més", "pot", "interessaria", "agradaria", "equip", "projecte", "servei", "resultats".
+- CTAs: "Té sentit explorar-ho?", "Us interessaria valorar-ho?", "Podríem parlar-ne?"
+NOTE: STYLE GUIDE, KEY DIFFERENTIATORS, and SENDER INFO below may be in Spanish — translate and adapt to Catalan.
 The prospect is in Catalonia and expects communication in Catalan.`;
     case 'spanish':
       return `MANDATORY: Write the ENTIRE email (subject line AND body) in SPANISH (Español).
-Use natural Spanish: "Hola", "Buenos días", "Saludos cordiales", "Atentamente". Use proper Spanish grammar.
+Use proper Castilian Spanish grammar. Use ¿ and ¡ where appropriate.
+GREETINGS: "Hola,", "Buenos días,". CLOSINGS: "Saludos cordiales,", "Atentamente,".
+ACCENTS: innovación, inversión, tecnología, producción, deducción.
+NEVER use Catalan words (salutacions, atentament, també, però).
 The prospect is in a Spanish-speaking region.`;
     case 'english':
       return `MANDATORY: Write the ENTIRE email (subject line AND body) in ENGLISH.
-Use professional English. The prospect is international and English is the appropriate business language.`;
+Use professional English. The prospect is international and English is the appropriate business language.
+NOTE: STYLE GUIDE and DIFFERENTIATORS below may be in Spanish — translate and adapt to English.`;
   }
+}
+
+/**
+ * Lightweight language consistency check.
+ * Returns an array of warnings (empty = clean).
+ * Does NOT block sending — just logs for monitoring.
+ */
+export function validateLanguageConsistency(
+  text: string,
+  expectedLanguage: ProspectLanguage
+): string[] {
+  const warnings: string[] = [];
+  const lower = text.toLowerCase();
+
+  if (expectedLanguage === 'catalan') {
+    const spanishMarkers = [
+      '¿', '¡',
+      'saludos cordiales', 'atentamente', 'un saludo',
+      'buenos días', 'buenas tardes',
+      'también', 'además', 'mediante',
+      'os interesaría', 'les gustaría',
+      'estamos a su disposición',
+    ];
+    for (const marker of spanishMarkers) {
+      if (lower.includes(marker)) {
+        warnings.push(`Spanish marker "${marker}" found in Catalan email`);
+      }
+    }
+  }
+
+  if (expectedLanguage === 'spanish') {
+    const catalanMarkers = [
+      'salutacions', 'atentament', 'cordialment',
+      'bon dia', 'bona tarda',
+      'tindríeu', 'voldríeu', 'podríeu',
+      'explorar-ho', 'valorar-ho', 'parlar-ne',
+    ];
+    for (const marker of catalanMarkers) {
+      if (lower.includes(marker)) {
+        warnings.push(`Catalan marker "${marker}" found in Spanish email`);
+      }
+    }
+  }
+
+  return warnings;
 }
 
 /**
@@ -182,10 +241,11 @@ export async function generateEmail(
 
   const language = resolveProspectLanguage(prospect, ctx.default_language);
   const languageInstruction = getLanguageInstruction(language);
+  const styleNote = language !== 'spanish' ? ' (NOTE: written in Spanish — adapt to target language)' : '';
 
   const prompt = `You are an email copywriter for ${ctx.company_name}.
 
-SENDER INFO:
+SENDER INFO${styleNote}:
 ${ctx.company_description}
 
 Write a professional, personalized B2B email for the following prospect and campaign:
@@ -218,8 +278,8 @@ INSTRUCTIONS:
 - Subject line: maximum 5-7 words, under 40 characters. Short and specific.
 - Do NOT use excessive exclamation marks or salesy language
 - Sender is ${ctx.sender_name} from ${ctx.company_name}
-${ctx.email_style ? `\nSTYLE:\n${ctx.email_style}` : ''}
-${ctx.key_differentiators ? `\nKEY DIFFERENTIATORS (weave naturally into the email):\n${ctx.key_differentiators}` : ''}
+${ctx.email_style ? `\nSTYLE${styleNote}:\n${ctx.email_style}` : ''}
+${ctx.key_differentiators ? `\nKEY DIFFERENTIATORS${styleNote} (weave naturally into the email):\n${ctx.key_differentiators}` : ''}
 
 Return your response in this exact JSON format:
 {
@@ -234,10 +294,15 @@ Return your response in this exact JSON format:
     const jsonMatch = result.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      return {
+      const emailResult = {
         subject: parsed.subject || `Opportunity from ${ctx.company_name}`,
         body: parsed.body || result,
       };
+      const warnings = validateLanguageConsistency(`${emailResult.subject} ${emailResult.body}`, language);
+      if (warnings.length > 0) {
+        console.warn(`[AI] Language mixing detected (expected ${language}):`, warnings);
+      }
+      return emailResult;
     }
   } catch {
     // If JSON parsing fails, return the raw text
@@ -410,12 +475,13 @@ ${JSON.stringify(campaign.asset_details, null, 2)}
     title: prospect.title,
   }, ctx.default_language);
   const languageInstruction = getLanguageInstruction(language);
+  const styleNote = language !== 'spanish' ? ' (NOTE: written in Spanish — adapt to target language)' : '';
 
   const contactInfo = [ctx.contact_email, ctx.contact_phone].filter(Boolean).join(' | ');
 
   const prompt = `You are a world-class B2B email strategist for ${ctx.company_name}.
 
-SENDER INFO:
+SENDER INFO${styleNote}:
 ${ctx.company_description}${contactInfo ? ` Contacto: ${contactInfo}.` : ''}
 
 Your task: Generate a ${numSteps}-email personalized outreach sequence that connects THIS SPECIFIC PROSPECT with THIS SPECIFIC ${entityLabel.toUpperCase()} in a compelling, non-generic way.
@@ -458,8 +524,8 @@ ${languageInstruction}
 15. NEVER use "Re:" as a fake reply prefix in subjects. Each subject must be original.
 16. Do NOT include a "P.S." or postscript section.
 17. HTML FORMAT: Start with greeting in its own paragraph: "<p>Hola [Name],</p>" followed by a separate "<p>" for the body. This ensures proper spacing between the greeting and the content. Do NOT combine the greeting with the first paragraph.
-${ctx.email_style ? `\nSTYLE GUIDE:\n${ctx.email_style}` : ''}
-${ctx.key_differentiators ? `\nKEY DIFFERENTIATORS (weave naturally, do not list them all in every email):\n${ctx.key_differentiators}` : ''}
+${ctx.email_style ? `\nSTYLE GUIDE${styleNote}:\n${ctx.email_style}` : ''}
+${ctx.key_differentiators ? `\nKEY DIFFERENTIATORS${styleNote} (weave naturally, do not list them all in every email):\n${ctx.key_differentiators}` : ''}
 
 Return ONLY a JSON array with exactly ${numSteps} objects. No markdown, no explanation, just the JSON:
 [
@@ -485,12 +551,19 @@ Return ONLY a JSON array with exactly ${numSteps} objects. No markdown, no expla
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((step: any, i: number) => ({
+        const steps = parsed.map((step: any, i: number) => ({
           step_number: step.step_number || i + 1,
           subject: step.subject || `Email ${i + 1}`,
           body_html: step.body_html || step.body || '',
           delay_days: step.delay_days ?? (i === 0 ? 0 : 3),
         }));
+        for (const step of steps) {
+          const warnings = validateLanguageConsistency(`${step.subject} ${step.body_html}`, language);
+          if (warnings.length > 0) {
+            console.warn(`[AI] Language mixing in step ${step.step_number} (expected ${language}):`, warnings);
+          }
+        }
+        return steps;
       }
     }
   } catch (e) {
@@ -595,10 +668,11 @@ ${(ai.pain_points || []).length > 0 ? `- Pain Points:\n${ai.pain_points!.map((pp
     title: prospect.title,
   }, ctx.default_language);
   const languageInstruction = getLanguageInstruction(language);
+  const styleNote = language !== 'spanish' ? ' (NOTE: written in Spanish — adapt to target language)' : '';
 
   const prompt = `You are a world-class B2B email strategist for ${ctx.company_name}.
 
-SENDER: ${ctx.sender_name} from ${ctx.company_name}.
+SENDER${styleNote}: ${ctx.sender_name} from ${ctx.company_name}.
 ${ctx.company_description}
 
 PROSPECT:
@@ -633,8 +707,8 @@ CRITICAL RULES:
 7. NEVER use "Re:" prefix. Each subject must be original.
 8. Email 3 (not_engaged) MUST have a completely different subject line approach than Email 1.
 9. HTML FORMAT: Start with greeting in its own paragraph: "<p>Hola [Name],</p>" followed by a separate "<p>" for the body. Do NOT combine greeting with the first paragraph.
-${ctx.email_style ? `\nSTYLE: ${ctx.email_style}` : ''}
-${ctx.key_differentiators ? `\nDIFFERENTIATORS: ${ctx.key_differentiators}` : ''}
+${ctx.email_style ? `\nSTYLE${styleNote}: ${ctx.email_style}` : ''}
+${ctx.key_differentiators ? `\nDIFFERENTIATORS${styleNote}: ${ctx.key_differentiators}` : ''}
 
 Return ONLY a JSON array with exactly 5 objects. No markdown, no explanation:
 [
@@ -657,6 +731,14 @@ Return ONLY a JSON array with exactly 5 objects. No markdown, no explanation:
   } catch (e) {
     console.error('Failed to parse branched sequence JSON:', e);
     throw new Error('Gemini did not return a valid branched sequence. Please try again.');
+  }
+
+  // Validate language consistency
+  for (const email of emails) {
+    const warnings = validateLanguageConsistency(`${email.subject} ${email.body_html}`, language);
+    if (warnings.length > 0) {
+      console.warn(`[AI] Language mixing in branch "${email.branch_label}" (expected ${language}):`, warnings);
+    }
   }
 
   // Map branch_labels to emails

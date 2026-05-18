@@ -75,6 +75,12 @@ If `$ARGUMENTS.sector` is "next" or empty, auto-select the next uncovered sector
 | 14 | ceramica | ceramica industrial, refractarios, vidrio tecnico |
 | 15 | software | software ERP, MES, IoT industrial, industria 4.0 |
 | 16 | construccion | prefabricados, BIM, materiales avanzados |
+| 17 | dispositivos-medicos | dispositivos medicos, implantes, diagnostico in vitro, equipamiento clinico |
+| 18 | telecomunicaciones | telecomunicaciones, 5G, fibra optica, redes industriales |
+| 19 | agritech | agricultura precision, drones agricolas, sensores cultivo, riego inteligente |
+| 20 | semiconductores | semiconductores, fotonica, sensores MEMS, microelectronica |
+| 21 | logistica | automatizacion almacen, AGV, robotica intralogistica, last-mile |
+| 22 | reciclaje | reciclaje industrial, economia circular, valorizacion residuos, bioplasticos |
 
 To determine which sector is "next":
 1. Fetch existing prospects: `curl GET /api/prospects?limit=200`
@@ -107,6 +113,23 @@ Launch a **prospect-scraper** agent with the discovered companies.
 
 Wait for results: JSON array with domain, email, source_url.
 
+Save results to `scripts/output/pipeline-{date}/02-emails.json`.
+
+## Step 5.5: Verify email domains (email-verifier agent)
+
+Launch the **email-verifier** agent with the scraped companies from Step 5.
+
+- Input: JSON array from `02-emails.json`
+- Checks DNS MX records for each unique domain via `nslookup -type=MX` or `dig MX`
+- **Removes** companies with invalid domains (NXDOMAIN — domain does not exist)
+- **Flags** domains with no MX records but A record exists as "unverified" (include with warning)
+- Saves results to `scripts/output/pipeline-{date}/02b-verified.json`
+- Only passes `verified` + `unverified` domains to Step 6
+
+This step is **MANDATORY**. Never skip it. Sending to invalid domains causes hard bounces that damage sender reputation. Google/Microsoft blacklist domains exceeding 5% bounce rate.
+
+Report: "Verified X domains: Y verified, Z unverified, W invalid (removed)"
+
 ## Step 6: Compile and validate
 
 Filter results:
@@ -117,24 +140,45 @@ Filter results:
 
 Report: "Found X companies, Y with email, Z after dedup"
 
-## Step 7: Enrich + Generate personalized emails (general-purpose agent)
+## Step 7: Enrich + Generate personalized emails — steps 1-3 (general-purpose agent)
 
 Launch a **general-purpose** agent that for each company:
 1. Does 1-2 WebSearch queries to find specific products, news, I+D projects
-2. Generates a personalized email step 1 following **2026 cold email benchmarks**:
-   - Identity: Alfons Marquès from Tecnocim
-   - Topic: Deducciones fiscales I+D+i
-   - Tone: professional peer-to-peer, NO salesy, NO exclamation marks
-   - **Length: 50-80 words** (2026 optimal range for highest reply rates)
-   - **Subject: 21-40 chars** (49% open rate sweet spot), specific to company
-   - Language: Catalan for Catalunya companies, Spanish otherwise
-   - **Reference ONE specific verified fact** (product name, investment, patent, award, employee count)
-   - **CTA: soft interest question** ("¿Tiene sentido explorarlo?", NOT "¿Tendríais 15 minutos?")
-   - **Vary deduction phrasing**: don't always say "25-42%", use alternatives like "hasta el 42%", "incentivos fiscales por innovación", etc.
-   - **Framework**: Use PAS (Problem-Agitate-Solve) for companies unaware of deductions, BAB (Before-After-Bridge) for visibly innovative ones
-   - Sign as: Alfons Marquès / Tecnocim
+2. Generates **3 personalized emails** (steps 1-3) following **2026 cold email benchmarks**:
 
-Returns JSON array: [{company_name, domain, email, language, subject, body_html}]
+### Email 1 (step 1, day 0): Conexión personal + caso de uso
+- **Length: 50-80 words**
+- **Subject: 21-40 chars**, specific to company
+- Reference ONE specific verified fact (product, investment, certification)
+- CTA suave (ES): "¿Tiene sentido explorarlo?" / (CA): "Té sentit explorar-ho?"
+- Framework: PAS (unaware) or BAB (innovative)
+
+### Email 2 (step 2, day 3): Valor concreto + segundo ángulo
+- **Length: 50-70 words**
+- **Subject: 21-40 chars**, DIFFERENT from step 1
+- Reference a SECOND aspect of their business (distinct from email 1)
+- Include a quantifiable claim: "empresas de [su subsector] recuperan entre X-Y€"
+- CTA (ES): "¿Le gustaría que le envíe un análisis preliminar?" / (CA): "Us agradaria rebre una valoració preliminar?"
+
+### Email 3 (step 3, day 7): Cierre suave
+- **Length: 40-60 words** (brevísimo)
+- **Subject: max 30 chars**
+- Reference step 1 briefly ("Le contacté la semana pasada sobre...")
+- No repetir argumentos — solo reabrir puerta
+- CTA (ES): "Si no es buen momento, sin problema." / (CA): "Si no és bon moment, cap problema."
+
+### Rules for ALL steps
+- Identity: Alfons Marquès from Tecnocim Innova
+- Topic: Deducciones fiscales I+D+i
+- Tone: professional peer-to-peer, NO salesy, NO exclamation marks
+- Language: Catalan for Catalunya companies, Spanish otherwise
+- **Catalan rules**: No ¿/¡, accents correctes (innovació, deducció, projecte, experiència, salutació), no paraules castellanes (también->també, pero->però, equipo->equip, servicio->servei), tancaments "Salutacions" o "Atentament" (mai "Saludos"), traduir style guide del castellà al català
+- **Greeting: Always "Hola," only — NEVER use prospect name** (prospects are "Contacto")
+- Sign as: Alfons Marquès / Tecnocim Innova
+- **Vary deduction phrasing** across the 3 emails
+- **NEVER include**: "Unknown", campaign names ("Batch", "Deducciones I+D+i 2026"), template variables ({{...}})
+
+Returns JSON array: [{company_name, domain, email, language, step_number, delay_days, subject, body_html}]
 
 ## Step 8: Import to platform via curl
 
@@ -178,22 +222,34 @@ curl POST /api/sequences/{id}/wire-steps
 curl POST /api/sequences/{id}/enroll with {prospect_ids: [...]}
 ```
 
-## Step 11: Bulk insert personalized emails
+## Step 11: Bulk insert personalized emails (steps 1-3)
 
 ```bash
 # Map each email to its prospect_id
-# Bulk insert step 1 personalized emails (as drafts)
-curl POST /api/campaigns/{id}/bulk-insert-emails with {emails: [...]}
+# Bulk insert ALL steps (1, 2, 3) as drafts
+curl POST /api/campaigns/{id}/bulk-insert-emails with {emails: [
+  {prospect_id, step_number: 1, subject, body_html, delay_days: 0},
+  {prospect_id, step_number: 2, subject, body_html, delay_days: 3},
+  {prospect_id, step_number: 3, subject, body_html, delay_days: 7}
+]}
 ```
 
 **DO NOT approve yet** — Step 11.5 QA must pass first.
 
 ## Step 11.5: Email QA (mandatory before approval)
 
-Launch the **email-qa** agent to validate all draft emails against the 20-point checklist:
-- Word count 50-80 (2026 optimal range)
+Launch the **email-qa** agent to validate all draft emails against the 25-point checklist:
+
+**FAIL checks (block sending):**
+- `"Unknown"` in subject or body → **FAIL** (never send)
+- Campaign internal name in body (regex: `Batch \d|Deducciones I\+D\+i 2026`) → **FAIL**
+- Template variables `{{`, `}}`, `%%` → **FAIL**
+- Suppression list match → **FAIL**
+- DNC flag → **FAIL**
+
+**Quality checks:**
+- Word count 50-80 (step 1-2), 40-60 (step 3)
 - Subject 21-40 chars
-- Soft interest CTAs (not time-request)
 - Personalization (specific facts, not generic)
 - Deduction phrasing variety (not all "25-42%")
 - No spam triggers, no unresolved variables

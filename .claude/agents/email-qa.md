@@ -47,8 +47,12 @@ curl -k -s "$ABM_BASE_URL/api/campaigns/{id}/generated-emails?limit=200" -H "Aut
 | # | Check | Criteria | Result | Auto-fix? |
 |---|-------|----------|--------|-----------|
 | 7 | Word count | 50-80 words (strip HTML, count) | WARN if < 45 or > 90 | NO (flag for regeneration) |
-| 8 | Unresolved vars | No `{{`, `undefined`, `null`, `[object`, `NaN` | FAIL if found | NO |
+| 8 | Unresolved vars | No `{{`, `undefined`, `null`, `[object`, `NaN`, `Unknown` | FAIL if found | NO |
+| 8b | Campaign name leak | No "Batch 1/2/3/4", "Deducciones I+D+i 2026" in body | FAIL if found | NO |
+| 8c | Name in greeting | "Hola Unknown" or "Estimado Unknown" | FAIL if found | NO |
 | 9 | Language match | Catalan regions → Catalan body. Others → Spanish | WARN if mismatch | NO |
+| 9b | Catalan punctuation | Catalan emails must NOT contain ¿ or ¡ | FAIL if Catalan + ¿/¡ | YES: remove ¿ and ¡ |
+| 9c | Spanish in Catalan | Catalan emails must NOT contain: "saludos", "atentamente", "buenos días", "también", "además", "os interesaría", "un saludo" | FAIL if found | YES: replace with Catalan equivalent |
 | 10 | CTA present | Body ends with a question (contains ?) | WARN if missing | YES: append soft CTA |
 | 11 | CTA type | Soft interest CTA preferred over time-request | WARN if "15 minutos/minuts" found | YES: replace with interest CTA |
 | 12 | Specific fact | Body references a concrete company detail (number, product name, year, certification) | WARN if purely generic | NO |
@@ -69,7 +73,7 @@ curl -k -s "$ABM_BASE_URL/api/campaigns/{id}/generated-emails?limit=200" -H "Aut
 | 19 | Name accent | "Alfons Marquès" (NOT "Marques") | YES: always fix |
 | 20 | Spanish accents | innovación, inversión, tecnología, fabricación, producción, formulación, automatización, investigación, certificación, precisión, optimización, exportación, electrónica, aeronáutico, cerámico, mecánico, único, también, España, países | YES: add accent |
 | 21 | Verb accents | Tendríais, interesaría, podría, estáis, tenéis, sabéis, sería | YES: add accent |
-| 22 | Catalan accents | innovació, inversió, producció, Tindríeu | YES: add accent |
+| 22 | Catalan accents | innovació, inversió, producció, deducció, bonificació, salutació, projecte, experiència, tecnològic, fabricació, certificació, optimització, Tindríeu, podríeu, voldríeu | YES: add accent |
 | 23 | "más" accent | "más de", "más del", standalone "más" (adverb) | YES: add accent |
 
 ### Deliverability Checks (2 points)
@@ -103,8 +107,8 @@ Replace hard time-request CTAs with soft interest CTAs:
 - "Os interesaría una breve llamada?" → "¿Merece la pena revisarlo?"
 
 **Catalan hard → soft:**
-- "Tindríeu 15 minuts?" → "¿Us interessaria valorar-ho?"
-- "Parlem?" → "¿Té sentit explorar-ho?"
+- "Tindríeu 15 minuts?" → "Us interessaria valorar-ho?"
+- "Parlem?" → "Té sentit explorar-ho?"
 
 ### Deduction Phrase Variations
 Replace repetitive "deducciones fiscales de I+D+i del 25% al 42%" with:
