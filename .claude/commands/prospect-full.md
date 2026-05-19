@@ -24,7 +24,7 @@ End-to-end prospecting pipeline that orchestrates multiple agents for maximum qu
 ## Pipeline Overview
 
 ```
-DISCOVERY -> EXTRACTION -> ENRICHMENT -> SCORING -> COMPLIANCE -> COMPILATION -> [OUTREACH]
+DISCOVERY -> EXTRACTION -> VERIFICATION -> ENRICHMENT -> SCORING -> COMPLIANCE -> COMPILATION -> [OUTREACH]
 ```
 
 ## Workflow
@@ -46,6 +46,20 @@ Launch **prospect-scraper** agents to visit websites and extract generic emails.
 - Launch up to 3 scraper agents in parallel
 - Only accept generic emails (info@, contacto@, comercial@, ventas@)
 - Record source URL for RGPD traceability
+
+### Phase 2.5: Email Verification
+
+Launch **email-verifier** agent to check DNS MX records for all scraped domains.
+
+- Input: companies with emails from Phase 2
+- **Remove** companies with invalid domains (NXDOMAIN)
+- **Flag** domains with no MX but A record as "unverified" (include with warning)
+- This prevents hard bounces that damage sender domain reputation
+- Google/Microsoft blacklist domains exceeding 5% bounce rate
+
+This step is **MANDATORY**. Never skip it — it saves enrichment API calls on invalid domains.
+
+Report: "Verified X domains: Y verified, Z unverified, W invalid (removed)"
 
 ### Phase 3: Enrichment (parallel batches)
 
@@ -231,6 +245,12 @@ If the user provided a campaign context:
 | biotech | Biotecnologia | 72 | biotech, biofarmaceutica, diagnostico, agrobiotech |
 | energia | Energia y renovables | 35 | solar, eolica, hidrogeno, almacenamiento energia |
 | construccion | Construccion avanzada | 41-43 | prefabricados, BIM, materiales avanzados |
+| dispositivos-medicos | Dispositivos medicos | 32.50 | dispositivos medicos, implantes, diagnostico in vitro, equipamiento clinico |
+| telecomunicaciones | Telecomunicaciones | 61-63 | telecomunicaciones, 5G, fibra optica, redes industriales |
+| agritech | Agritech | 01.6, 28.3 | agricultura precision, drones agricolas, sensores cultivo, riego inteligente |
+| semiconductores | Semiconductores | 26.1 | semiconductores, fotonica, sensores MEMS, microelectronica |
+| logistica | Logistica industrial | 52 | automatizacion almacen, AGV, robotica intralogistica |
+| reciclaje | Reciclaje / Economia circular | 38 | reciclaje industrial, economia circular, valorizacion residuos |
 
 ## Region Mappings
 

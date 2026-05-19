@@ -173,6 +173,22 @@ If tenant has `default_language` configured, use that as default for non-Catalan
 ]
 ```
 
+## Accent Rules (MANDATORY)
+
+**Every email MUST have correct accents.** This is non-negotiable — emails without tildes look unprofessional.
+
+**Spanish words that ALWAYS need accents:**
+- All -ción endings: deducción, innovación, inversión, fabricación, producción, formulación, certificación, optimización, automatización, documentación, investigación, valoración, exportación, regulación
+- tecnología, cerámica, aeronáutico, electrónica, técnica, técnico
+- también, además, podría, tendría, sería, único, más
+- **Marquès** (grave accent, NOT acute — this is Catalan)
+
+**Catalan words that ALWAYS need accents:**
+- All -ció endings: deducció, innovació, inversió, producció, formulació, bonificació
+- tecnològic, químic, ecològics, experiència, més
+
+**Self-check before returning:** Scan every email for unaccented versions of these words. If found, fix them.
+
 ## Follow-Up Email Rules
 
 When generating multi-step sequences (steps 1-3):

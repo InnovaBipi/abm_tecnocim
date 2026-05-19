@@ -39,6 +39,16 @@ Use the **prospect-scraper** agent to visit each company's website and extract g
 - Only accept generic emails (info@, contacto@, comercial@, ventas@, administracion@)
 - Reject personal emails (any with a person's name)
 
+### Step 2.5: Verify email domains
+
+Launch the **email-verifier** agent to check DNS MX records for all scraped domains.
+
+- **Remove** companies with invalid domains (NXDOMAIN)
+- **Flag** domains with no MX but A record as "unverified" (include with warning)
+- This prevents hard bounces that damage sender domain reputation
+
+This step is **MANDATORY**. Never skip it.
+
 ### Step 3: Compile CSV
 
 Use the **prospect-compiler** agent to:

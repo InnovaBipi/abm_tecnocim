@@ -172,7 +172,9 @@ Launch a **general-purpose** agent that for each company:
 - Topic: Deducciones fiscales I+D+i
 - Tone: professional peer-to-peer, NO salesy, NO exclamation marks
 - Language: Catalan for Catalunya companies, Spanish otherwise
+- **Spanish accents (OBLIGATORIO)**: Todas las -ción: deducción, innovación, inversión, fabricación, producción, formulación, certificación, valoración. También: tecnología, cerámica, aeronáutico, electrónica, técnica, también, además, más. Nombre: **Marquès** (acento grave).
 - **Catalan rules**: No ¿/¡, accents correctes (innovació, deducció, projecte, experiència, salutació), no paraules castellanes (también->també, pero->però, equipo->equip, servicio->servei), tancaments "Salutacions" o "Atentament" (mai "Saludos"), traduir style guide del castellà al català
+- **Self-check**: Antes de devolver, escanear CADA email por versiones sin tilde. Si se encuentra "deduccion", "innovacion", "Marques" sin tilde → CORREGIR antes de entregar.
 - **Greeting: Always "Hola," only — NEVER use prospect name** (prospects are "Contacto")
 - Sign as: Alfons Marquès / Tecnocim Innova
 - **Vary deduction phrasing** across the 3 emails
@@ -236,9 +238,26 @@ curl POST /api/campaigns/{id}/bulk-insert-emails with {emails: [
 
 **DO NOT approve yet** — Step 11.5 QA must pass first.
 
-## Step 11.5: Email QA (mandatory before approval)
+## Step 11.5: Spell-check + QA (mandatory before approval)
 
-Launch the **email-qa** agent to validate all draft emails against the 25-point checklist:
+### 11.5a: Corrección ortográfica (modelo completo, NO regex)
+
+Review EVERY generated email as a full spell-checker. Read each subject + body_html and fix:
+
+- **Acentos faltantes**: deducción, innovación, financiación, validación, subvención, gestión, tecnología, cerámica, técnica, específico, también, además, más, único, sería, podría
+- **Acentos MAL puestos**: "deducciónes" → "deducciones" (plural -ciones NUNCA lleva tilde)
+- **ñ faltante**: "espanolas" → "españolas", "Espana" → "España", "diseno" → "diseño", "companias" → "compañías"
+- **Catalán**: innovació, deducció, experiència, tecnològic, químic, més
+- **Marquès**: siempre acento grave (è)
+- **Cualquier otro error** que un corrector profesional detectaría
+
+Update each email with corrections via `PUT /api/campaigns/{id}/generated-emails/{emailId}`.
+
+This step uses Claude as MODEL, not regex. Regex-based accent fixes create bugs (ej: REPLACE convierte "deducciones" en "deducciónes"). El modelo entiende el contexto.
+
+### 11.5b: QA checklist
+
+Launch the **email-qa** agent to validate all draft emails:
 
 **FAIL checks (block sending):**
 - `"Unknown"` in subject or body → **FAIL** (never send)
@@ -246,6 +265,7 @@ Launch the **email-qa** agent to validate all draft emails against the 25-point 
 - Template variables `{{`, `}}`, `%%` → **FAIL**
 - Suppression list match → **FAIL**
 - DNC flag → **FAIL**
+- Accent errors detectados por modelo → **FAIL** (should have been fixed in 11.5a)
 
 **Quality checks:**
 - Word count 50-80 (step 1-2), 40-60 (step 3)

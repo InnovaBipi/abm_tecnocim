@@ -67,14 +67,17 @@ curl -k -s "$ABM_BASE_URL/api/campaigns/{id}/generated-emails?limit=200" -H "Aut
 | 17 | DNC flag | Prospect.do_not_contact is FALSE | FAIL if TRUE | NO (reject) |
 | 18 | Duplicate | No identical subject+body to another email in batch | FAIL if duplicate | NO (reject duplicate) |
 
-### Spelling & Accent Checks (auto-fix all)
-| # | Check | Criteria | Auto-fix |
-|---|-------|----------|----------|
-| 19 | Name accent | "Alfons Marquès" (NOT "Marques") | YES: always fix |
-| 20 | Spanish accents | innovación, inversión, tecnología, fabricación, producción, formulación, automatización, investigación, certificación, precisión, optimización, exportación, electrónica, aeronáutico, cerámico, mecánico, único, también, España, países | YES: add accent |
-| 21 | Verb accents | Tendríais, interesaría, podría, estáis, tenéis, sabéis, sería | YES: add accent |
-| 22 | Catalan accents | innovació, inversió, producció, deducció, bonificació, salutació, projecte, experiència, tecnològic, fabricació, certificació, optimització, Tindríeu, podríeu, voldríeu | YES: add accent |
-| 23 | "más" accent | "más de", "más del", standalone "más" (adverb) | YES: add accent |
+### Spelling & Accent Checks — MODEL-BASED (not regex)
+
+**IMPORTANT**: Do NOT use regex REPLACE for accent fixes. Regex creates bugs (e.g., REPLACE "deduccion"→"deducción" turns "deducciones" into "deducciónes"). Instead, READ each email as a language model and fix accents contextually.
+
+| # | Check | How to fix |
+|---|-------|-----------|
+| 19 | Full spell-check | Read entire subject+body. Fix ALL missing accents, ñ, and typos as a professional proofreader would. |
+| 20 | Plural protection | Plurals -ciones/-siones NEVER have accent (deducciones, innovaciones, inversiones). If found "deducciónes" → fix to "deducciones". |
+| 21 | Marquès | Always grave accent (è), never acute (é), never plain (e). |
+| 22 | Spanish ñ | españolas, España, diseño, compañía, año, pequeño, señal |
+| 23 | Catalan integrity | If email is in Catalan: no Spanish words mixed in, correct accents (innovació, deducció, experiència, tecnològic), no ¿ or ¡ |
 
 ### Deliverability Checks (2 points)
 | # | Check | Criteria | Result | Auto-fix? |
