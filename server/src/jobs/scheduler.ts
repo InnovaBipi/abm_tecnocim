@@ -154,17 +154,26 @@ async function getSequenceSentToday(sequenceId: string): Promise<number> {
 }
 
 /**
- * Count all emails sent today (across all sequences).
+ * Count all emails sent today (across all sequences + outbox).
+ * Uses generated_emails as source of truth for outbox sends,
+ * plus email_events for sequence sends, to avoid double-counting
+ * from webhook echo events.
  */
 async function getTotalSentToday(tenantId: string): Promise<number> {
-  const result = await query<any[]>(
-    `SELECT COUNT(*) as count FROM email_events
-     WHERE event_type = 'sent'
-     AND tenant_id = ?
-     AND DATE(occurred_at) = CURDATE()`,
+  // Outbox sends (generated_emails)
+  const outbox = await query<any[]>(
+    `SELECT COUNT(*) as count FROM generated_emails
+     WHERE status = 'sent' AND tenant_id = ? AND DATE(sent_at) = CURDATE()`,
     [tenantId]
   );
-  return result[0]?.count || 0;
+  // Sequence sends (email_events from sequence path, no resend_email_id overlap)
+  const sequences = await query<any[]>(
+    `SELECT COUNT(*) as count FROM email_events
+     WHERE event_type = 'sent' AND tenant_id = ? AND DATE(occurred_at) = CURDATE()
+     AND sequence_id IS NOT NULL`,
+    [tenantId]
+  );
+  return (outbox[0]?.count || 0) + (sequences[0]?.count || 0);
 }
 
 /**

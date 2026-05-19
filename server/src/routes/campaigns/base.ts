@@ -67,15 +67,14 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
               cam.status, cam.asset_type, cam.asset_location, cam.asset_price,
               cam.start_date, cam.end_date, cam.created_by, cam.created_at, cam.updated_at,
               (SELECT COUNT(*) FROM campaign_prospects cp WHERE cp.campaign_id = cam.id AND cp.status = 'active') as prospect_count,
+              (SELECT COUNT(*) FROM generated_emails ge
+               WHERE ge.campaign_id = cam.id AND ge.tenant_id = cam.tenant_id AND ge.status = 'sent') as emails_sent,
               (SELECT COUNT(*) FROM email_events ee
-               JOIN email_sequences es ON ee.sequence_id = es.id
-               WHERE es.campaign_id = cam.id AND ee.tenant_id = cam.tenant_id AND ee.event_type = 'sent') as emails_sent,
+               WHERE ee.prospect_id IN (SELECT ge2.prospect_id FROM generated_emails ge2 WHERE ge2.campaign_id = cam.id)
+               AND ee.tenant_id = cam.tenant_id AND ee.event_type = 'opened') as emails_opened,
               (SELECT COUNT(*) FROM email_events ee
-               JOIN email_sequences es ON ee.sequence_id = es.id
-               WHERE es.campaign_id = cam.id AND ee.tenant_id = cam.tenant_id AND ee.event_type = 'opened') as emails_opened,
-              (SELECT COUNT(*) FROM email_events ee
-               JOIN email_sequences es ON ee.sequence_id = es.id
-               WHERE es.campaign_id = cam.id AND ee.tenant_id = cam.tenant_id AND ee.event_type = 'replied') as emails_replied
+               WHERE ee.prospect_id IN (SELECT ge2.prospect_id FROM generated_emails ge2 WHERE ge2.campaign_id = cam.id)
+               AND ee.tenant_id = cam.tenant_id AND ee.event_type = 'replied') as emails_replied
        FROM campaigns cam
        ${whereSQL}
        ORDER BY cam.created_at DESC

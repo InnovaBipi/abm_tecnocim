@@ -110,7 +110,7 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
 
     // Map Resend event types to our internal event types
     const eventTypeMap: Record<string, string> = {
-      'email.sent': 'sent',
+      'email.sent': 'delivery_accepted',
       'email.delivered': 'delivered',
       'email.opened': 'opened',
       'email.clicked': 'clicked',
@@ -200,18 +200,18 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
           );
         }
 
-        // Update prospect status
+        // Update prospect status and prevent re-enrollment
         await query(
-          `UPDATE prospects SET status = 'bounced', email_status = 'invalid'
-           WHERE id = ? AND status NOT IN ('unsubscribed')`,
-          [prospectId]
+          `UPDATE prospects SET status = 'bounced', email_status = 'invalid', do_not_contact = TRUE
+           WHERE id = ? AND tenant_id = ? AND status NOT IN ('unsubscribed')`,
+          [prospectId, tenantId]
         );
 
         // Stop active enrollments for this prospect
         await query(
           `UPDATE sequence_enrollments SET status = 'bounced', completed_at = NOW()
-           WHERE prospect_id = ? AND status = 'active'`,
-          [prospectId]
+           WHERE prospect_id = ? AND tenant_id = ? AND status = 'active'`,
+          [prospectId, tenantId]
         );
 
         // Log activity
@@ -234,15 +234,15 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
 
         await query(
           `UPDATE prospects SET do_not_contact = TRUE, status = 'unsubscribed'
-           WHERE id = ?`,
-          [prospectId]
+           WHERE id = ? AND tenant_id = ?`,
+          [prospectId, tenantId]
         );
 
         // Stop all enrollments
         await query(
           `UPDATE sequence_enrollments SET status = 'unsubscribed', completed_at = NOW()
-           WHERE prospect_id = ? AND status IN ('active', 'paused')`,
-          [prospectId]
+           WHERE prospect_id = ? AND tenant_id = ? AND status IN ('active', 'paused')`,
+          [prospectId, tenantId]
         );
 
         await query(
@@ -255,8 +255,8 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
       case 'opened':
         // Add +3 to lead_score (capped at 100)
         await query(
-          `UPDATE prospects SET lead_score = LEAST(lead_score + 3, 100) WHERE id = ?`,
-          [prospectId]
+          `UPDATE prospects SET lead_score = LEAST(lead_score + 3, 100) WHERE id = ? AND tenant_id = ?`,
+          [prospectId, tenantId]
         );
 
         await query(
@@ -269,22 +269,22 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
       case 'clicked': {
         // Add +10 to lead_score (capped at 100)
         await query(
-          `UPDATE prospects SET lead_score = LEAST(lead_score + 10, 100) WHERE id = ?`,
-          [prospectId]
+          `UPDATE prospects SET lead_score = LEAST(lead_score + 10, 100) WHERE id = ? AND tenant_id = ?`,
+          [prospectId, tenantId]
         );
 
         // Check if prospect should be auto-upgraded to 'interested'
         const clickedProspects = await query<any[]>(
-          'SELECT lead_score, status FROM prospects WHERE id = ?',
-          [prospectId]
+          'SELECT lead_score, status FROM prospects WHERE id = ? AND tenant_id = ?',
+          [prospectId, tenantId]
         );
         if (clickedProspects.length > 0) {
           const p = clickedProspects[0];
           const earlyStages = ['new', 'enriched', 'qualified', 'contacted'];
           if (p.lead_score >= 70 && earlyStages.includes(p.status)) {
             await query(
-              `UPDATE prospects SET status = 'interested' WHERE id = ?`,
-              [prospectId]
+              `UPDATE prospects SET status = 'interested' WHERE id = ? AND tenant_id = ?`,
+              [prospectId, tenantId]
             );
             await query(
               `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, description)

@@ -41,9 +41,10 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
       [tenantId]
     );
 
-    // Emails sent (filtered by date range)
+    // Emails sent: count from generated_emails (outbox) to avoid double-counting webhook echo events
+    const dateClauseOutbox = hasDateFilter ? ' AND sent_at >= ? AND sent_at <= ?' : '';
     const emailsSent = await query<any[]>(
-      `SELECT COUNT(*) as count FROM email_events WHERE event_type = 'sent' AND tenant_id = ?${dateClause}`,
+      `SELECT COUNT(*) as count FROM generated_emails WHERE status = 'sent' AND tenant_id = ?${dateClauseOutbox}`,
       [tenantId, ...dateParams]
     );
 
@@ -216,17 +217,22 @@ router.get('/campaign-performance', async (req: Request, res: Response): Promise
               ELSE 0 END as click_rate
        FROM campaigns cam
        LEFT JOIN (
-         SELECT es.campaign_id,
-                SUM(CASE WHEN ee.event_type = 'sent' THEN 1 ELSE 0 END) as sent,
-                SUM(CASE WHEN ee.event_type = 'delivered' THEN 1 ELSE 0 END) as delivered,
-                SUM(CASE WHEN ee.event_type = 'opened' THEN 1 ELSE 0 END) as opened,
-                SUM(CASE WHEN ee.event_type = 'clicked' THEN 1 ELSE 0 END) as clicked,
-                SUM(CASE WHEN ee.event_type = 'replied' THEN 1 ELSE 0 END) as replied,
-                SUM(CASE WHEN ee.event_type = 'bounced' THEN 1 ELSE 0 END) as bounced
-         FROM email_events ee
-         JOIN email_sequences es ON ee.sequence_id = es.id
-         WHERE es.campaign_id IS NOT NULL AND ee.tenant_id = ?${dateClause}
-         GROUP BY es.campaign_id
+         SELECT ge.campaign_id,
+                SUM(CASE WHEN ge.status = 'sent' THEN 1 ELSE 0 END) as sent,
+                SUM(CASE WHEN ge.status = 'bounced' THEN 1 ELSE 0 END) as bounced,
+                0 as delivered,
+                (SELECT COUNT(*) FROM email_events ee2
+                 WHERE ee2.event_type = 'opened' AND ee2.tenant_id = ge.tenant_id
+                 AND ee2.prospect_id IN (SELECT ge3.prospect_id FROM generated_emails ge3 WHERE ge3.campaign_id = ge.campaign_id AND ge3.tenant_id = ge.tenant_id AND ge3.status = 'sent')) as opened,
+                (SELECT COUNT(*) FROM email_events ee2
+                 WHERE ee2.event_type = 'clicked' AND ee2.tenant_id = ge.tenant_id
+                 AND ee2.prospect_id IN (SELECT ge3.prospect_id FROM generated_emails ge3 WHERE ge3.campaign_id = ge.campaign_id AND ge3.tenant_id = ge.tenant_id AND ge3.status = 'sent')) as clicked,
+                (SELECT COUNT(*) FROM email_events ee2
+                 WHERE ee2.event_type = 'replied' AND ee2.tenant_id = ge.tenant_id
+                 AND ee2.prospect_id IN (SELECT ge3.prospect_id FROM generated_emails ge3 WHERE ge3.campaign_id = ge.campaign_id AND ge3.tenant_id = ge.tenant_id AND ge3.status = 'sent')) as replied
+         FROM generated_emails ge
+         WHERE ge.tenant_id = ?${hasDateFilter ? ' AND ge.sent_at >= ? AND ge.sent_at <= ?' : ''}
+         GROUP BY ge.campaign_id
        ) stats ON stats.campaign_id = cam.id
        WHERE cam.tenant_id = ?
        ORDER BY cam.created_at DESC`,
