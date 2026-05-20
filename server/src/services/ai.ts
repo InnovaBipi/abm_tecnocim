@@ -19,10 +19,10 @@ export interface TenantAIContext {
 /** Default Tecnocim context (fallback when tenant config is missing). */
 const DEFAULT_TENANT_CONTEXT: TenantAIContext = {
   company_name: 'Tecnocim Innova',
-  sender_name: 'Albert Sánchez',
+  sender_name: 'Alfons Marquès',
   company_description: 'Tecnocim Innova - Consultora de innovación tecnológica. Especializados en gestión integral de bonificaciones fiscales I+D+i, transformación digital y desarrollo de software a medida.',
   industry_context: 'innovation consulting, R&D tax incentives, digital transformation',
-  contact_email: 'albert.sanchez@tecnocim.com',
+  contact_email: 'alfons.marques@tecnocim.com',
   entity_label: 'servicio',
   entity_label_plural: 'servicios',
 };
