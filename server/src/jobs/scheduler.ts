@@ -821,7 +821,8 @@ async function sendOutboxNotification(
   results: Array<{ name: string; email: string; subject: string; campaign: string; step: number; status: string; reason?: string; tenant_id: string }>,
   sent: number,
   failed: number,
-  tenantId: string
+  tenantId: string,
+  replies: Array<{ name: string; email: string; subject: string; classification: string; snippet: string }> = []
 ): Promise<void> {
   const tenant = await getTenantConfig(tenantId);
   if (!tenant) {
@@ -855,8 +856,24 @@ async function sendOutboxNotification(
     .map(r => `<tr><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">⏭️</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0"><strong>${r.name}</strong><br><span style="color:#64748b;font-size:12px">${r.email}</span></td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${r.subject}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:center">${r.step}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;color:#d97706">${r.reason}</td></tr>`)
     .join('');
 
-  const statusEmoji = failed > 0 ? '⚠️' : '✅';
-  const statusText = failed > 0 ? `${sent} enviados, ${failed} fallidos` : `${sent} enviados correctamente`;
+  const classificationLabels: Record<string, string> = {
+    positive: '🟢 Positiva',
+    negative: '🔴 Negativa',
+    out_of_office: '🟡 Fuera oficina',
+    unsubscribe: '⛔ Baja',
+    other: '⚪ Otra',
+  };
+
+  const replyRows = replies
+    .map(r => `<tr><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${classificationLabels[r.classification] || r.classification}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0"><strong>${r.name}</strong><br><span style="color:#64748b;font-size:12px">${r.email}</span></td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${r.subject}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#64748b;max-width:250px;overflow:hidden;text-overflow:ellipsis">${r.snippet.substring(0, 150)}${r.snippet.length > 150 ? '...' : ''}</td></tr>`)
+    .join('');
+
+  const statusEmoji = replies.length > 0 ? '💬' : failed > 0 ? '⚠️' : '✅';
+  const statusParts: string[] = [];
+  if (replies.length > 0) statusParts.push(`${replies.length} respuesta${replies.length > 1 ? 's' : ''}`);
+  if (sent > 0) statusParts.push(`${sent} enviados`);
+  if (failed > 0) statusParts.push(`${failed} fallidos`);
+  const statusText = statusParts.join(', ') || `${sent} enviados correctamente`;
 
   const html = `
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:700px;margin:0 auto">
@@ -866,6 +883,10 @@ async function sendOutboxNotification(
   </div>
   <div style="background:#f8fafc;padding:20px 24px;border:1px solid #e2e8f0;border-top:none">
     <div style="display:flex;gap:16px;margin-bottom:20px">
+      ${replies.length > 0 ? `<div style="background:white;padding:12px 20px;border-radius:8px;border:2px solid #2563eb;text-align:center;flex:1">
+        <div style="font-size:24px;font-weight:bold;color:#2563eb">${replies.length}</div>
+        <div style="font-size:12px;color:#64748b">Respuestas</div>
+      </div>` : ''}
       <div style="background:white;padding:12px 20px;border-radius:8px;border:1px solid #e2e8f0;text-align:center;flex:1">
         <div style="font-size:24px;font-weight:bold;color:#059669">${sent}</div>
         <div style="font-size:12px;color:#64748b">Enviados</div>
@@ -879,6 +900,12 @@ async function sendOutboxNotification(
         <div style="font-size:12px;color:#64748b">Omitidos</div>
       </div>
     </div>
+    ${replyRows ? `
+    <h3 style="font-size:14px;color:#2563eb;margin:16px 0 8px">💬 Respuestas recibidas</h3>
+    <table style="width:100%;border-collapse:collapse;background:white;border-radius:6px;font-size:13px;border:1px solid #e2e8f0">
+      <tr style="background:#eff6ff"><th style="padding:8px 12px;text-align:left;width:110px">Tipo</th><th style="padding:8px 12px;text-align:left">Prospecto</th><th style="padding:8px 12px;text-align:left">Asunto</th><th style="padding:8px 12px;text-align:left">Extracto</th></tr>
+      ${replyRows}
+    </table>` : ''}
     ${sentRows ? `
     <h3 style="font-size:14px;color:#059669;margin:16px 0 8px">Enviados correctamente</h3>
     <table style="width:100%;border-collapse:collapse;background:white;border-radius:6px;font-size:13px;border:1px solid #e2e8f0">
@@ -978,10 +1005,22 @@ async function sendDailyOutboxDigest(): Promise<void> {
         [tenant.id]
       );
 
+      // Replies detected today via IMAP
+      const repliedEmails = await query<any[]>(
+        `SELECT ee.subject, ee.metadata, ee.occurred_at,
+                p.email as prospect_email, p.first_name, p.last_name, p.full_name
+         FROM email_events ee
+         JOIN prospects p ON ee.prospect_id = p.id
+         WHERE ee.tenant_id = ? AND ee.event_type = 'replied' AND DATE(ee.occurred_at) = CURDATE()
+         ORDER BY ee.occurred_at`,
+        [tenant.id]
+      );
+
       const totalSent = sentEmails.length;
       const totalFailed = failedEmails.length;
+      const totalReplied = repliedEmails.length;
 
-      if (totalSent === 0 && totalFailed === 0) {
+      if (totalSent === 0 && totalFailed === 0 && totalReplied === 0) {
         logger.debug('Daily digest: nothing to report', { tenant: tenant.name });
         continue;
       }
@@ -1005,7 +1044,20 @@ async function sendDailyOutboxDigest(): Promise<void> {
         })),
       ];
 
-      await sendOutboxNotification(results, totalSent, totalFailed, tenant.id);
+      // Parse reply data for the notification
+      const replyResults = repliedEmails.map((e: any) => {
+        let meta: any = {};
+        try { meta = typeof e.metadata === 'string' ? JSON.parse(e.metadata) : e.metadata || {}; } catch { /* ignore */ }
+        return {
+          name: e.full_name || `${e.first_name || ''} ${e.last_name || ''}`.trim(),
+          email: e.prospect_email,
+          subject: e.subject || '(sin asunto)',
+          classification: meta.reply_classification || 'other',
+          snippet: meta.reply_snippet || '',
+        };
+      });
+
+      await sendOutboxNotification(results, totalSent, totalFailed, tenant.id, replyResults);
 
       // Mark digest as sent today in the DB (prevents duplicates even on restart).
       // Uses imap_sync_state with mailbox='DIGEST' as a lightweight flag.
