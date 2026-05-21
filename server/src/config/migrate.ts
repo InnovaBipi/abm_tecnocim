@@ -73,11 +73,19 @@ export async function runMigrations(): Promise<void> {
         await connection.query('INSERT INTO _migrations (name) VALUES (?)', [file]);
         logger.info('Migration applied', { file });
       } catch (err: any) {
-        if (err.code === 'ER_DUP_FIELDNAME' || err.code === 'ER_TABLE_EXISTS_ERROR' || err.code === 'ER_DUP_KEYNAME') {
-          logger.warn('Migration warning, continuing', { file, error: err.message });
+        // Safe errors indicate the migration (or its effects) already exist — mark as applied and continue
+        const safeErrors = new Set([
+          'ER_TABLE_EXISTS_ERROR',  // CREATE TABLE that already exists
+          'ER_DUP_FIELDNAME',       // ALTER TABLE ADD column that already exists
+          'ER_DUP_KEYNAME',         // CREATE INDEX that already exists
+          'ER_DUP_ENTRY',           // INSERT row that already exists (duplicate PK/unique)
+          'ER_CANT_DROP_FIELD_OR_KEY', // DROP column/key that doesn't exist
+        ]);
+        if (safeErrors.has(err.code)) {
+          logger.warn('Migration already applied (safe error), marking as done', { file, code: err.code, error: err.message });
           await connection.query('INSERT IGNORE INTO _migrations (name) VALUES (?)', [file]);
         } else {
-          logger.error('Migration failed', { file, error: err.message });
+          logger.error('Migration failed', { file, code: err.code, error: err.message });
           throw err;
         }
       }
