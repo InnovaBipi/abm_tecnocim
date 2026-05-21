@@ -74,11 +74,8 @@ export async function sendEmail(
         'List-Unsubscribe': `<${unsubscribeUrl}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
-      // @ts-expect-error Resend REST API supports tracking.open/click but SDK types lag behind
-      tracking: {
-        open: true,
-        click: true,
-      },
+      // Note: open/click tracking is configured at domain level via Resend API
+      // (resend.domains.update), not per-email. Enabled on tecnocim.com domain.
     });
 
     if (result.error) {
