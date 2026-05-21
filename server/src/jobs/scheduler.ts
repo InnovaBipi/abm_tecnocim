@@ -1,4 +1,5 @@
 import cron from 'node-cron';
+import { resolveMx } from 'dns/promises';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 import { logger } from '../config/logger';
@@ -593,6 +594,23 @@ async function rescueWeekendEmails(): Promise<void> {
 }
 
 /**
+ * Check if a domain has valid MX records (can receive email).
+ * Results are cached per invocation to avoid redundant DNS queries.
+ */
+async function verifyDomainMx(domain: string, cache: Map<string, boolean>): Promise<boolean> {
+  if (cache.has(domain)) return cache.get(domain)!;
+  try {
+    const mx = await resolveMx(domain);
+    const valid = mx.length > 0;
+    cache.set(domain, valid);
+    return valid;
+  } catch {
+    cache.set(domain, false);
+    return false;
+  }
+}
+
+/**
  * Process scheduled outbox emails whose scheduled_for time has arrived.
  * Sends up to 20 emails per cycle with 600ms delay between sends.
  */
@@ -643,6 +661,8 @@ async function processScheduledOutboxEmails(): Promise<void> {
 
   // Per-tenant warm-up cache: tenantId -> { limit, sentToday }
   const tenantWarmup = new Map<string, { limit: number; sentToday: number }>();
+  // MX verification cache: domain -> hasValidMx (avoids redundant DNS queries per cycle)
+  const mxCache = new Map<string, boolean>();
 
   let sent = 0;
   let failed = 0;
@@ -718,6 +738,25 @@ async function processScheduledOutboxEmails(): Promise<void> {
         [email.id]
       );
       results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: 'lista de supresion', tenant_id: emailTenantId });
+      continue;
+    }
+
+    // Check domain MX records (prevents sending to non-existent mailboxes)
+    const recipientDomain = email.prospect_email.split('@')[1];
+    if (recipientDomain && !await verifyDomainMx(recipientDomain, mxCache)) {
+      logger.info('Skipping scheduled email, no MX records', { emailId: email.id, domain: recipientDomain });
+      await query(
+        `UPDATE generated_emails SET status = 'bounced',
+         metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'no_mx_records')
+         WHERE id = ? AND tenant_id = ?`,
+        [email.id, emailTenantId]
+      );
+      await query(
+        `INSERT IGNORE INTO suppression_list (id, tenant_id, email, reason, source)
+         VALUES (?, ?, ?, 'invalid_domain', 'mx_check')`,
+        [uuidv4(), emailTenantId, email.prospect_email]
+      );
+      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: 'dominio sin MX', tenant_id: emailTenantId });
       continue;
     }
 
