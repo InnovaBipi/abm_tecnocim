@@ -844,31 +844,36 @@ async function sendOutboxNotification(
   const skipped = results.filter(r => r.status === 'skipped').length;
   const now = new Date().toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Madrid' });
 
+  // CSS inline helpers
+  const dot = (color: string) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px;vertical-align:middle"></span>`;
+  const badge = (label: string, bg: string, fg: string) => `<span style="display:inline-block;background:${bg};color:${fg};padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500;line-height:1.4">${label}</span>`;
+
+  const cellStyle = 'padding:6px 12px;border-bottom:1px solid #e2e8f0';
+
   const sentRows = results.filter(r => r.status === 'sent')
-    .map(r => `<tr><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">✅</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0"><strong>${r.name}</strong><br><span style="color:#64748b;font-size:12px">${r.email}</span></td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${r.subject}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:center">${r.step}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${r.campaign}</td></tr>`)
+    .map(r => `<tr><td style="${cellStyle}">${dot('#059669')}</td><td style="${cellStyle}"><strong>${r.name}</strong><br><span style="color:#64748b;font-size:12px">${r.email}</span></td><td style="${cellStyle}">${r.subject}</td><td style="${cellStyle};text-align:center">${r.step}</td><td style="${cellStyle}">${r.campaign}</td></tr>`)
     .join('');
 
   const failedRows = results.filter(r => r.status === 'failed')
-    .map(r => `<tr><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">❌</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0"><strong>${r.name}</strong><br><span style="color:#64748b;font-size:12px">${r.email}</span></td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${r.subject}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:center">${r.step}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;color:#dc2626">${r.reason}</td></tr>`)
+    .map(r => `<tr><td style="${cellStyle}">${dot('#dc2626')}</td><td style="${cellStyle}"><strong>${r.name}</strong><br><span style="color:#64748b;font-size:12px">${r.email}</span></td><td style="${cellStyle}">${r.subject}</td><td style="${cellStyle};text-align:center">${r.step}</td><td style="${cellStyle};color:#dc2626">${r.reason}</td></tr>`)
     .join('');
 
   const skippedRows = results.filter(r => r.status === 'skipped')
-    .map(r => `<tr><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">⏭️</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0"><strong>${r.name}</strong><br><span style="color:#64748b;font-size:12px">${r.email}</span></td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${r.subject}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:center">${r.step}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;color:#d97706">${r.reason}</td></tr>`)
+    .map(r => `<tr><td style="${cellStyle}">${dot('#d97706')}</td><td style="${cellStyle}"><strong>${r.name}</strong><br><span style="color:#64748b;font-size:12px">${r.email}</span></td><td style="${cellStyle}">${r.subject}</td><td style="${cellStyle};text-align:center">${r.step}</td><td style="${cellStyle};color:#d97706">${r.reason}</td></tr>`)
     .join('');
 
-  const classificationLabels: Record<string, string> = {
-    positive: '🟢 Positiva',
-    negative: '🔴 Negativa',
-    out_of_office: '🟡 Fuera oficina',
-    unsubscribe: '⛔ Baja',
-    other: '⚪ Otra',
+  const classificationBadges: Record<string, string> = {
+    positive: badge('Positiva', '#dcfce7', '#166534'),
+    negative: badge('Negativa', '#fee2e2', '#991b1b'),
+    out_of_office: badge('Fuera oficina', '#fef3c7', '#92400e'),
+    unsubscribe: badge('Baja', '#fee2e2', '#991b1b'),
+    other: badge('Otra', '#f1f5f9', '#475569'),
   };
 
   const replyRows = replies
-    .map(r => `<tr><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${classificationLabels[r.classification] || r.classification}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0"><strong>${r.name}</strong><br><span style="color:#64748b;font-size:12px">${r.email}</span></td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${r.subject}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#64748b;max-width:250px;overflow:hidden;text-overflow:ellipsis">${r.snippet.substring(0, 150)}${r.snippet.length > 150 ? '...' : ''}</td></tr>`)
+    .map(r => `<tr><td style="${cellStyle}">${classificationBadges[r.classification] || badge(r.classification, '#f1f5f9', '#475569')}</td><td style="${cellStyle}"><strong>${r.name}</strong><br><span style="color:#64748b;font-size:12px">${r.email}</span></td><td style="${cellStyle}">${r.subject}</td><td style="${cellStyle};font-size:12px;color:#64748b;max-width:250px">${r.snippet.substring(0, 150)}${r.snippet.length > 150 ? '...' : ''}</td></tr>`)
     .join('');
 
-  const statusEmoji = replies.length > 0 ? '💬' : failed > 0 ? '⚠️' : '✅';
   const statusParts: string[] = [];
   if (replies.length > 0) statusParts.push(`${replies.length} respuesta${replies.length > 1 ? 's' : ''}`);
   if (sent > 0) statusParts.push(`${sent} enviados`);
@@ -878,7 +883,7 @@ async function sendOutboxNotification(
   const html = `
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:700px;margin:0 auto">
   <div style="background:#1e293b;color:white;padding:20px 24px;border-radius:8px 8px 0 0">
-    <h2 style="margin:0;font-size:18px">${statusEmoji} Outbox: ${statusText}</h2>
+    <h2 style="margin:0;font-size:18px;font-weight:600">Digest diario &mdash; ${statusText}</h2>
     <p style="margin:4px 0 0;font-size:13px;color:#94a3b8">${now}</p>
   </div>
   <div style="background:#f8fafc;padding:20px 24px;border:1px solid #e2e8f0;border-top:none">
@@ -901,7 +906,7 @@ async function sendOutboxNotification(
       </div>
     </div>
     ${replyRows ? `
-    <h3 style="font-size:14px;color:#2563eb;margin:16px 0 8px">💬 Respuestas recibidas</h3>
+    <h3 style="font-size:14px;color:#2563eb;margin:16px 0 8px">Respuestas recibidas</h3>
     <table style="width:100%;border-collapse:collapse;background:white;border-radius:6px;font-size:13px;border:1px solid #e2e8f0">
       <tr style="background:#eff6ff"><th style="padding:8px 12px;text-align:left;width:110px">Tipo</th><th style="padding:8px 12px;text-align:left">Prospecto</th><th style="padding:8px 12px;text-align:left">Asunto</th><th style="padding:8px 12px;text-align:left">Extracto</th></tr>
       ${replyRows}
@@ -926,13 +931,13 @@ async function sendOutboxNotification(
     </table>` : ''}
   </div>
   <div style="padding:12px 24px;font-size:11px;color:#94a3b8;text-align:center;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
-    ${tenantName} ABM — Notificacion automatica del scheduler
+    ${tenantName} &mdash; Digest automatico
   </div>
 </div>`;
 
   await sendEmail(
     notificationEmail,
-    `${statusEmoji} Outbox: ${statusText}`,
+    `Digest diario — ${statusText}`,
     html,
     undefined,
     fromAddress,
