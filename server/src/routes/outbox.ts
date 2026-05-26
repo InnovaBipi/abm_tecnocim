@@ -466,9 +466,13 @@ router.post('/redistribute', async (req: Request, res: Response): Promise<void> 
       delayDays: e.delay_days || 0,
     }));
 
+    // Pass emailIds to exclude from capacity counts — prevents double-counting
+    // the emails being redistributed as already-scheduled capacity
+    const emailIds = emails.map((e: any) => e.id);
     const { schedule, distribution, dailyLimit } = await distributeEmailsAcrossBusinessDays(
       emailsForDistribution,
-      tenantId
+      tenantId,
+      emailIds
     );
 
     let updated = 0;

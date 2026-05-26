@@ -374,6 +374,17 @@ import { query } from '../config/database';
 import { getTenantConfig } from '../middleware/tenant';
 
 /**
+ * Get a YYYY-MM-DD date string in Europe/Madrid timezone.
+ * Avoids relying on MySQL CURDATE() which uses the server's UTC timezone.
+ */
+export function getMadridDateString(date?: Date): string {
+  const d = date
+    ? new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Madrid' }))
+    : new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Madrid' }));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
  * Calculate the warmup daily limit for a tenant based on domain age.
  * Uses tenant config warmup curve or sensible defaults.
  */
@@ -416,32 +427,46 @@ export async function getWarmupDailyLimit(tenantId: string): Promise<number> {
 
 /**
  * Count all emails sent on a specific date for a tenant.
+ * Dual-source: generated_emails (outbox) + email_events (sequences) to match getTotalSentToday().
  */
 export async function getSentCountForDate(tenantId: string, dateStr: string): Promise<number> {
-  const result = await query<any[]>(
-    `SELECT COUNT(*) as count FROM email_events
-     WHERE event_type = 'sent' AND tenant_id = ? AND DATE(occurred_at) = ?`,
+  const outbox = await query<any[]>(
+    `SELECT COUNT(*) as count FROM generated_emails
+     WHERE status = 'sent' AND tenant_id = ? AND DATE(sent_at) = ?`,
     [tenantId, dateStr]
   );
-  return result[0]?.count || 0;
+  const sequences = await query<any[]>(
+    `SELECT COUNT(*) as count FROM email_events
+     WHERE event_type = 'sent' AND tenant_id = ? AND DATE(occurred_at) = ?
+     AND sequence_id IS NOT NULL`,
+    [tenantId, dateStr]
+  );
+  return (outbox[0]?.count || 0) + (sequences[0]?.count || 0);
 }
 
 /**
  * Get count of already-scheduled emails per future date for a tenant.
+ * When redistributing, pass excludeIds to avoid double-counting the emails being moved.
  */
-async function getScheduledCountByDate(tenantId: string): Promise<Map<string, number>> {
-  const rows = await query<any[]>(
-    `SELECT DATE(scheduled_for) as dt, COUNT(*) as cnt
+async function getScheduledCountByDate(tenantId: string, excludeIds?: string[]): Promise<Map<string, number>> {
+  const todayMadrid = getMadridDateString();
+  let sql = `SELECT DATE(scheduled_for) as dt, COUNT(*) as cnt
      FROM generated_emails
-     WHERE tenant_id = ? AND status = 'scheduled' AND scheduled_for >= CURDATE()
-     GROUP BY DATE(scheduled_for)`,
-    [tenantId]
-  );
+     WHERE tenant_id = ? AND status = 'scheduled' AND scheduled_for >= ?`;
+  const params: any[] = [tenantId, todayMadrid];
+
+  if (excludeIds && excludeIds.length > 0) {
+    sql += ` AND id NOT IN (${excludeIds.map(() => '?').join(',')})`;
+    params.push(...excludeIds);
+  }
+  sql += ' GROUP BY DATE(scheduled_for)';
+
+  const rows = await query<any[]>(sql, params);
 
   const map = new Map<string, number>();
   for (const row of rows) {
     if (row.dt) {
-      const dateStr = new Date(row.dt).toISOString().substring(0, 10);
+      const dateStr = getMadridDateString(new Date(row.dt));
       map.set(dateStr, row.cnt);
     }
   }
@@ -476,13 +501,14 @@ export function getNextBusinessDays(startDate: Date, count: number): Date[] {
  */
 export async function distributeEmailsAcrossBusinessDays(
   emails: Array<{ id: string; prospectTimezone: string; delayDays: number }>,
-  tenantId: string
+  tenantId: string,
+  excludeIds?: string[]
 ): Promise<{ schedule: Map<string, Date>; distribution: Record<string, number>; dailyLimit: number }> {
   const dailyLimit = await getWarmupDailyLimit(tenantId);
-  const scheduledCounts = await getScheduledCountByDate(tenantId);
+  const scheduledCounts = await getScheduledCountByDate(tenantId, excludeIds);
 
   // Get today's sent count and add to capacity tracking
-  const todayStr = new Date().toISOString().substring(0, 10);
+  const todayStr = getMadridDateString();
   const sentToday = await getSentCountForDate(tenantId, todayStr);
   scheduledCounts.set(todayStr, (scheduledCounts.get(todayStr) || 0) + sentToday);
 
@@ -496,7 +522,7 @@ export async function distributeEmailsAcrossBusinessDays(
   // Track capacity per day (start with existing scheduled/sent counts)
   const dayCapacity = new Map<string, number>();
   for (const day of businessDays) {
-    const dateStr = day.toISOString().substring(0, 10);
+    const dateStr = getMadridDateString(day);
     dayCapacity.set(dateStr, scheduledCounts.get(dateStr) || 0);
   }
 
@@ -506,12 +532,12 @@ export async function distributeEmailsAcrossBusinessDays(
     if (email.delayDays > 0) {
       earliestDate.setDate(earliestDate.getDate() + email.delayDays);
     }
-    const earliestStr = earliestDate.toISOString().substring(0, 10);
+    const earliestStr = getMadridDateString(earliestDate);
 
     // Find the first business day with available capacity
     let assignedDay: Date | null = null;
     for (const day of businessDays) {
-      const dateStr = day.toISOString().substring(0, 10);
+      const dateStr = getMadridDateString(day);
       if (dateStr < earliestStr) continue;
 
       const currentCount = dayCapacity.get(dateStr) || 0;
@@ -532,11 +558,11 @@ export async function distributeEmailsAcrossBusinessDays(
       );
       businessDays.push(...extraDays);
       for (const d of extraDays) {
-        dayCapacity.set(d.toISOString().substring(0, 10), 0);
+        dayCapacity.set(getMadridDateString(d), 0);
       }
       // Retry with the extra days
       for (const day of extraDays) {
-        const dateStr = day.toISOString().substring(0, 10);
+        const dateStr = getMadridDateString(day);
         const currentCount = dayCapacity.get(dateStr) || 0;
         if (currentCount < dailyLimit) {
           assignedDay = day;

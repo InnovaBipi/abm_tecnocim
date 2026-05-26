@@ -6,7 +6,7 @@ import { logger } from '../config/logger';
 import { processJobs, addJob } from './queue';
 import { sendEmail, sendSequenceEmail } from '../services/email';
 import { recalculateAllScores } from '../services/scoring';
-import { calculateOptimalSendTime, resolveProspectTimezone, isWithinSendWindow, getWarmupDailyLimit, getSentCountForDate } from '../services/scheduling';
+import { calculateOptimalSendTime, resolveProspectTimezone, isWithinSendWindow, getWarmupDailyLimit, getSentCountForDate, getMadridDateString } from '../services/scheduling';
 import { pollImapForReplies } from '../services/imap';
 import { getAllActiveTenants, getTenantConfig } from '../middleware/tenant';
 import { resolveNextStep, evaluateConditionStep, EnrollmentContext } from './branching';
@@ -144,12 +144,13 @@ export function startScheduler(): void {
 /**
  * Count emails sent today for a specific sequence.
  */
-async function getSequenceSentToday(sequenceId: string): Promise<number> {
+async function getSequenceSentToday(sequenceId: string, tenantId: string): Promise<number> {
+  const todayMadrid = getMadridDateString();
   const result = await query<any[]>(
     `SELECT COUNT(*) as count FROM email_events
-     WHERE sequence_id = ? AND event_type = 'sent'
-     AND DATE(occurred_at) = CURDATE()`,
-    [sequenceId]
+     WHERE sequence_id = ? AND tenant_id = ? AND event_type = 'sent'
+     AND DATE(occurred_at) = ?`,
+    [sequenceId, tenantId, todayMadrid]
   );
   return result[0]?.count || 0;
 }
@@ -161,18 +162,19 @@ async function getSequenceSentToday(sequenceId: string): Promise<number> {
  * from webhook echo events.
  */
 async function getTotalSentToday(tenantId: string): Promise<number> {
+  const todayMadrid = getMadridDateString();
   // Outbox sends (generated_emails)
   const outbox = await query<any[]>(
     `SELECT COUNT(*) as count FROM generated_emails
-     WHERE status = 'sent' AND tenant_id = ? AND DATE(sent_at) = CURDATE()`,
-    [tenantId]
+     WHERE status = 'sent' AND tenant_id = ? AND DATE(sent_at) = ?`,
+    [tenantId, todayMadrid]
   );
   // Sequence sends (email_events from sequence path, no resend_email_id overlap)
   const sequences = await query<any[]>(
     `SELECT COUNT(*) as count FROM email_events
-     WHERE event_type = 'sent' AND tenant_id = ? AND DATE(occurred_at) = CURDATE()
+     WHERE event_type = 'sent' AND tenant_id = ? AND DATE(occurred_at) = ?
      AND sequence_id IS NOT NULL`,
-    [tenantId]
+    [tenantId, todayMadrid]
   );
   return (outbox[0]?.count || 0) + (sequences[0]?.count || 0);
 }
@@ -337,7 +339,7 @@ async function processDueSequenceEmails(): Promise<void> {
       // Check per-sequence daily_limit
       const seqDailyLimit = settings.daily_limit || 50;
       if (!(enrollment.sequence_id in sequenceSentCache)) {
-        sequenceSentCache[enrollment.sequence_id] = await getSequenceSentToday(enrollment.sequence_id);
+        sequenceSentCache[enrollment.sequence_id] = await getSequenceSentToday(enrollment.sequence_id, enrollmentTenantId);
       }
       if (sequenceSentCache[enrollment.sequence_id] >= seqDailyLimit) {
         const tomorrow = calculateOptimalSendTime(
@@ -674,9 +676,15 @@ async function processScheduledOutboxEmails(): Promise<void> {
 
     // Resolve per-tenant warm-up
     if (!tenantWarmup.has(emailTenantId)) {
-      tenantWarmup.set(emailTenantId, {
-        limit: await getWarmupDailyLimit(emailTenantId),
-        sentToday: await getTotalSentToday(emailTenantId),
+      const limit = await getWarmupDailyLimit(emailTenantId);
+      const sentToday = await getTotalSentToday(emailTenantId);
+      tenantWarmup.set(emailTenantId, { limit, sentToday });
+      logger.info('Outbox cycle warmup check', {
+        tenantId: emailTenantId,
+        dailyLimit: limit,
+        sentToday,
+        remaining: limit - sentToday,
+        batchSize: emailsToSend.length,
       });
     }
     const tw = tenantWarmup.get(emailTenantId)!;
