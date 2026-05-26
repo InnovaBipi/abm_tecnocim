@@ -448,9 +448,15 @@ router.post('/redistribute', async (req: Request, res: Response): Promise<void> 
     }
 
     const emails = await query<any[]>(
-      `SELECT ge.id, ge.delay_days, p.timezone, p.country, p.city
+      `SELECT ge.id, ge.delay_days, ge.step_number, p.timezone, p.country, p.city,
+              prev.status as prev_step_status
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id AND p.tenant_id = ge.tenant_id
+       LEFT JOIN generated_emails prev
+         ON prev.prospect_id = ge.prospect_id
+         AND prev.campaign_id = ge.campaign_id
+         AND prev.tenant_id = ge.tenant_id
+         AND prev.step_number = ge.step_number - 1
        WHERE ${whereClause}`,
       params
     );
@@ -463,7 +469,9 @@ router.post('/redistribute', async (req: Request, res: Response): Promise<void> 
     const emailsForDistribution = emails.map((e: any) => ({
       id: e.id,
       prospectTimezone: resolveProspectTimezone(e),
-      delayDays: e.delay_days || 0,
+      // If previous step already sent (or it's step 1), delay is no longer needed —
+      // the gap was already enforced in the original scheduling
+      delayDays: (e.step_number <= 1 || e.prev_step_status === 'sent') ? 0 : (e.delay_days || 0),
     }));
 
     // Pass emailIds to exclude from capacity counts — prevents double-counting
