@@ -574,10 +574,14 @@ export async function distributeEmailsAcrossBusinessDays(
     }
 
     if (assignedDay) {
-      // Use calculateOptimalSendTime to get the right hour within the day
+      // Seed at OPTIMAL_START_HOUR in prospect's local time (converted to UTC).
+      // E.g., Spain CEST (UTC+2): 9 AM local = 7 AM UTC seed.
+      // This ensures calculateOptimalSendTime finds the candidate within window.
       const candidateUtc = new Date(assignedDay);
-      candidateUtc.setUTCHours(9, 0, 0, 0); // Start from 9 AM UTC as seed
-      const optimalTime = calculateOptimalSendTime(candidateUtc, email.prospectTimezone);
+      const tz = email.prospectTimezone || 'Europe/Madrid';
+      const tzOffset = getTimezoneOffsetHours(tz, candidateUtc);
+      candidateUtc.setUTCHours(Math.round(OPTIMAL_START_HOUR - tzOffset), 0, 0, 0);
+      const optimalTime = calculateOptimalSendTime(candidateUtc, tz);
       schedule.set(email.id, optimalTime);
     }
   }
