@@ -32,6 +32,7 @@ const createProspectSchema = z.object({
   notes: z.string().optional().nullable(),
   enrichment_data: z.record(z.any()).optional().nullable(),
   company_name: z.string().optional().nullable(),
+  do_not_contact: z.boolean().optional(),
 });
 
 const updateProspectSchema = createProspectSchema.partial();
@@ -459,6 +460,7 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       source: 'source',
       source_detail: 'source_detail',
       notes: 'notes',
+      do_not_contact: 'do_not_contact',
     };
 
     for (const [key, column] of Object.entries(fieldMap)) {
