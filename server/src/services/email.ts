@@ -40,7 +40,8 @@ export async function sendEmail(
   text?: string,
   from?: string,
   replyTo?: string,
-  tenantId?: string
+  tenantId?: string,
+  language?: 'spanish' | 'catalan' | 'english'
 ): Promise<{ id: string; success: boolean }> {
   let client: Resend;
   let tenant: Tenant | null = null;
@@ -55,7 +56,7 @@ export async function sendEmail(
 
   try {
     // Append compliance footer with unsubscribe link (tenant-branded)
-    const htmlWithFooter = html + getEmailFooter(to, tenantId, tenant);
+    const htmlWithFooter = html + getEmailFooter(to, tenantId, tenant, language);
 
     // Build List-Unsubscribe header for email clients
     const unsubscribeUrl = getUnsubscribeUrl(to, tenantId);

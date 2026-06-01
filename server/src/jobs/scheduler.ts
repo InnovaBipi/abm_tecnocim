@@ -6,7 +6,7 @@ import { logger } from '../config/logger';
 import { processJobs, addJob } from './queue';
 import { sendEmail, sendSequenceEmail } from '../services/email';
 import { recalculateAllScores } from '../services/scoring';
-import { calculateOptimalSendTime, resolveProspectTimezone, isWithinSendWindow, getWarmupDailyLimit, getSentCountForDate, getMadridDateString } from '../services/scheduling';
+import { calculateOptimalSendTime, resolveProspectTimezone, isWithinSendWindow, getWarmupDailyLimit, getSentCountForDate, getMadridDateString, resolveProspectLanguage } from '../services/scheduling';
 import { pollImapForReplies } from '../services/imap';
 import { getAllActiveTenants, getTenantConfig } from '../middleware/tenant';
 import { resolveNextStep, evaluateConditionStep, EnrollmentContext } from './branching';
@@ -777,6 +777,14 @@ async function processScheduledOutboxEmails(): Promise<void> {
       const fromAddress = `${fromName} <${rawFrom}>`;
       const replyTo = tenantEmail?.reply_to || undefined;
 
+      // Resolve recipient language for the compliance footer (default Spanish; English for non-Spain)
+      const locRows = await query<any[]>(
+        'SELECT country, region, city FROM prospects WHERE id = ? AND tenant_id = ?',
+        [email.prospect_id, emailTenantId]
+      );
+      const loc = locRows[0] || {};
+      const language = resolveProspectLanguage({ country: loc.country, region: loc.region, city: loc.city, title: email.prospect_title });
+
       const result = await sendEmail(
         email.prospect_email,
         email.subject,
@@ -784,7 +792,8 @@ async function processScheduledOutboxEmails(): Promise<void> {
         undefined,
         fromAddress,
         replyTo,
-        emailTenantId
+        emailTenantId,
+        language
       );
 
       if (result.success) {

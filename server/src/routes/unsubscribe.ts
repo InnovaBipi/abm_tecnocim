@@ -51,7 +51,12 @@ export function getUnsubscribeUrl(email: string, tenantId?: string): string {
  * LSSI Art. 20: sender identification, commercial nature
  * LSSI Art. 21: unsubscribe mechanism
  */
-export function getEmailFooter(recipientEmail: string, tenantId?: string, tenant?: Tenant | null): string {
+export function getEmailFooter(
+  recipientEmail: string,
+  tenantId?: string,
+  tenant?: Tenant | null,
+  language?: 'spanish' | 'catalan' | 'english'
+): string {
   const unsubscribeUrl = getUnsubscribeUrl(recipientEmail, tenantId);
   const companyName = tenant?.name || 'Tecnocim Innova';
   const footerHtml = tenant?.config?.branding?.footer_html || `<p>${companyName}</p>`;
@@ -59,34 +64,42 @@ export function getEmailFooter(recipientEmail: string, tenantId?: string, tenant
   const legalName = legal?.legal_name || companyName;
   const cif = legal?.cif || '';
   const address = legal?.address || '';
-  const dataSource = legal?.data_source || 'su pagina web corporativa';
   const privacyUrl = legal?.privacy_url || '';
   const contactEmail = tenant?.config?.email?.reply_to || tenant?.config?.email?.from_email || '';
 
+  const isEn = language === 'english';
+
   // Controller identity line (LSSI Art. 20 + RGPD Art. 14)
   const identityParts = [legalName];
-  if (cif) identityParts.push(`CIF ${cif}`);
+  if (cif) identityParts.push(`${isEn ? 'Tax ID' : 'CIF'} ${cif}`);
   if (address) identityParts.push(address);
   const identityLine = identityParts.join(' | ');
 
   // Privacy policy link
+  const dataSource = legal?.data_source || (isEn ? 'their corporate website' : 'su pagina web corporativa');
   const privacyLink = privacyUrl
-    ? ` <a href="${privacyUrl}" style="color:#b0b0b0;text-decoration:underline;">Politica de privacidad</a>.`
+    ? ` <a href="${privacyUrl}" style="color:#b0b0b0;text-decoration:underline;">${isEn ? 'Privacy policy' : 'Politica de privacidad'}</a>.`
     : '';
 
-  // RGPD/LSSI compliance disclaimer
-  const rgpdDisclaimer = `<p style="margin:8px 0 0 0;font-size:10px;color:#b0b0b0;line-height:1.4;">
+  // RGPD/LSSI compliance disclaimer (default Spanish; English when language === 'english')
+  const spanishDisclaimer = `<p style="margin:8px 0 0 0;font-size:10px;color:#b0b0b0;line-height:1.4;">
     ${identityLine}<br/>
     Este correo se dirige a la direccion de contacto publico de su empresa, obtenida de fuentes de acceso publico (${dataSource}), con base en interes legitimo (Art. 6.1.f RGPD).
     Puede ejercer sus derechos de acceso, rectificacion, supresion y oposicion contactando a <a href="mailto:${contactEmail}" style="color:#b0b0b0;">${contactEmail}</a> o usando el enlace inferior.${privacyLink}
   </p>`;
+  const englishDisclaimer = `<p style="margin:8px 0 0 0;font-size:10px;color:#b0b0b0;line-height:1.4;">
+    ${identityLine}<br/>
+    This email is addressed to your company's public business contact, obtained from publicly available sources (${dataSource}), on the basis of legitimate interest (Art. 6.1.f GDPR).
+    You may exercise your rights of access, rectification, erasure and objection by contacting <a href="mailto:${contactEmail}" style="color:#b0b0b0;">${contactEmail}</a> or using the link below.${privacyLink}
+  </p>`;
+  const rgpdDisclaimer = isEn ? englishDisclaimer : spanishDisclaimer;
 
   return `
 <div style="margin-top:32px;font-size:12px;color:#9ca3af;line-height:1.5;">
   ${footerHtml}
   ${rgpdDisclaimer}
   <p style="margin:8px 0 0 0;">
-    <a href="${unsubscribeUrl}" style="color:#9ca3af;text-decoration:none;font-size:11px;">Darse de baja</a>
+    <a href="${unsubscribeUrl}" style="color:#9ca3af;text-decoration:none;font-size:11px;">${isEn ? 'Unsubscribe' : 'Darse de baja'}</a>
   </p>
 </div>`;
 }
