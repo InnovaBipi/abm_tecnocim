@@ -329,6 +329,12 @@ export const settingsApi = {
   updateEmailSettings: (data: Record<string, unknown>) =>
     api.put('/settings/email', data),
 
+  getLegalSettings: () =>
+    api.get('/settings/legal'),
+
+  updateLegalSettings: (data: Record<string, unknown>) =>
+    api.put('/settings/legal', data),
+
   getApiKeys: () =>
     api.get('/settings/api-keys'),
 

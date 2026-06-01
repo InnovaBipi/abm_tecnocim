@@ -217,6 +217,75 @@ router.put('/email', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// --- Legal / RGPD Settings (footer identity) ---
+
+router.get('/legal', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const tenant = await getTenantConfig(req.user!.tenantId);
+    if (!tenant) {
+      res.status(404).json({ success: false, error: 'Tenant not found.' });
+      return;
+    }
+
+    const legal: any = tenant.config.legal || {};
+    res.json({
+      success: true,
+      data: {
+        legal_name: legal.legal_name || '',
+        cif: legal.cif || '',
+        address: legal.address || '',
+        privacy_url: legal.privacy_url || '',
+        data_source: legal.data_source || '',
+      },
+    });
+  } catch (error: any) {
+    console.error('Get legal settings error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+router.put('/legal', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { legal_name, cif, address, privacy_url, data_source } = req.body;
+
+    // Collect only provided fields (partial update). Sending null clears a field.
+    const patch: Record<string, any> = {};
+    if (legal_name !== undefined) patch.legal_name = legal_name;
+    if (cif !== undefined) patch.cif = cif;
+    if (address !== undefined) patch.address = address;
+    if (privacy_url !== undefined) patch.privacy_url = privacy_url;
+    if (data_source !== undefined) patch.data_source = data_source;
+
+    if (Object.keys(patch).length === 0) {
+      res.status(400).json({ success: false, error: 'No fields to update.' });
+      return;
+    }
+
+    // Merge into config.legal, creating the object if it doesn't exist yet.
+    await query(
+      `UPDATE tenants
+       SET config = JSON_SET(
+         config,
+         '$.legal',
+         JSON_MERGE_PATCH(COALESCE(JSON_EXTRACT(config, '$.legal'), JSON_OBJECT()), CAST(? AS JSON))
+       )
+       WHERE id = ?`,
+      [JSON.stringify(patch), req.user!.tenantId]
+    );
+
+    // Clear cache so the footer picks up the change immediately
+    clearTenantCache(req.user!.tenantId);
+
+    res.json({
+      success: true,
+      data: { message: 'Legal settings updated successfully.' },
+    });
+  } catch (error: any) {
+    console.error('Update legal settings error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
 // --- Warmup Settings ---
 
 router.put('/warmup', async (req: Request, res: Response): Promise<void> => {
