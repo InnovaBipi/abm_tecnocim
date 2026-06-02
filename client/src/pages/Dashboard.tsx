@@ -86,7 +86,7 @@ function StatCard({ title, value, icon, change, changeType = 'neutral', href }: 
 
 function getGreeting(): string {
   const hour = new Date().getHours();
-  if (hour < 12) return 'Buenos dias';
+  if (hour < 12) return 'Buenos días';
   if (hour < 18) return 'Buenas tardes';
   return 'Buenas noches';
 }
@@ -108,10 +108,10 @@ export default function Dashboard() {
 
   const rangeLabel = useMemo(() => {
     const labels: Record<string, string> = {
-      '7d': 'Ultimos 7 dias', '30d': 'Ultimos 30 dias',
-      '90d': 'Ultimos 90 dias', '12m': 'Ultimos 12 meses',
+      '7d': 'Últimos 7 días', '30d': 'Últimos 30 días',
+      '90d': 'Últimos 90 días', '12m': 'Últimos 12 meses',
     };
-    return labels[dateRange] || 'Ultimos 30 dias';
+    return labels[dateRange] || 'Últimos 30 días';
   }, [dateRange]);
 
   const { data: statsData, isLoading: statsLoading } = useQuery({
@@ -208,7 +208,7 @@ export default function Dashboard() {
           icon={<Megaphone className="h-4 w-4" />}
           onClick={() => navigate('/campaigns')}
         >
-          Nueva Campana
+          Nueva Campaña
         </Button>
         <Button
           variant="secondary"
@@ -244,7 +244,7 @@ export default function Dashboard() {
             href="/companies"
           />
           <StatCard
-            title="Campanas Activas"
+            title="Campañas Activas"
             value={formatNumber(stats?.active_campaigns || 0)}
             icon={<Megaphone className="h-5 w-5" />}
             href="/campaigns"
@@ -307,15 +307,15 @@ export default function Dashboard() {
                 deliverability?.warmup?.phase === 'completed'
                   ? 'Completado'
                   : deliverability?.warmup?.phase === 'in_progress'
-                  ? `Dia ${deliverability?.warmup?.domain_age_days || 0}/30`
+                  ? `Día ${deliverability?.warmup?.domain_age_days || 0}/30`
                   : 'Sin iniciar'
               }
               icon={<Flame className="h-5 w-5" />}
               change={
                 deliverability?.warmup?.phase === 'completed'
-                  ? 'Sin limite diario'
+                  ? 'Sin límite diario'
                   : deliverability?.warmup?.phase === 'in_progress'
-                  ? 'Limites activos'
+                  ? 'Límites activos'
                   : undefined
               }
               changeType={deliverability?.warmup?.phase === 'completed' ? 'positive' : 'neutral'}
@@ -406,7 +406,7 @@ export default function Dashboard() {
               <Flame className="h-5 w-5 text-orange-500" />
               <h3 className="font-semibold text-slate-900">Prospectos Calientes</h3>
             </div>
-            <p className="text-sm text-slate-500 mt-0.5">Engagement en ultimas 48h</p>
+            <p className="text-sm text-slate-500 mt-0.5">Engagement en últimas 48h</p>
           </div>
           <div className="divide-y divide-slate-100 max-h-[340px] overflow-y-auto scrollbar-thin">
             {hotProspectsLoading ? (
@@ -457,9 +457,9 @@ export default function Dashboard() {
           <div className="px-6 py-4 border-b border-slate-200">
             <div className="flex items-center gap-2">
               <ArrowDown className="h-5 w-5 text-primary-600" />
-              <h3 className="font-semibold text-slate-900">Embudo de Conversion</h3>
+              <h3 className="font-semibold text-slate-900">Embudo de Conversión</h3>
             </div>
-            <p className="text-sm text-slate-500 mt-0.5">Progresion de estados</p>
+            <p className="text-sm text-slate-500 mt-0.5">Progresión de estados</p>
           </div>
           <div className="p-6">
             {funnelLoading ? (
@@ -479,7 +479,7 @@ export default function Dashboard() {
                   const stageLabels: Record<string, string> = {
                     new: 'Nuevo', enriched: 'Enriquecido', qualified: 'Calificado',
                     contacted: 'Contactado', replied: 'Respondido', interested: 'Interesado',
-                    meeting: 'Reunion', converted: 'Convertido',
+                    meeting: 'Reunión', converted: 'Convertido',
                   };
 
                   return (
@@ -503,7 +503,7 @@ export default function Dashboard() {
                         </div>
                         {index > 0 && stage.conversion_from_prev > 0 && (
                           <p className="text-xs text-slate-400 mt-0.5 ml-1">
-                            {stage.conversion_from_prev}% conversion
+                            {stage.conversion_from_prev}% conversión
                           </p>
                         )}
                       </div>
@@ -522,7 +522,7 @@ export default function Dashboard() {
               <Users className="h-5 w-5 text-primary-600" />
               <h3 className="font-semibold text-slate-900">Top Prospectos</h3>
             </div>
-            <p className="text-sm text-slate-500 mt-0.5">Mayor puntuacion</p>
+            <p className="text-sm text-slate-500 mt-0.5">Mayor puntuación</p>
           </div>
           <div className="divide-y divide-slate-100">
             {topProspectsLoading ? (
@@ -676,7 +676,7 @@ export default function Dashboard() {
           <div className="px-6 py-4 border-b border-slate-200">
             <div className="flex items-center gap-2">
               <Megaphone className="h-5 w-5 text-primary-600" />
-              <h3 className="font-semibold text-slate-900">Rendimiento de Campanas</h3>
+              <h3 className="font-semibold text-slate-900">Rendimiento de Campañas</h3>
             </div>
           </div>
           <div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto scrollbar-thin">
@@ -687,7 +687,7 @@ export default function Dashboard() {
             ) : campaignPerf.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-slate-400">
                 <AlertCircle className="h-8 w-8 mb-2" />
-                <p className="text-sm">Sin campanas activas</p>
+                <p className="text-sm">Sin campañas activas</p>
               </div>
             ) : (
               campaignPerf.map((campaign: Record<string, unknown>, index: number) => (

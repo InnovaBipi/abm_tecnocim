@@ -176,7 +176,7 @@ export default function Sequences() {
           <TableHead>
             <TableRow hoverable={false}>
               <TableCell isHeader>Nombre</TableCell>
-              <TableCell isHeader>Campana</TableCell>
+              <TableCell isHeader>Campaña</TableCell>
               <TableCell isHeader>Estado</TableCell>
               <TableCell isHeader className="text-center">
                 <Users className="h-4 w-4 inline mr-1" />
@@ -284,14 +284,14 @@ export default function Sequences() {
             required
           />
           <Select
-            label="Campana Asociada"
+            label="Campaña Asociada"
             options={campaignOptions}
             value={createForm.campaignId}
             onChange={(val) => setCreateForm((f) => ({ ...f, campaignId: val }))}
-            placeholder="Seleccionar campana (opcional)"
+            placeholder="Seleccionar campaña (opcional)"
           />
           <div>
-            <label className="form-label">Descripcion</label>
+            <label className="form-label">Descripción</label>
             <textarea
               value={createForm.description}
               onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))}
@@ -302,7 +302,7 @@ export default function Sequences() {
           </div>
           <hr className="border-slate-200" />
           <p className="text-sm font-medium text-slate-700">Remitente (opcional)</p>
-          <p className="text-xs text-slate-500 mb-2">Dejar vacio para usar tu email de remitente por defecto.</p>
+          <p className="text-xs text-slate-500 mb-2">Dejar vacío para usar tu email de remitente por defecto.</p>
           <div className="grid grid-cols-2 gap-4">
             <Input
               label="Email Remitente"

@@ -45,20 +45,20 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             Algo ha ido mal
           </h2>
           <p className="text-sm text-slate-500 max-w-md mb-6">
-            Se ha producido un error inesperado. Puedes intentar recargar la pagina o volver atras.
+            Se ha producido un error inesperado. Puedes intentar recargar la página o volver atrás.
           </p>
           <div className="flex items-center gap-3">
             <button
               onClick={this.handleGoBack}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
             >
-              Volver atras
+              Volver atrás
             </button>
             <button
               onClick={this.handleReload}
               className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors"
             >
-              Recargar pagina
+              Recargar página
             </button>
           </div>
           {process.env.NODE_ENV === 'development' && this.state.error && (

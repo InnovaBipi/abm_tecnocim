@@ -88,24 +88,24 @@ export default function Campaigns() {
   const createMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => campaignsApi.create(data),
     onSuccess: () => {
-      toast.success('Campana creada exitosamente');
+      toast.success('Campaña creada exitosamente');
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
       setShowCreateModal(false);
       setCreateForm({ name: '', description: '', assetType: 'general', assetName: '', status: 'draft' });
     },
     onError: () => {
-      toast.error('Error al crear la campana');
+      toast.error('Error al crear la campaña');
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => campaignsApi.delete(id),
     onSuccess: () => {
-      toast.success('Campana eliminada');
+      toast.success('Campaña eliminada');
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
     },
     onError: () => {
-      toast.error('Error al eliminar la campana');
+      toast.error('Error al eliminar la campaña');
     },
   });
 
@@ -131,11 +131,11 @@ export default function Campaigns() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Campanas</h1>
-          <p className="text-slate-500 mt-1">Gestiona tus campanas de marketing basado en cuentas</p>
+          <h1 className="text-2xl font-bold text-slate-900">Campañas</h1>
+          <p className="text-slate-500 mt-1">Gestiona tus campañas de marketing basado en cuentas</p>
         </div>
         <Button icon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
-          Nueva Campana
+          Nueva Campaña
         </Button>
       </div>
 
@@ -144,7 +144,7 @@ export default function Campaigns() {
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex-1 min-w-[240px]">
             <Input
-              placeholder="Buscar campanas..."
+              placeholder="Buscar campañas..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               icon={<Search className="h-4 w-4" />}
@@ -164,20 +164,20 @@ export default function Campaigns() {
       {isLoading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
-          <span className="ml-2 text-slate-500">Cargando campanas...</span>
+          <span className="ml-2 text-slate-500">Cargando campañas...</span>
         </div>
       ) : error ? (
         <div className="flex flex-col items-center justify-center py-16 text-red-500">
           <AlertCircle className="h-8 w-8 mb-2" />
-          <p className="text-sm">Error al cargar las campanas</p>
+          <p className="text-sm">Error al cargar las campañas</p>
         </div>
       ) : campaigns.length === 0 ? (
         <Card className="flex flex-col items-center justify-center py-16">
           <Megaphone className="h-12 w-12 text-slate-300 mb-3" />
-          <h3 className="text-lg font-medium text-slate-600">Sin campanas</h3>
-          <p className="text-sm text-slate-400 mt-1">Crea tu primera campana ABM</p>
+          <h3 className="text-lg font-medium text-slate-600">Sin campañas</h3>
+          <p className="text-sm text-slate-400 mt-1">Crea tu primera campaña ABM</p>
           <Button className="mt-4" onClick={() => setShowCreateModal(true)}>
-            Nueva Campana
+            Nueva Campaña
           </Button>
         </Card>
       ) : (
@@ -254,14 +254,14 @@ export default function Campaigns() {
                       onClick={(e) => {
                         e.stopPropagation();
                         confirm({
-                          title: 'Eliminar campana?',
-                          description: 'Se eliminara la campana y todos sus datos asociados.',
+                          title: '¿Eliminar campaña?',
+                          description: 'Se eliminará la campaña y todos sus datos asociados.',
                           confirmLabel: 'Eliminar',
                           onConfirm: () => deleteMutation.mutate(id),
                         });
                       }}
                       className="p-1 rounded text-slate-400 hover:text-red-600 transition-colors"
-                      aria-label={`Eliminar campana ${campaign.name as string}`}
+                      aria-label={`Eliminar campaña ${campaign.name as string}`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -284,15 +284,15 @@ export default function Campaigns() {
       <Modal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        title="Nueva Campana"
+        title="Nueva Campaña"
         size="lg"
       >
         <form onSubmit={handleCreateSubmit} className="space-y-4">
           <Input
-            label="Nombre de la Campana"
+            label="Nombre de la Campaña"
             value={createForm.name}
             onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
-            placeholder="Campana Q1 2025 - Propiedades Premium"
+            placeholder="Campaña Q1 2025 - Propiedades Premium"
             required
           />
           <div className="grid grid-cols-2 gap-4">
@@ -316,13 +316,13 @@ export default function Campaigns() {
             onChange={(val) => setCreateForm((f) => ({ ...f, status: val }))}
           />
           <div>
-            <label className="form-label">Descripcion</label>
+            <label className="form-label">Descripción</label>
             <textarea
               value={createForm.description}
               onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))}
               rows={3}
               className="form-input"
-              placeholder="Describe el objetivo de esta campana..."
+              placeholder="Describe el objetivo de esta campaña..."
             />
           </div>
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
@@ -330,7 +330,7 @@ export default function Campaigns() {
               Cancelar
             </Button>
             <Button type="submit" loading={createMutation.isPending}>
-              Crear Campana
+              Crear Campaña
             </Button>
           </div>
         </form>

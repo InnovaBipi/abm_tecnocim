@@ -55,7 +55,7 @@ export default function CampaignDetail() {
   const updateStatusMutation = useMutation({
     mutationFn: (status: string) => campaignsApi.update(id!, { status }),
     onSuccess: () => {
-      toast.success('Estado de la campana actualizado');
+      toast.success('Estado de la campaña actualizado');
       queryClient.invalidateQueries({ queryKey: ['campaigns', id] });
     },
     onError: () => toast.error('Error al cambiar el estado'),
@@ -94,14 +94,14 @@ export default function CampaignDetail() {
     { id: 'prospects', label: 'Prospectos', icon: <Users className="h-4 w-4" /> },
     { id: 'generate', label: 'Generar Emails', icon: <Sparkles className="h-4 w-4" /> },
     { id: 'bandeja', label: 'Bandeja', icon: <Inbox className="h-4 w-4" /> },
-    { id: 'metrics', label: 'Metricas', icon: <BarChart3 className="h-4 w-4" /> },
+    { id: 'metrics', label: 'Métricas', icon: <BarChart3 className="h-4 w-4" /> },
   ];
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
       {/* Breadcrumb */}
       <Breadcrumb items={[
-        { label: 'Campanas', href: '/campaigns' },
+        { label: 'Campañas', href: '/campaigns' },
         { label: campaign.name },
       ]} />
 

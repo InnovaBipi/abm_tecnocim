@@ -76,16 +76,16 @@ export function getEmailFooter(
   const identityLine = identityParts.join(' | ');
 
   // Privacy policy link
-  const dataSource = legal?.data_source || (isEn ? 'their corporate website' : 'su pagina web corporativa');
+  const dataSource = legal?.data_source || (isEn ? 'their corporate website' : 'su página web corporativa');
   const privacyLink = privacyUrl
-    ? ` <a href="${privacyUrl}" style="color:#b0b0b0;text-decoration:underline;">${isEn ? 'Privacy policy' : 'Politica de privacidad'}</a>.`
+    ? ` <a href="${privacyUrl}" style="color:#b0b0b0;text-decoration:underline;">${isEn ? 'Privacy policy' : 'Política de privacidad'}</a>.`
     : '';
 
   // RGPD/LSSI compliance disclaimer (default Spanish; English when language === 'english')
   const spanishDisclaimer = `<p style="margin:8px 0 0 0;font-size:10px;color:#b0b0b0;line-height:1.4;">
     ${identityLine}<br/>
-    Este correo se dirige a la direccion de contacto publico de su empresa, obtenida de fuentes de acceso publico (${dataSource}), con base en interes legitimo (Art. 6.1.f RGPD).
-    Puede ejercer sus derechos de acceso, rectificacion, supresion y oposicion contactando a <a href="mailto:${contactEmail}" style="color:#b0b0b0;">${contactEmail}</a> o usando el enlace inferior.${privacyLink}
+    Este correo se dirige a la dirección de contacto público de su empresa, obtenida de fuentes de acceso público (${dataSource}), con base en interés legítimo (Art. 6.1.f RGPD).
+    Puede ejercer sus derechos de acceso, rectificación, supresión y oposición contactando a <a href="mailto:${contactEmail}" style="color:#b0b0b0;">${contactEmail}</a> o usando el enlace inferior.${privacyLink}
   </p>`;
   const englishDisclaimer = `<p style="margin:8px 0 0 0;font-size:10px;color:#b0b0b0;line-height:1.4;">
     ${identityLine}<br/>

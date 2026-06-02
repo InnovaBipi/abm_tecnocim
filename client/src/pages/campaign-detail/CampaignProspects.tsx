@@ -151,7 +151,7 @@ export function CampaignProspects({ campaignId, campaign, generatedEmails }: Cam
                 <TableCell isHeader>Nombre</TableCell>
                 <TableCell isHeader>Email</TableCell>
                 <TableCell isHeader>Empresa</TableCell>
-                <TableCell isHeader className="text-center">Puntuacion</TableCell>
+                <TableCell isHeader className="text-center">Puntuación</TableCell>
                 <TableCell isHeader>Emails</TableCell>
                 <TableCell isHeader>Estado</TableCell>
                 <TableCell isHeader className="w-16">{null}</TableCell>
@@ -206,8 +206,8 @@ export function CampaignProspects({ campaignId, campaign, generatedEmails }: Cam
                       <button
                         onClick={() => {
                           confirm({
-                            title: 'Remover prospecto?',
-                            description: 'El prospecto sera removido de esta campana.',
+                            title: '¿Remover prospecto?',
+                            description: 'El prospecto será removido de esta campaña.',
                             confirmLabel: 'Remover',
                             onConfirm: () => removeProspectMutation.mutate(pId),
                           });

@@ -42,7 +42,7 @@ export function CampaignMetrics({ campaignId, campaign, generatedEmails }: Campa
 
   return (
     <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-slate-900">Metricas de la Campana</h3>
+      <h3 className="text-lg font-semibold text-slate-900">Métricas de la Campaña</h3>
 
       {/* Pipeline stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -70,7 +70,7 @@ export function CampaignMetrics({ campaignId, campaign, generatedEmails }: Campa
       {metricsLoading ? (
         <div className="flex items-center justify-center py-8">
           <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-          <span className="ml-2 text-sm text-slate-400">Cargando metricas...</span>
+          <span className="ml-2 text-sm text-slate-400">Cargando métricas...</span>
         </div>
       ) : (
         <>

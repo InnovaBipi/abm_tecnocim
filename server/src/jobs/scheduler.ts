@@ -692,7 +692,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
     // Check tenant warm-up limit
     if (tw.sentToday >= tw.limit) {
       logger.warn('Warm-up limit reached, skipping email', { tenantId: emailTenantId, dailyLimit: tw.limit, emailId: email.id });
-      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: `Limite warm-up alcanzado (${tw.limit}/dia)`, tenant_id: emailTenantId });
+      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: `Límite warm-up alcanzado (${tw.limit}/día)`, tenant_id: emailTenantId });
       continue;
     }
 
@@ -745,7 +745,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
          WHERE id = ?`,
         [email.id]
       );
-      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: 'lista de supresion', tenant_id: emailTenantId });
+      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: 'lista de supresión', tenant_id: emailTenantId });
       continue;
     }
 
@@ -848,7 +848,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
            WHERE id = ?`,
           [email.id]
         );
-        results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'failed', reason: 'Envio fallido', tenant_id: emailTenantId });
+        results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'failed', reason: 'Envío fallido', tenant_id: emailTenantId });
       }
     } catch (sendError: any) {
       failed++;
@@ -987,7 +987,7 @@ async function sendOutboxNotification(
     </table>` : ''}
   </div>
   <div style="padding:12px 24px;font-size:11px;color:#94a3b8;text-align:center;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
-    ${tenantName} &mdash; Digest automatico
+    ${tenantName} &mdash; Digest automático
   </div>
 </div>`;
 

@@ -147,8 +147,8 @@ export default function Outbox() {
               icon={<Zap className="h-4 w-4" />}
               onClick={() => {
                 confirmAction({
-                  title: `Forzar envio de ${scheduledCount} email(s)?`,
-                  description: 'Los emails programados se enviaran inmediatamente.',
+                  title: `Forzar envío de ${scheduledCount} email(s)?`,
+                  description: 'Los emails programados se enviarán inmediatamente.',
                   variant: 'warning',
                   confirmLabel: 'Enviar ahora',
                   onConfirm: () => sendMutation.mutate(undefined),
@@ -156,7 +156,7 @@ export default function Outbox() {
               }}
               loading={sendMutation.isPending}
             >
-              Forzar Envio ({scheduledCount})
+              Forzar Envío ({scheduledCount})
             </Button>
           )}
         </div>
@@ -166,7 +166,7 @@ export default function Outbox() {
       {statsError ? (
         <div className="flex flex-col items-center justify-center py-8 text-red-500">
           <AlertCircle className="h-8 w-8 mb-2" />
-          <p className="text-sm">Error al cargar las estadisticas</p>
+          <p className="text-sm">Error al cargar las estadísticas</p>
         </div>
       ) : (
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -350,15 +350,15 @@ export default function Outbox() {
                         <button
                           onClick={() => {
                             confirmAction({
-                              title: 'Forzar envio?',
-                              description: `Se enviara el email a ${email.prospect_email} inmediatamente.`,
+                              title: 'Forzar envío?',
+                              description: `Se enviará el email a ${email.prospect_email} inmediatamente.`,
                               variant: 'warning',
                               confirmLabel: 'Enviar',
                               onConfirm: () => sendMutation.mutate([email.id]),
                             });
                           }}
                           className="p-1.5 rounded-lg text-primary-600 hover:bg-primary-50 transition-colors"
-                          title="Forzar envio" aria-label="Forzar envio"
+                          title="Forzar envío" aria-label="Forzar envío"
                         >
                           <Zap className="h-4 w-4" />
                         </button>
@@ -472,8 +472,8 @@ export default function Outbox() {
                     icon={<Zap className="h-4 w-4" />}
                     onClick={() => {
                       confirmAction({
-                        title: 'Forzar envio?',
-                        description: `Se enviara el email a ${previewEmail.prospect_email} inmediatamente.`,
+                        title: 'Forzar envío?',
+                        description: `Se enviará el email a ${previewEmail.prospect_email} inmediatamente.`,
                         variant: 'warning',
                         confirmLabel: 'Enviar',
                         onConfirm: () => {
@@ -484,7 +484,7 @@ export default function Outbox() {
                     }}
                     loading={sendMutation.isPending}
                   >
-                    Forzar Envio
+                    Forzar Envío
                   </Button>
                 )}
               </div>

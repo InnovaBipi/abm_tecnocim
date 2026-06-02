@@ -57,8 +57,8 @@ export function CampaignGenerate({ campaignId, campaign, generatedEmails, refetc
       <Card padding="md">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-slate-900">Configuracion de Generacion</h3>
-            <p className="text-xs text-slate-500 mt-1">Numero de emails por prospecto en la secuencia</p>
+            <h3 className="text-sm font-semibold text-slate-900">Configuración de Generación</h3>
+            <p className="text-xs text-slate-500 mt-1">Número de emails por prospecto en la secuencia</p>
           </div>
           <div className="flex items-center gap-3">
             <label className="text-sm text-slate-600">Pasos:</label>
@@ -142,7 +142,7 @@ export function CampaignGenerate({ campaignId, campaign, generatedEmails, refetc
                     <div key={email.id} className="px-6 py-3 border-b border-slate-100 last:border-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-xs font-medium text-primary-600">Paso {email.step_number}</span>
-                        <span className="text-xs text-slate-400">- Dia {email.delay_days}</span>
+                        <span className="text-xs text-slate-400">- Día {email.delay_days}</span>
                         <EmailStatusBadge status={email.status} />
                       </div>
                       <p className="text-sm font-medium text-slate-800">{email.subject}</p>

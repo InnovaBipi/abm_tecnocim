@@ -145,7 +145,7 @@ export default function ProspectDetail() {
   const score = prospect.lead_score || 0;
 
   const tabs = [
-    { id: 'info', label: 'Informacion', icon: <User className="h-4 w-4" /> },
+    { id: 'info', label: 'Información', icon: <User className="h-4 w-4" /> },
     { id: 'activity', label: 'Actividad', icon: <Clock className="h-4 w-4" /> },
     { id: 'emails', label: 'Emails', icon: <Mail className="h-4 w-4" /> },
     { id: 'enrichment', label: 'Enrichment', icon: <Globe className="h-4 w-4" /> },
@@ -215,18 +215,18 @@ export default function ProspectDetail() {
           actionColor = 'bg-amber-50 border-amber-200 text-amber-800';
           onAction = () => enrichMutation.mutate();
         } else if (status === 'new' && score >= 60) {
-          actionText = 'Prospecto con score alto. Consideralo para una campana de outreach.';
-          actionButton = 'Ver campanas';
+          actionText = 'Prospecto con score alto. Consideralo para una campaña de outreach.';
+          actionButton = 'Ver campañas';
           actionIcon = <Target className="h-4 w-4" />;
           actionColor = 'bg-green-50 border-green-200 text-green-800';
           onAction = () => navigate('/campaigns');
         } else if (status === 'new' && !hasEnrichment) {
-          actionText = 'Enriquece este prospecto con IA para obtener informacion de su empresa y sector.';
+          actionText = 'Enriquece este prospecto con IA para obtener información de su empresa y sector.';
           actionButton = 'Enriquecer';
           actionIcon = <Sparkles className="h-4 w-4" />;
           onAction = () => enrichMutation.mutate();
         } else if (status === 'contacted' && score >= 50) {
-          actionText = 'Ya contactado con buen score. Revisa si ha respondido en la pestana de Emails.';
+          actionText = 'Ya contactado con buen score. Revisa si ha respondido en la pestaña de Emails.';
           actionButton = 'Ver emails';
           actionIcon = <Mail className="h-4 w-4" />;
           onAction = () => setActiveTab('emails');
@@ -288,14 +288,14 @@ export default function ProspectDetail() {
                       onChange={(e) => setEditForm((f) => ({ ...f, last_name: e.target.value }))}
                     />
                     <Input
-                      label="Correo Electronico"
+                      label="Correo Electrónico"
                       type="email"
                       value={editForm.email as string}
                       onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
                       icon={<Mail className="h-4 w-4" />}
                     />
                     <Input
-                      label="Telefono"
+                      label="Teléfono"
                       value={editForm.phone as string}
                       onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))}
                       icon={<Phone className="h-4 w-4" />}
@@ -329,7 +329,7 @@ export default function ProspectDetail() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <InfoField icon={<User className="h-4 w-4" />} label="Nombre completo" value={name} />
                     <InfoField icon={<Mail className="h-4 w-4" />} label="Email" value={prospect.email} />
-                    <InfoField icon={<Phone className="h-4 w-4" />} label="Telefono" value={prospect.phone} />
+                    <InfoField icon={<Phone className="h-4 w-4" />} label="Teléfono" value={prospect.phone} />
                     <InfoField icon={<Building2 className="h-4 w-4" />} label="Empresa" value={prospect.company_name} />
                     <InfoField icon={<Briefcase className="h-4 w-4" />} label="Cargo" value={prospect.title} />
                     <InfoField icon={<Globe className="h-4 w-4" />} label="LinkedIn" value={prospect.linkedin_url} />
@@ -525,7 +525,7 @@ export default function ProspectDetail() {
                         <div className="mb-6">
                           <div className="flex items-center gap-2 mb-2">
                             <Building2 className="h-4 w-4 text-slate-500" />
-                            <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Descripcion de la Empresa</h4>
+                            <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Descripción de la Empresa</h4>
                           </div>
                           <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 rounded-lg p-4">
                             {ai.company_description}
@@ -625,7 +625,7 @@ export default function ProspectDetail() {
                     >
                       <div className="flex items-center gap-2">
                         <FileText className="h-5 w-5 text-blue-500" />
-                        <h3 className="text-lg font-semibold text-slate-900">Investigacion Completa</h3>
+                        <h3 className="text-lg font-semibold text-slate-900">Investigación Completa</h3>
                         <span className="text-xs text-slate-400">(Perplexity AI)</span>
                       </div>
                       {showFullResearch ? (
@@ -681,7 +681,7 @@ export default function ProspectDetail() {
                       )}
                       {ai.company_annual_revenue && ai.company_annual_revenue !== 'Unknown' && (
                         <div className="p-3 rounded-lg bg-slate-50">
-                          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Facturacion Anual</p>
+                          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Facturación Anual</p>
                           <p className="text-sm text-slate-800 mt-1 font-medium">{ai.company_annual_revenue}</p>
                         </div>
                       )}

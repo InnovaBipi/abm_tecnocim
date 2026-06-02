@@ -59,7 +59,7 @@ export function CampaignBandeja({ campaignId, campaign, generatedEmails, refetch
     mutationFn: (emailIds: string[]) => campaignsApi.approveEmails(campaignId, emailIds),
     onSuccess: (res) => {
       const count = res.data?.data?.count || 0;
-      toast.success(`${count} email(s) programados para envio`);
+      toast.success(`${count} email(s) programados para envío`);
       refetchEmails();
     },
     onError: () => toast.error('Error al programar emails'),
@@ -99,7 +99,7 @@ export function CampaignBandeja({ campaignId, campaign, generatedEmails, refetch
   const updateStatusMutation = useMutation({
     mutationFn: (status: string) => campaignsApi.update(campaignId, { status }),
     onSuccess: () => {
-      toast.success('Estado de la campana actualizado');
+      toast.success('Estado de la campaña actualizado');
       queryClient.invalidateQueries({ queryKey: ['campaigns', campaignId] });
     },
     onError: () => toast.error('Error al cambiar el estado'),
@@ -114,10 +114,10 @@ export function CampaignBandeja({ campaignId, campaign, generatedEmails, refetch
             <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
             <div className="flex-1">
               <p className="text-sm font-medium text-amber-800">
-                Campana en borrador — los emails programados no se enviaran automaticamente
+                Campaña en borrador — los emails programados no se enviarán automáticamente
               </p>
               <p className="text-xs text-amber-600 mt-0.5">
-                Activa la campana para que el scheduler envie los emails en el horario optimo.
+                Activa la campaña para que el scheduler envíe los emails en el horario óptimo.
               </p>
             </div>
             <Button
@@ -125,7 +125,7 @@ export function CampaignBandeja({ campaignId, campaign, generatedEmails, refetch
               onClick={() => updateStatusMutation.mutate('active')}
               loading={updateStatusMutation.isPending}
             >
-              Activar Campana
+              Activar Campaña
             </Button>
           </div>
         )}
@@ -170,7 +170,7 @@ export function CampaignBandeja({ campaignId, campaign, generatedEmails, refetch
                 onClick={() => {
                   confirm({
                     title: 'Enviar emails ahora?',
-                    description: `Se enviaran ${allScheduledIds.length} email(s) programados inmediatamente.`,
+                    description: `Se enviarán ${allScheduledIds.length} email(s) programados inmediatamente.`,
                     confirmLabel: 'Enviar Ahora',
                     onConfirm: () => sendEmailsMutation.mutate(allScheduledIds),
                   });
@@ -237,7 +237,7 @@ export function CampaignBandeja({ campaignId, campaign, generatedEmails, refetch
                             <button
                               onClick={() => approveEmailsMutation.mutate([email.id])}
                               className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors"
-                              title="Programar envio" aria-label="Programar envio"
+                              title="Programar envío" aria-label="Programar envío"
                             >
                               <Check className="h-4 w-4" />
                             </button>

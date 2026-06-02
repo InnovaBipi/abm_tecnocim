@@ -27,8 +27,8 @@ const targetFieldOptions = [
   { value: '', label: 'No importar' },
   { value: 'first_name', label: 'Nombre' },
   { value: 'last_name', label: 'Apellido' },
-  { value: 'email', label: 'Correo Electronico' },
-  { value: 'phone', label: 'Telefono' },
+  { value: 'email', label: 'Correo Electrónico' },
+  { value: 'phone', label: 'Teléfono' },
   { value: 'company_name', label: 'Empresa' },
   { value: 'title', label: 'Cargo' },
   { value: 'seniority', label: 'Nivel Seniority' },
@@ -38,8 +38,8 @@ const targetFieldOptions = [
   { value: 'domain', label: 'Dominio empresa' },
   { value: 'industry', label: 'Industria' },
   { value: 'city', label: 'Ciudad' },
-  { value: 'region', label: 'Provincia/Region' },
-  { value: 'country', label: 'Pais' },
+  { value: 'region', label: 'Provincia/Región' },
+  { value: 'country', label: 'País' },
   { value: 'source', label: 'Fuente' },
 ];
 
@@ -74,8 +74,8 @@ type WizardStep = 1 | 2 | 3 | 4;
 const STEP_LABELS = [
   { num: 1, label: 'Subir Archivo' },
   { num: 2, label: 'Mapeo de Columnas' },
-  { num: 3, label: 'Revision de Duplicados' },
-  { num: 4, label: 'Importacion' },
+  { num: 3, label: 'Revisión de Duplicados' },
+  { num: 4, label: 'Importación' },
 ];
 
 function Stepper({ currentStep }: { currentStep: WizardStep }) {
@@ -195,12 +195,12 @@ export default function Imports() {
       const result = response.data?.data || response.data;
       setImportResult({ imported: result.imported || 0, skipped: result.skipped || 0, errors: result.errors || 0 });
       setImportProgress(100);
-      toast.success(`Importacion completada: ${result.imported || 0} registros importados`);
+      toast.success(`Importación completada: ${result.imported || 0} registros importados`);
       queryClient.invalidateQueries({ queryKey: ['imports'] });
     },
     onError: () => {
       setImportProgress(null);
-      toast.error('Error al iniciar la importacion');
+      toast.error('Error al iniciar la importación');
     },
   });
 
@@ -288,7 +288,7 @@ export default function Imports() {
                   <Upload className="h-8 w-8" />
                 </div>
                 <p className="text-lg font-medium text-slate-700">
-                  Arrastra tu archivo aqui
+                  Arrastra tu archivo aquí
                 </p>
                 <p className="text-sm text-slate-500 mt-1">
                   o haz clic para seleccionar un archivo CSV o Excel
@@ -403,7 +403,7 @@ export default function Imports() {
           <div className="px-6 py-4 border-b border-slate-200">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-semibold text-slate-900">Revision de Duplicados</h3>
+                <h3 className="font-semibold text-slate-900">Revisión de Duplicados</h3>
                 <p className="text-sm text-slate-500 mt-0.5">
                   Revisa el resumen antes de importar
                 </p>
@@ -423,7 +423,7 @@ export default function Imports() {
                 <span className="text-sm font-medium text-emerald-700">Contactos Nuevos</span>
               </div>
               <p className="text-3xl font-bold text-emerald-700">{formatNumber(duplicateCheck.valid_new)}</p>
-              <p className="text-xs text-emerald-600 mt-1">Se importaran</p>
+              <p className="text-xs text-emerald-600 mt-1">Se importarán</p>
             </div>
 
             {/* DB duplicates */}
@@ -433,7 +433,7 @@ export default function Imports() {
                 <span className="text-sm font-medium text-amber-700">Duplicados en BD</span>
               </div>
               <p className="text-3xl font-bold text-amber-700">{formatNumber(duplicateCheck.duplicates_in_db)}</p>
-              <p className="text-xs text-amber-600 mt-1">Se omitiran</p>
+              <p className="text-xs text-amber-600 mt-1">Se omitirán</p>
             </div>
 
             {/* File duplicates */}
@@ -443,17 +443,17 @@ export default function Imports() {
                 <span className="text-sm font-medium text-amber-700">Duplicados en Archivo</span>
               </div>
               <p className="text-3xl font-bold text-amber-700">{formatNumber(duplicateCheck.duplicates_in_file)}</p>
-              <p className="text-xs text-amber-600 mt-1">Se importara solo 1 de cada uno</p>
+              <p className="text-xs text-amber-600 mt-1">Se importará solo 1 de cada uno</p>
             </div>
 
             {/* Invalid */}
             <div className="rounded-xl border-2 border-red-200 bg-red-50 p-4">
               <div className="flex items-center gap-2 mb-2">
                 <XCircle className="h-5 w-5 text-red-500" />
-                <span className="text-sm font-medium text-red-700">Sin Email / Invalidos</span>
+                <span className="text-sm font-medium text-red-700">Sin Email / Inválidos</span>
               </div>
               <p className="text-3xl font-bold text-red-700">{formatNumber(duplicateCheck.invalid_no_email)}</p>
-              <p className="text-xs text-red-600 mt-1">Se omitiran</p>
+              <p className="text-xs text-red-600 mt-1">Se omitirán</p>
             </div>
           </div>
 
@@ -527,7 +527,7 @@ export default function Imports() {
         <Card padding="none">
           <div className="px-6 py-4 border-b border-slate-200">
             <h3 className="font-semibold text-slate-900">
-              {importProgress !== null && importProgress >= 100 ? 'Importacion Completada' : 'Importando...'}
+              {importProgress !== null && importProgress >= 100 ? 'Importación Completada' : 'Importando...'}
             </h3>
           </div>
 
@@ -556,7 +556,7 @@ export default function Imports() {
                     <CheckCircle className="h-6 w-6 text-emerald-600" />
                   </div>
                   <div>
-                    <p className="text-lg font-semibold text-slate-900">Importacion finalizada</p>
+                    <p className="text-lg font-semibold text-slate-900">Importación finalizada</p>
                     <p className="text-sm text-slate-500">Los contactos fueron procesados exitosamente</p>
                   </div>
                 </div>
@@ -591,7 +591,7 @@ export default function Imports() {
           {/* Actions */}
           <div className="px-6 py-4 border-t border-slate-200 flex justify-end">
             <Button onClick={resetWizard} disabled={mapMutation.isPending}>
-              Nueva Importacion
+              Nueva Importación
             </Button>
           </div>
         </Card>

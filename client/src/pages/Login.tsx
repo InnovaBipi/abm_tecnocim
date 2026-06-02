@@ -38,7 +38,7 @@ export default function Login() {
 
     try {
       await login(email, password, selectedTenant || undefined);
-      toast.success('Inicio de sesion exitoso');
+      toast.success('Inicio de sesión exitoso');
       navigate(from, { replace: true });
     } catch (error: unknown) {
       const err = error as { response?: { data?: { error?: string; tenants?: TenantOption[] } } };
@@ -49,7 +49,7 @@ export default function Login() {
         setSelectedTenant(null);
         toast('Selecciona la cuenta a la que quieres acceder', { icon: '\u2139\uFE0F' });
       } else {
-        const message = err?.response?.data?.error || 'Error al iniciar sesion. Verifica tus credenciales.';
+        const message = err?.response?.data?.error || 'Error al iniciar sesión. Verifica tus credenciales.';
         toast.error(message);
       }
     } finally {
@@ -69,12 +69,12 @@ export default function Login() {
 
         {/* Login form */}
         <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200 p-8">
-          <h2 className="text-xl font-semibold text-slate-900 mb-1">Iniciar Sesion</h2>
+          <h2 className="text-xl font-semibold text-slate-900 mb-1">Iniciar Sesión</h2>
           <p className="text-sm text-slate-500 mb-6">Ingresa tus credenciales para acceder al sistema</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input
-              label="Correo Electronico"
+              label="Correo Electrónico"
               type="email"
               placeholder="tu@email.com"
               value={email}
@@ -87,9 +87,9 @@ export default function Login() {
 
             <div className="relative">
               <Input
-                label="Contrasena"
+                label="Contraseña"
                 type={showPassword ? 'text' : 'password'}
-                placeholder="Tu contrasena"
+                placeholder="Tu contraseña"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 icon={<Lock className="h-4 w-4" />}
@@ -100,7 +100,7 @@ export default function Login() {
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3 top-[34px] p-1 text-slate-400 hover:text-slate-600 transition-colors"
-                aria-label={showPassword ? 'Ocultar contrasena' : 'Mostrar contrasena'}
+                aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
@@ -110,9 +110,9 @@ export default function Login() {
               <button
                 type="button"
                 className="text-sm text-primary-600 hover:text-primary-700 hover:underline"
-                onClick={() => toast('Contacta al administrador para restablecer tu contrasena')}
+                onClick={() => toast('Contacta al administrador para restablecer tu contraseña')}
               >
-                Olvidaste tu contrasena?
+                ¿Olvidaste tu contraseña?
               </button>
             </div>
 
@@ -146,7 +146,7 @@ export default function Login() {
               size="lg"
               loading={loading}
             >
-              {tenantOptions ? 'Acceder' : 'Iniciar Sesion'}
+              {tenantOptions ? 'Acceder' : 'Iniciar Sesión'}
             </Button>
           </form>
         </div>

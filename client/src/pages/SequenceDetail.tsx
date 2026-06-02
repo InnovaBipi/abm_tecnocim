@@ -289,7 +289,7 @@ export default function SequenceDetail() {
     <div className="p-6 lg:p-8 space-y-6">
       {/* Breadcrumb */}
       <Breadcrumb items={[
-        { label: 'Campanas', href: '/campaigns' },
+        { label: 'Campañas', href: '/campaigns' },
         { label: sequence.name || 'Secuencia' },
       ]} />
 
@@ -307,7 +307,7 @@ export default function SequenceDetail() {
               </Badge>
             </div>
             {sequence.campaign_name && (
-              <p className="text-sm text-slate-500 mt-1">Campana: {sequence.campaign_name}</p>
+              <p className="text-sm text-slate-500 mt-1">Campaña: {sequence.campaign_name}</p>
             )}
             {sequence.description && (
               <p className="text-sm text-slate-400 mt-0.5">{sequence.description}</p>
@@ -466,7 +466,7 @@ export default function SequenceDetail() {
                           <p className="text-sm font-medium text-amber-800">
                             {condConfig?.type === 'opened' ? 'Ha abierto el email?' :
                              condConfig?.type === 'clicked' ? 'Ha clicado un enlace?' :
-                             condConfig?.type === 'replied' ? 'Ha respondido?' : 'Condicion'}
+                             condConfig?.type === 'replied' ? 'Ha respondido?' : 'Condición'}
                           </p>
                           <div className="flex items-center gap-2 mt-1">
                             {condConfig?.threshold_hours && (
@@ -516,7 +516,7 @@ export default function SequenceDetail() {
                             <Clock className="h-3 w-3" />
                             {step.delay_days > 0 ? `${step.delay_days}d` : ''}
                             {step.delay_hours > 0 ? ` ${step.delay_hours}h` : ''}
-                            despues
+                            después
                           </span>
                         )}
                         {sequence.stepStats && sequence.stepStats[index] && (
@@ -613,7 +613,7 @@ export default function SequenceDetail() {
             label="Asunto del Email"
             value={stepForm.subject}
             onChange={(e) => setStepForm((f) => ({ ...f, subject: e.target.value }))}
-            placeholder="Oportunidad de inversion en Cataluna"
+            placeholder="Oportunidad de inversión en Cataluña"
           />
 
           <div>
@@ -632,7 +632,7 @@ export default function SequenceDetail() {
 
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label="Dias de espera"
+              label="Días de espera"
               type="number"
               value={stepForm.delay_days}
               onChange={(e) => setStepForm((f) => ({ ...f, delay_days: e.target.value }))}
@@ -673,10 +673,10 @@ export default function SequenceDetail() {
                 <div className="flex items-start gap-3">
                   <Wand2 className="h-5 w-5 text-purple-500 mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-sm font-medium text-purple-900">Generacion inteligente</p>
+                    <p className="text-sm font-medium text-purple-900">Generación inteligente</p>
                     <p className="text-xs text-purple-700 mt-1">
-                      Selecciona un prospecto con datos de enrichment. La IA usara su perfil, empresa,
-                      investigacion y la informacion de la campana para generar emails hiper-personalizados.
+                      Selecciona un prospecto con datos de enrichment. La IA usará su perfil, empresa,
+                      investigación y la información de la campaña para generar emails hiper-personalizados.
                     </p>
                   </div>
                 </div>
@@ -821,7 +821,7 @@ export default function SequenceDetail() {
                         <div>
                           <p className="text-sm font-medium text-slate-900">{step.subject}</p>
                           <p className="text-xs text-slate-400 mt-0.5">
-                            {step.delay_days === 0 ? 'Envio inmediato' : `Dia ${step.delay_days}`}
+                            {step.delay_days === 0 ? 'Envío inmediato' : `Día ${step.delay_days}`}
                           </p>
                         </div>
                       </div>

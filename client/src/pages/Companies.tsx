@@ -37,14 +37,14 @@ const tierOptions = [
 
 const industryOptions = [
   { value: '', label: 'Todas las industrias' },
-  { value: 'technology', label: 'Tecnologia' },
+  { value: 'technology', label: 'Tecnología' },
   { value: 'finance', label: 'Finanzas' },
   { value: 'healthcare', label: 'Salud' },
-  { value: 'education', label: 'Educacion' },
+  { value: 'education', label: 'Educación' },
   { value: 'real_estate', label: 'Inmobiliaria' },
   { value: 'retail', label: 'Retail' },
   { value: 'manufacturing', label: 'Manufactura' },
-  { value: 'consulting', label: 'Consultoria' },
+  { value: 'consulting', label: 'Consultoría' },
   { value: 'other', label: 'Otra' },
 ];
 
@@ -211,7 +211,7 @@ export default function Companies() {
                 <TableCell isHeader>Industria</TableCell>
                 <TableCell isHeader className="text-center">Tier</TableCell>
                 <TableCell isHeader className="text-center">Prospectos</TableCell>
-                <TableCell isHeader className="text-center">Puntuacion</TableCell>
+                <TableCell isHeader className="text-center">Puntuación</TableCell>
                 <TableCell isHeader className="w-20">Acciones</TableCell>
               </TableRow>
             </TableHead>
@@ -275,8 +275,8 @@ export default function Companies() {
                       <button
                         onClick={() => {
                           confirm({
-                            title: 'Eliminar empresa?',
-                            description: `Se eliminara "${company.name}" permanentemente.`,
+                            title: '¿Eliminar empresa?',
+                            description: `Se eliminará "${company.name}" permanentemente.`,
                             confirmLabel: 'Eliminar',
                             onConfirm: () => deleteMutation.mutate(id),
                           });
@@ -357,19 +357,19 @@ export default function Companies() {
             />
           </div>
           <Input
-            label="Direccion"
+            label="Dirección"
             value={createForm.address}
             onChange={(e) => setCreateForm((f) => ({ ...f, address: e.target.value }))}
             placeholder="Buenos Aires, Argentina"
           />
           <div>
-            <label className="form-label">Descripcion</label>
+            <label className="form-label">Descripción</label>
             <textarea
               value={createForm.description}
               onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))}
               rows={3}
               className="form-input"
-              placeholder="Descripcion de la empresa..."
+              placeholder="Descripción de la empresa..."
             />
           </div>
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">

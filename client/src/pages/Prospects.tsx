@@ -45,7 +45,7 @@ const statusOptions = [
 const sourceOptions = [
   { value: '', label: 'Todas las fuentes' },
   { value: 'manual', label: 'Manual' },
-  { value: 'import', label: 'Importacion' },
+  { value: 'import', label: 'Importación' },
   { value: 'web', label: 'Web' },
   { value: 'referral', label: 'Referido' },
   { value: 'linkedin', label: 'LinkedIn' },
@@ -57,7 +57,7 @@ const bulkEditStatusOptions = [
   { value: 'qualified', label: 'Calificado' },
   { value: 'enriched', label: 'Enriquecido' },
   { value: 'interested', label: 'Interesado' },
-  { value: 'meeting', label: 'Reunion' },
+  { value: 'meeting', label: 'Reunión' },
   { value: 'converted', label: 'Convertido' },
   { value: 'unsubscribed', label: 'Desuscrito' },
   { value: 'bounced', label: 'Rebotado' },
@@ -186,13 +186,13 @@ export default function Prospects() {
       prospectsApi.bulkAddToCampaign(ids, campaignId),
     onSuccess: (res) => {
       const d = res.data?.data;
-      toast.success(`${d?.addedCount || 0} prospecto(s) agregados. ${d?.skippedCount || 0} ya estaban en la campana.`);
+      toast.success(`${d?.addedCount || 0} prospecto(s) agregados. ${d?.skippedCount || 0} ya estaban en la campaña.`);
       setShowAddToCampaignModal(false);
       setSelectedCampaignId(null);
       setSelectedIds([]);
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
     },
-    onError: () => toast.error('Error al agregar prospectos a la campana'),
+    onError: () => toast.error('Error al agregar prospectos a la campaña'),
   });
 
   const availableCampaigns = campaignsData?.data?.data?.campaigns || [];
@@ -401,7 +401,7 @@ export default function Prospects() {
               icon={<Megaphone className="h-3.5 w-3.5" />}
               onClick={() => setShowAddToCampaignModal(true)}
             >
-              Agregar a campana
+              Agregar a campaña
             </Button>
             <Button
               variant="danger"
@@ -411,7 +411,7 @@ export default function Prospects() {
               onClick={() => {
                 confirm({
                   title: `Eliminar ${selectedIds.length} prospecto(s)?`,
-                  description: 'Esta accion no se puede deshacer. Los prospectos seran eliminados permanentemente.',
+                  description: 'Esta acción no se puede deshacer. Los prospectos serán eliminados permanentemente.',
                   confirmLabel: 'Eliminar',
                   onConfirm: () => bulkDeleteMutation.mutate(selectedIds),
                 });
@@ -465,9 +465,9 @@ export default function Prospects() {
                 <TableCell isHeader>Email</TableCell>
                 <TableCell isHeader>Empresa</TableCell>
                 <TableCell isHeader>Cargo</TableCell>
-                <SortableHeader label="Puntuacion" field="lead_score" currentSort={sortBy} currentDirection={sortDirection} onSort={handleSort} className="text-center" />
+                <SortableHeader label="Puntuación" field="lead_score" currentSort={sortBy} currentDirection={sortDirection} onSort={handleSort} className="text-center" />
                 <SortableHeader label="Estado" field="status" currentSort={sortBy} currentDirection={sortDirection} onSort={handleSort} />
-                <SortableHeader label="Ultima actividad" field="last_contacted" currentSort={sortBy} currentDirection={sortDirection} onSort={handleSort} />
+                <SortableHeader label="Última actividad" field="last_contacted" currentSort={sortBy} currentDirection={sortDirection} onSort={handleSort} />
                 <TableCell isHeader className="w-20">Acciones</TableCell>
               </TableRow>
             </TableHead>
@@ -517,7 +517,7 @@ export default function Prospects() {
                           e.stopPropagation();
                           confirm({
                             title: 'Eliminar prospecto?',
-                            description: `Se eliminara a ${name} permanentemente.`,
+                            description: `Se eliminará a ${name} permanentemente.`,
                             confirmLabel: 'Eliminar',
                             onConfirm: () => deleteMutation.mutate(id),
                           });
@@ -570,7 +570,7 @@ export default function Prospects() {
             />
           </div>
           <Input
-            label="Correo Electronico"
+            label="Correo Electrónico"
             type="email"
             value={createForm.email}
             onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))}
@@ -578,7 +578,7 @@ export default function Prospects() {
             required
           />
           <Input
-            label="Telefono"
+            label="Teléfono"
             value={createForm.phone}
             onChange={(e) => setCreateForm((f) => ({ ...f, phone: e.target.value }))}
             placeholder="+54 11 1234-5678"
@@ -619,7 +619,7 @@ export default function Prospects() {
           setShowAddToCampaignModal(false);
           setSelectedCampaignId(null);
         }}
-        title="Agregar a Campana"
+        title="Agregar a Campaña"
         size="lg"
       >
         <div className="space-y-4">
@@ -628,18 +628,18 @@ export default function Prospects() {
           </p>
 
           <div>
-            <label className="form-label">Selecciona una campana</label>
+            <label className="form-label">Selecciona una campaña</label>
             <div className="max-h-[300px] overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
               {campaignsLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-                  <span className="ml-2 text-sm text-slate-400">Cargando campanas...</span>
+                  <span className="ml-2 text-sm text-slate-400">Cargando campañas...</span>
                 </div>
               ) : availableCampaigns.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-slate-400">
                   <Megaphone className="h-6 w-6 mb-1" />
-                  <p className="text-sm">Sin campanas disponibles</p>
-                  <p className="text-xs mt-1">Crea una campana primero</p>
+                  <p className="text-sm">Sin campañas disponibles</p>
+                  <p className="text-xs mt-1">Crea una campaña primero</p>
                 </div>
               ) : (
                 availableCampaigns.map((campaign: Record<string, unknown>) => {
@@ -658,7 +658,7 @@ export default function Prospects() {
                         checked={isSelected}
                         onChange={() => setSelectedCampaignId(cId)}
                         className="text-primary-600"
-                        aria-label={`Seleccionar campana ${campaign.name as string}`}
+                        aria-label={`Seleccionar campaña ${campaign.name as string}`}
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-900">{campaign.name as string}</p>
@@ -701,7 +701,7 @@ export default function Prospects() {
                 loading={addToCampaignMutation.isPending}
                 disabled={!selectedCampaignId}
               >
-                Agregar a Campana
+                Agregar a Campaña
               </Button>
             </div>
           </div>

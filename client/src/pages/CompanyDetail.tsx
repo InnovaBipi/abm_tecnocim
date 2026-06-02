@@ -89,7 +89,7 @@ export default function CompanyDetail() {
   };
 
   const tabs = [
-    { id: 'info', label: 'Informacion', icon: <Info className="h-4 w-4" /> },
+    { id: 'info', label: 'Información', icon: <Info className="h-4 w-4" /> },
     { id: 'prospects', label: `Prospectos (${prospects.length})`, icon: <Users className="h-4 w-4" /> },
     { id: 'engagement', label: 'Engagement', icon: <TrendingUp className="h-4 w-4" /> },
   ];
@@ -211,7 +211,7 @@ export default function CompanyDetail() {
           <p className="text-2xl font-bold text-slate-900 mt-1">{company.employee_count ? formatNumber(company.employee_count) : '-'}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-xs text-slate-500 font-medium">Ubicacion</p>
+          <p className="text-xs text-slate-500 font-medium">Ubicación</p>
           <p className="text-sm font-medium text-slate-900 mt-1 flex items-center gap-1">
             <MapPin className="h-3.5 w-3.5 text-slate-400" />
             {[company.city, company.country].filter(Boolean).join(', ') || '-'}
@@ -244,10 +244,10 @@ export default function CompanyDetail() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <Input label="Ciudad" value={editForm.city as string} onChange={(e) => setEditForm((f) => ({ ...f, city: e.target.value }))} />
-                  <Input label="Pais" value={editForm.country as string} onChange={(e) => setEditForm((f) => ({ ...f, country: e.target.value }))} />
+                  <Input label="País" value={editForm.country as string} onChange={(e) => setEditForm((f) => ({ ...f, country: e.target.value }))} />
                 </div>
                 <div>
-                  <label className="form-label">Descripcion</label>
+                  <label className="form-label">Descripción</label>
                   <textarea
                     value={editForm.description as string}
                     onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
@@ -260,7 +260,7 @@ export default function CompanyDetail() {
               <div className="space-y-6">
                 {company.description && (
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">Descripcion</h3>
+                    <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">Descripción</h3>
                     <p className="text-sm text-slate-700 leading-relaxed">{company.description}</p>
                   </div>
                 )}
@@ -282,7 +282,7 @@ export default function CompanyDetail() {
                       </div>
                       <div className="flex justify-between">
                         <dt className="text-sm text-slate-500">Target</dt>
-                        <dd className="text-sm font-medium text-slate-900">{company.is_target ? 'Si' : 'No'}</dd>
+                        <dd className="text-sm font-medium text-slate-900">{company.is_target ? 'Sí' : 'No'}</dd>
                       </div>
                     </dl>
                   </div>
@@ -318,7 +318,7 @@ export default function CompanyDetail() {
                 <EmptyState
                   icon={<UserPlus className="h-7 w-7" />}
                   title="Sin prospectos asociados"
-                  description="Aun no hay prospectos vinculados a esta empresa"
+                  description="Aún no hay prospectos vinculados a esta empresa"
                   action={{ label: 'Ver prospectos', onClick: () => navigate('/prospects') }}
                 />
               </Card>
@@ -331,7 +331,7 @@ export default function CompanyDetail() {
                     <TableCell isHeader>Cargo</TableCell>
                     <TableCell isHeader className="text-center">Score</TableCell>
                     <TableCell isHeader>Estado</TableCell>
-                    <TableCell isHeader>Ultima actividad</TableCell>
+                    <TableCell isHeader>Última actividad</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -374,8 +374,8 @@ export default function CompanyDetail() {
           <Card>
             <EmptyState
               icon={<Mail className="h-7 w-7" />}
-              title="Proximamente"
-              description="Las metricas de engagement a nivel empresa estaran disponibles pronto"
+              title="Próximamente"
+              description="Las métricas de engagement a nivel empresa estarán disponibles pronto"
             />
           </Card>
         )}

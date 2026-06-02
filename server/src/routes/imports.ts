@@ -264,7 +264,7 @@ router.post('/:id/map', async (req: Request, res: Response): Promise<void> => {
     res.json({
       success: true,
       data: {
-        message: `Importacion completada: ${result.imported} importados, ${result.skipped} omitidos, ${result.errors} errores.`,
+        message: `Importación completada: ${result.imported} importados, ${result.skipped} omitidos, ${result.errors} errores.`,
         import_id: id,
         status: 'completed',
         ...result,

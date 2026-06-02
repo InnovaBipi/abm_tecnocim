@@ -106,11 +106,11 @@ export default function Settings() {
     mutationFn: (data: { currentPassword: string; newPassword: string }) =>
       settingsApi.changePassword(data),
     onSuccess: () => {
-      toast.success('Contrasena cambiada exitosamente');
+      toast.success('Contraseña cambiada exitosamente');
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
     },
     onError: () => {
-      toast.error('Error al cambiar la contrasena');
+      toast.error('Error al cambiar la contraseña');
     },
   });
 
@@ -155,11 +155,11 @@ export default function Settings() {
   const updateEmailMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => settingsApi.updateEmailSettings(data),
     onSuccess: () => {
-      toast.success('Configuracion de email actualizada');
+      toast.success('Configuración de email actualizada');
       queryClient.invalidateQueries({ queryKey: ['settings', 'email'] });
     },
     onError: () => {
-      toast.error('Error al actualizar la configuracion de email');
+      toast.error('Error al actualizar la configuración de email');
     },
   });
 
@@ -233,11 +233,11 @@ export default function Settings() {
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      toast.error('Las contrasenas no coinciden');
+      toast.error('Las contraseñas no coinciden');
       return;
     }
     if (passwordForm.newPassword.length < 6) {
-      toast.error('La nueva contrasena debe tener al menos 6 caracteres');
+      toast.error('La nueva contraseña debe tener al menos 6 caracteres');
       return;
     }
     changePasswordMutation.mutate({
@@ -273,8 +273,8 @@ export default function Settings() {
     <div className="p-6 lg:p-8 space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Configuracion</h1>
-        <p className="text-slate-500 mt-1">Administra la configuracion de tu plataforma</p>
+        <h1 className="text-2xl font-bold text-slate-900">Configuración</h1>
+        <p className="text-slate-500 mt-1">Administra la configuración de tu plataforma</p>
       </div>
 
       <Tabs
@@ -312,7 +312,7 @@ export default function Settings() {
                       onChange={(e) => setProfileForm((f) => ({ ...f, last_name: e.target.value }))}
                     />
                     <Input
-                      label="Correo Electronico"
+                      label="Correo Electrónico"
                       type="email"
                       value={profileForm.email}
                       onChange={(e) => setProfileForm((f) => ({ ...f, email: e.target.value }))}
@@ -321,7 +321,7 @@ export default function Settings() {
 
                     <hr className="my-4 border-slate-200" />
                     <h3 className="text-sm font-semibold text-slate-700 mb-1">Remitente de Emails</h3>
-                    <p className="text-xs text-slate-500 mb-3">Estos datos se usaran como remitente cuando envies emails desde la plataforma.</p>
+                    <p className="text-xs text-slate-500 mb-3">Estos datos se usarán como remitente cuando envíes emails desde la plataforma.</p>
 
                     <Input
                       label="Email de Remitente"
@@ -345,24 +345,24 @@ export default function Settings() {
 
                   <hr className="my-6 border-slate-200" />
 
-                  <h3 className="text-sm font-semibold text-slate-700 mb-3">Cambiar Contrasena</h3>
+                  <h3 className="text-sm font-semibold text-slate-700 mb-3">Cambiar Contraseña</h3>
                   <form onSubmit={handlePasswordSubmit} className="space-y-4 max-w-lg">
                     <Input
-                      label="Contrasena Actual"
+                      label="Contraseña Actual"
                       type={showPasswords ? 'text' : 'password'}
                       value={passwordForm.currentPassword}
                       onChange={(e) => setPasswordForm((f) => ({ ...f, currentPassword: e.target.value }))}
                       required
                     />
                     <Input
-                      label="Nueva Contrasena"
+                      label="Nueva Contraseña"
                       type={showPasswords ? 'text' : 'password'}
                       value={passwordForm.newPassword}
                       onChange={(e) => setPasswordForm((f) => ({ ...f, newPassword: e.target.value }))}
                       required
                     />
                     <Input
-                      label="Confirmar Nueva Contrasena"
+                      label="Confirmar Nueva Contraseña"
                       type={showPasswords ? 'text' : 'password'}
                       value={passwordForm.confirmPassword}
                       onChange={(e) => setPasswordForm((f) => ({ ...f, confirmPassword: e.target.value }))}
@@ -370,7 +370,7 @@ export default function Settings() {
                     />
                     <div className="flex items-center gap-4">
                       <Button type="submit" loading={changePasswordMutation.isPending}>
-                        Cambiar Contrasena
+                        Cambiar Contraseña
                       </Button>
                       <button
                         type="button"
@@ -489,7 +489,7 @@ export default function Settings() {
                 </div>
                 <Input label="Email" type="email" value={userForm.email} onChange={(e) => setUserForm(f => ({ ...f, email: e.target.value }))} required />
                 {!editingUser && (
-                  <Input label="Contrasena" type="password" value={userForm.password} onChange={(e) => setUserForm(f => ({ ...f, password: e.target.value }))} required />
+                  <Input label="Contraseña" type="password" value={userForm.password} onChange={(e) => setUserForm(f => ({ ...f, password: e.target.value }))} required />
                 )}
                 <Select
                   label="Rol"
@@ -521,7 +521,7 @@ export default function Settings() {
                 <CardHeader>
                   <div className="flex items-center gap-2">
                     <Mail className="h-5 w-5 text-primary-600" />
-                    <h2 className="text-lg font-semibold text-slate-900">Configuracion de Email</h2>
+                    <h2 className="text-lg font-semibold text-slate-900">Configuración de Email</h2>
                     {emailSettings?.is_configured ? (
                       <Badge variant="success">
                         <CheckCircle className="h-3 w-3 mr-1" /> Configurado
@@ -568,12 +568,12 @@ export default function Settings() {
                         value={emailForm.notification_email || ''}
                         onChange={(e) => setEmailForm((f) => ({ ...f, notification_email: e.target.value }))}
                         placeholder="admin@tudominio.com"
-                        helperText="Recibe resumen de envios programados"
+                        helperText="Recibe resumen de envíos programados"
                       />
                     </div>
 
                     <hr className="border-slate-200" />
-                    <h3 className="text-sm font-semibold text-slate-700">IMAP (Deteccion de Respuestas)</h3>
+                    <h3 className="text-sm font-semibold text-slate-700">IMAP (Detección de Respuestas)</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <Input
                         label="Servidor IMAP"
@@ -594,11 +594,11 @@ export default function Settings() {
                         placeholder="user@tudominio.com"
                       />
                       <Input
-                        label="Contrasena IMAP"
+                        label="Contraseña IMAP"
                         type="password"
                         value={emailForm.imap_pass || ''}
                         onChange={(e) => setEmailForm((f) => ({ ...f, imap_pass: e.target.value }))}
-                        placeholder="Dejar vacio para no cambiar"
+                        placeholder="Dejar vacío para no cambiar"
                       />
                     </div>
                     {emailSettings?.imap_configured && (
@@ -612,7 +612,7 @@ export default function Settings() {
                       loading={updateEmailMutation.isPending}
                       icon={<Save className="h-4 w-4" />}
                     >
-                      Guardar Configuracion de Email
+                      Guardar Configuración de Email
                     </Button>
                   </form>
                 </CardContent>
@@ -715,7 +715,7 @@ export default function Settings() {
                         <TableRow hoverable={false}>
                           <TableCell isHeader>Nombre</TableCell>
                           <TableCell isHeader>Campo</TableCell>
-                          <TableCell isHeader>Condicion</TableCell>
+                          <TableCell isHeader>Condición</TableCell>
                           <TableCell isHeader>Valor</TableCell>
                           <TableCell isHeader className="text-center">Puntos</TableCell>
                           <TableCell isHeader className="w-24">Acciones</TableCell>
@@ -754,7 +754,7 @@ export default function Settings() {
                                     onClick={() => {
                                       confirm({
                                         title: 'Eliminar regla de scoring?',
-                                        description: 'Los scores de los prospectos se recalcularan sin esta regla.',
+                                        description: 'Los scores de los prospectos se recalcularán sin esta regla.',
                                         confirmLabel: 'Eliminar',
                                         onConfirm: () => deleteRuleMutation.mutate(ruleId),
                                       });
@@ -805,7 +805,7 @@ export default function Settings() {
           />
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="form-label">Condicion</label>
+              <label className="form-label">Condición</label>
               <select
                 value={ruleForm.condition}
                 onChange={(e) => setRuleForm((f) => ({ ...f, condition: e.target.value }))}
@@ -815,7 +815,7 @@ export default function Settings() {
                 <option value="contains">Contiene</option>
                 <option value="starts_with">Empieza con</option>
                 <option value="ends_with">Termina con</option>
-                <option value="not_empty">No esta vacio</option>
+                <option value="not_empty">No está vacío</option>
                 <option value="greater_than">Mayor que</option>
                 <option value="less_than">Menor que</option>
               </select>

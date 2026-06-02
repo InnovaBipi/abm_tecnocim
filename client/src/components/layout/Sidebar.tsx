@@ -28,7 +28,7 @@ export function Sidebar() {
     { to: '/campaigns', label: entityLabel, icon: Building },
     { to: '/outbox', label: 'Bandeja de Salida', icon: Send },
     { to: '/imports', label: 'Importar', icon: Upload },
-    { to: '/settings', label: 'Configuracion', icon: Settings },
+    { to: '/settings', label: 'Configuración', icon: Settings },
   ];
 
   const isActive = (path: string) => {
@@ -86,7 +86,7 @@ export function Sidebar() {
           <button
             onClick={logout}
             className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-white/5 transition-colors"
-            title="Cerrar sesion"
+            title="Cerrar sesión"
           >
             <LogOut className="h-4 w-4" />
           </button>
