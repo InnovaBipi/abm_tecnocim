@@ -98,11 +98,40 @@ export async function pollImapForTenant(
         const senderAddress = msg.envelope?.from?.[0]?.address?.toLowerCase();
         if (!senderAddress) continue;
 
-        // Check if sender is a prospect in this tenant
-        const matchedProspects = await query<any[]>(
+        // Check if sender is a prospect in this tenant (exact email match)
+        let matchedProspects = await query<any[]>(
           'SELECT id, status FROM prospects WHERE LOWER(email) = ? AND tenant_id = ? LIMIT 1',
           [senderAddress, tenantId]
         );
+
+        // Fallback: domain match. Generic-inbox outreach (info@, ir@, comercial@...) often gets
+        // replies from a personal address (name@company.com) that does NOT equal the stored
+        // generic email. If exactly ONE prospect in this tenant shares the sender's domain,
+        // link the reply to that prospect. Unambiguous-only (LIMIT 2 -> require length === 1)
+        // and free-email providers are excluded so personal mailboxes never aggregate.
+        let matchType = 'exact';
+        if (matchedProspects.length === 0) {
+          const atIdx = senderAddress.lastIndexOf('@');
+          const senderDomain = atIdx >= 0 ? senderAddress.slice(atIdx + 1) : '';
+          const FREE_DOMAINS = new Set([
+            'gmail.com', 'googlemail.com', 'hotmail.com', 'hotmail.es', 'outlook.com', 'outlook.es',
+            'live.com', 'yahoo.com', 'yahoo.es', 'icloud.com', 'me.com', 'aol.com',
+            'proton.me', 'protonmail.com',
+          ]);
+          if (senderDomain && !FREE_DOMAINS.has(senderDomain)) {
+            const domainMatches = await query<any[]>(
+              `SELECT id, status FROM prospects
+               WHERE tenant_id = ? AND LOWER(SUBSTRING_INDEX(email, '@', -1)) = ?
+               LIMIT 2`,
+              [tenantId, senderDomain]
+            );
+            if (domainMatches.length === 1) {
+              matchedProspects = domainMatches;
+              matchType = 'domain';
+              console.log(`IMAP [${tenantId}]: domain-matched reply from ${senderAddress} -> prospect ${domainMatches[0].id} (domain ${senderDomain})`);
+            }
+          }
+        }
         if (matchedProspects.length === 0) continue;
 
         const prospect = matchedProspects[0];
@@ -205,6 +234,7 @@ export async function pollImapForTenant(
               source: 'imap',
               from: senderAddress,
               uid: msg.uid,
+              match_type: matchType,
               reply_classification: replyClassification,
               reply_snippet: replyBodyText.substring(0, 500),
             }),
