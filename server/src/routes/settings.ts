@@ -163,6 +163,7 @@ router.get('/email', async (req: Request, res: Response): Promise<void> => {
         notification_email: emailConfig.notification_email || '',
         resend_api_key: effectiveKey ? effectiveKey.substring(0, 8) + '...' : '',
         is_configured: !!effectiveKey,
+        webhook_configured: !!emailConfig.webhook_secret,
         imap_host: imapConfig.host || '',
         imap_port: imapConfig.port || 993,
         imap_user: imapConfig.user || '',
@@ -177,7 +178,7 @@ router.get('/email', async (req: Request, res: Response): Promise<void> => {
 
 router.put('/email', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { from_email, from_name, reply_to, notification_email, resend_api_key, imap_host, imap_port, imap_user, imap_pass } = req.body;
+    const { from_email, from_name, reply_to, notification_email, resend_api_key, webhook_secret, imap_host, imap_port, imap_user, imap_pass } = req.body;
 
     // Build the JSON_SET query to update specific fields in config
     const updates: string[] = [];
@@ -188,6 +189,7 @@ router.put('/email', async (req: Request, res: Response): Promise<void> => {
     if (reply_to !== undefined) { updates.push("'$.email.reply_to', ?"); params.push(reply_to); }
     if (notification_email !== undefined) { updates.push("'$.email.notification_email', ?"); params.push(notification_email); }
     if (resend_api_key !== undefined) { updates.push("'$.email.resend_api_key', ?"); params.push(resend_api_key); }
+    if (webhook_secret !== undefined) { updates.push("'$.email.webhook_secret', ?"); params.push(webhook_secret); }
     if (imap_host !== undefined) { updates.push("'$.imap.host', ?"); params.push(imap_host); }
     if (imap_port !== undefined) { updates.push("'$.imap.port', ?"); params.push(imap_port); }
     if (imap_user !== undefined) { updates.push("'$.imap.user', ?"); params.push(imap_user); }

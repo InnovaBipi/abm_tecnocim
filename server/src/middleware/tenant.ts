@@ -7,6 +7,7 @@ export interface TenantConfig {
     from_name: string;
     reply_to: string;
     notification_email: string;
+    webhook_secret?: string;
   };
   imap: {
     host: string;
