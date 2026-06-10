@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { query } from '../config/database';
-import { authenticate, hashPassword, comparePassword } from '../middleware/auth';
+import { authenticate, hashPassword, comparePassword, requireRole } from '../middleware/auth';
 import { config } from '../config/env';
 import { getTenantConfig, clearTenantCache } from '../middleware/tenant';
 
@@ -216,6 +216,59 @@ router.put('/email', async (req: Request, res: Response): Promise<void> => {
   } catch (error: any) {
     console.error('Update email settings error:', error);
     res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+// --- POST /email/webhook-setup - Create the Resend webhook using the tenant's own stored key ---
+// Server-side: the resend_api_key never leaves the server (the API masks it on read,
+// so this is the only way to wire the webhook without exposing the key).
+router.post('/email/webhook-setup', requireRole('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const tenant = await getTenantConfig(req.user!.tenantId);
+    if (!tenant) {
+      res.status(404).json({ success: false, error: 'Tenant not found.' });
+      return;
+    }
+
+    const apiKey = tenant.config.email?.resend_api_key || config.RESEND_API_KEY;
+    if (!apiKey) {
+      res.status(400).json({ success: false, error: 'No Resend API key configured for this tenant.' });
+      return;
+    }
+
+    const base = (config.FRONTEND_URL && config.FRONTEND_URL.startsWith('http') && !config.FRONTEND_URL.includes('localhost'))
+      ? config.FRONTEND_URL.replace(/\/$/, '')
+      : 'https://abm.tecnociminnova.com';
+    const endpoint = (typeof req.body?.endpoint === 'string' && req.body.endpoint.startsWith('https://'))
+      ? req.body.endpoint
+      : `${base}/api/webhooks/resend`;
+    const events = ['email.sent', 'email.delivered', 'email.opened', 'email.clicked', 'email.bounced', 'email.complained'];
+
+    const resp = await fetch('https://api.resend.com/webhooks', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint, events }),
+    });
+    const data: any = await resp.json().catch(() => ({}));
+
+    if (!resp.ok || !data?.signing_secret) {
+      res.status(502).json({ success: false, error: `Resend webhook creation failed: ${data?.message || `HTTP ${resp.status}`}` });
+      return;
+    }
+
+    await query(
+      `UPDATE tenants SET config = JSON_SET(config, '$.email.webhook_secret', ?) WHERE id = ?`,
+      [data.signing_secret, req.user!.tenantId]
+    );
+    clearTenantCache(req.user!.tenantId);
+
+    res.json({
+      success: true,
+      data: { message: 'Webhook created and signing secret stored.', webhook_id: data.id, endpoint, events },
+    });
+  } catch (error: any) {
+    console.error('Webhook setup error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred while setting up the webhook.' });
   }
 });
 
