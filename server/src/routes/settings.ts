@@ -16,7 +16,7 @@ router.use(authenticate);
 router.get('/profile', async (req: Request, res: Response): Promise<void> => {
   try {
     const users = await query<any[]>(
-      'SELECT * FROM users WHERE id = ?',
+      'SELECT id, tenant_id, email, first_name, last_name, role, sender_email, sender_name, is_active, last_login, created_at, updated_at FROM users WHERE id = ?',
       [req.user!.id]
     );
 
@@ -93,7 +93,8 @@ router.put('/profile', async (req: Request, res: Response): Promise<void> => {
       [req.user!.id]
     );
 
-    res.json({ success: true, data: updated[0] });
+    const { password: _pw, ...safeUser } = updated[0] || {};
+    res.json({ success: true, data: safeUser });
   } catch (error: any) {
     console.error('Update profile error:', error);
     res.status(500).json({ success: false, error: 'An error occurred.' });
@@ -176,9 +177,27 @@ router.get('/email', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
-router.put('/email', async (req: Request, res: Response): Promise<void> => {
+const emailSettingsSchema = z.object({
+  from_email: z.string().email().optional(),
+  from_name: z.string().max(200).optional(),
+  reply_to: z.string().email().optional(),
+  notification_email: z.string().email().optional(),
+  resend_api_key: z.string().max(200).optional(),
+  webhook_secret: z.string().max(200).optional(),
+  imap_host: z.string().max(255).optional(),
+  imap_port: z.coerce.number().int().min(1).max(65535).optional(),
+  imap_user: z.string().max(255).optional(),
+  imap_pass: z.string().max(500).optional(),
+}).strict();
+
+router.put('/email', requireRole('admin', 'manager'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const { from_email, from_name, reply_to, notification_email, resend_api_key, webhook_secret, imap_host, imap_port, imap_user, imap_pass } = req.body;
+    const validation = emailSettingsSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ success: false, error: 'Validation failed', details: validation.error.flatten().fieldErrors });
+      return;
+    }
+    const { from_email, from_name, reply_to, notification_email, resend_api_key, webhook_secret, imap_host, imap_port, imap_user, imap_pass } = validation.data;
 
     // Build the JSON_SET query to update specific fields in config
     const updates: string[] = [];
@@ -299,9 +318,22 @@ router.get('/legal', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
-router.put('/legal', async (req: Request, res: Response): Promise<void> => {
+const legalSettingsSchema = z.object({
+  legal_name: z.string().max(255).optional(),
+  cif: z.string().max(64).optional(),
+  address: z.string().max(500).optional(),
+  privacy_url: z.string().max(500).optional(),
+  data_source: z.string().max(255).optional(),
+}).strict();
+
+router.put('/legal', requireRole('admin', 'manager'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const { legal_name, cif, address, privacy_url, data_source } = req.body;
+    const validation = legalSettingsSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ success: false, error: 'Validation failed', details: validation.error.flatten().fieldErrors });
+      return;
+    }
+    const { legal_name, cif, address, privacy_url, data_source } = validation.data;
 
     // Collect only provided fields (partial update). Sending null clears a field.
     const patch: Record<string, any> = {};
@@ -343,9 +375,20 @@ router.put('/legal', async (req: Request, res: Response): Promise<void> => {
 
 // --- Warmup Settings ---
 
-router.put('/warmup', async (req: Request, res: Response): Promise<void> => {
+const warmupSettingsSchema = z.object({
+  daily_limit_base: z.coerce.number().int().min(1).max(10000).optional(),
+  daily_limit_max: z.coerce.number().int().min(1).max(10000).optional(),
+  ramp_up_days: z.coerce.number().int().min(1).max(365).optional(),
+}).strict();
+
+router.put('/warmup', requireRole('admin', 'manager'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const { daily_limit_base, daily_limit_max, ramp_up_days } = req.body;
+    const validation = warmupSettingsSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ success: false, error: 'Validation failed', details: validation.error.flatten().fieldErrors });
+      return;
+    }
+    const { daily_limit_base, daily_limit_max, ramp_up_days } = validation.data;
 
     const updates: string[] = [];
     const params: any[] = [];
@@ -439,7 +482,7 @@ const createRuleSchema = z.object({
   score: z.number(),
 });
 
-router.post('/scoring-rules', async (req: Request, res: Response): Promise<void> => {
+router.post('/scoring-rules', requireRole('admin', 'manager'), async (req: Request, res: Response): Promise<void> => {
   try {
     const validation = createRuleSchema.safeParse(req.body);
     if (!validation.success) {
@@ -487,7 +530,7 @@ router.post('/scoring-rules', async (req: Request, res: Response): Promise<void>
   }
 });
 
-router.put('/scoring-rules/:id', async (req: Request, res: Response): Promise<void> => {
+router.put('/scoring-rules/:id', requireRole('admin', 'manager'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
 
@@ -520,7 +563,7 @@ router.put('/scoring-rules/:id', async (req: Request, res: Response): Promise<vo
   }
 });
 
-router.delete('/scoring-rules/:id', async (req: Request, res: Response): Promise<void> => {
+router.delete('/scoring-rules/:id', requireRole('admin', 'manager'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
 

@@ -36,6 +36,10 @@ async function main(): Promise<void> {
   // Create Express app
   const app = express();
 
+  // Trust the DigitalOcean App Platform reverse proxy so req.ip reflects the real
+  // client IP (X-Forwarded-For), not the proxy. Required for IP-based rate limiting.
+  app.set('trust proxy', 1);
+
   // --- Global Middleware ---
 
   // Security headers
@@ -125,11 +129,11 @@ async function main(): Promise<void> {
   app.use('/api/imports', uploadLimiter, importRoutes);
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/settings', settingsRoutes);
+  // Email sending rate limit MUST be registered before the outbox router, otherwise
+  // the router handles /send first and the limiter never runs.
+  app.use('/api/outbox/send', sendLimiter);
   app.use('/api/outbox', outboxRoutes);
   app.use('/api/users', usersRoutes);
-
-  // Email sending rate limit on specific send endpoint
-  app.use('/api/outbox/send', sendLimiter);
 
   // Admin: run pending migrations on-demand
   app.post('/api/admin/migrate', authenticate, async (req, res) => {

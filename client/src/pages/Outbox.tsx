@@ -22,6 +22,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { formatRelativeDate } from '@/lib/utils';
+import { sanitizeHtml } from '@/lib/sanitize';
 import { useConfirmDialog } from '@/hooks/useConfirmDialog';
 import toast from 'react-hot-toast';
 
@@ -427,7 +428,7 @@ export default function Outbox() {
               <div className="border border-slate-200 rounded-lg p-4 bg-white">
                 <div
                   className="prose prose-sm max-w-none text-slate-700"
-                  dangerouslySetInnerHTML={{ __html: previewEmail.body_html }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(previewEmail.body_html) }}
                 />
               </div>
             </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { campaignsApi, outboxApi } from '@/services/api';
+import { sanitizeHtml } from '@/lib/sanitize';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -229,7 +230,7 @@ export function CampaignBandeja({ campaignId, campaign, generatedEmails, refetch
                           <p className="text-sm font-medium text-slate-800 truncate">{email.subject}</p>
                           <div
                             className="text-xs text-slate-500 mt-1 line-clamp-2"
-                            dangerouslySetInnerHTML={{ __html: email.body_html }}
+                            dangerouslySetInnerHTML={{ __html: sanitizeHtml(email.body_html) }}
                           />
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
@@ -325,7 +326,7 @@ export function CampaignBandeja({ campaignId, campaign, generatedEmails, refetch
                           {editBody ? (
                             <div
                               className="prose prose-sm max-w-none text-slate-700"
-                              dangerouslySetInnerHTML={{ __html: editBody }}
+                              dangerouslySetInnerHTML={{ __html: sanitizeHtml(editBody) }}
                             />
                           ) : (
                             <p className="text-sm text-slate-400 italic">Sin contenido</p>

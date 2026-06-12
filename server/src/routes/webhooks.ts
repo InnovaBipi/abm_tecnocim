@@ -67,7 +67,15 @@ async function verifyWebhookSignature(req: Request): Promise<boolean> {
     }
   } catch { /* if DB fails, continue with what we have */ }
 
-  if (secrets.length === 0) return true; // No secrets configured, skip verification
+  // No secrets configured: fail-closed in production (never accept unsigned webhooks),
+  // allow only in development to ease local testing.
+  if (secrets.length === 0) {
+    if (config.NODE_ENV === 'production') {
+      console.warn('Webhook rejected: no signing secret configured for any tenant');
+      return false;
+    }
+    return true;
+  }
 
   for (const secret of secrets) {
     if (checkSignature(secret, svixId, svixTimestamp, svixSignature, rawBody)) {

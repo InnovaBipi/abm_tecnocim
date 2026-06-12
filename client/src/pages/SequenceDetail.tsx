@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sequencesApi, prospectsApi } from '@/services/api';
+import { sanitizeHtml } from '@/lib/sanitize';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -834,7 +835,7 @@ export default function SequenceDetail() {
                       <div className="px-4 pb-4 border-t border-slate-100">
                         <div
                           className="mt-3 text-sm text-slate-700 leading-relaxed prose prose-sm max-w-none"
-                          dangerouslySetInnerHTML={{ __html: step.body_html }}
+                          dangerouslySetInnerHTML={{ __html: sanitizeHtml(step.body_html) }}
                         />
                       </div>
                     )}

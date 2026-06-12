@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { campaignsApi } from '@/services/api';
+import { sanitizeHtml } from '@/lib/sanitize';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import {
@@ -148,7 +149,7 @@ export function CampaignGenerate({ campaignId, campaign, generatedEmails, refetc
                       <p className="text-sm font-medium text-slate-800">{email.subject}</p>
                       <div
                         className="text-xs text-slate-600 mt-1 line-clamp-3"
-                        dangerouslySetInnerHTML={{ __html: email.body_html }}
+                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(email.body_html) }}
                       />
                     </div>
                   ))}
