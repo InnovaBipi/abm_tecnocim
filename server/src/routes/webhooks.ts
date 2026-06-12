@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 import { config } from '../config/env';
 import { getAllActiveTenants } from '../middleware/tenant';
+import { decryptSecret } from '../utils/crypto';
 
 const router = Router();
 
@@ -56,6 +57,9 @@ async function verifyWebhookSignature(req: Request): Promise<boolean> {
   const rawBody = (req as any).rawBody || JSON.stringify(req.body);
 
   // Collect all secrets to try: global env + per-tenant
+  // The env secret is never encrypted; per-tenant secrets are stored encrypted
+  // at rest, so they MUST be passed through decryptSecret() before use.
+  // decryptSecret() is backward-compatible: it returns legacy plaintext unchanged.
   const secrets: string[] = [];
   if (config.RESEND_WEBHOOK_SECRET) secrets.push(config.RESEND_WEBHOOK_SECRET);
 
@@ -63,7 +67,15 @@ async function verifyWebhookSignature(req: Request): Promise<boolean> {
     const tenants = await getAllActiveTenants();
     for (const t of tenants) {
       const ws = (t.config.email as any)?.webhook_secret;
-      if (ws && !secrets.includes(ws)) secrets.push(ws);
+      if (!ws) continue;
+      let decrypted: string;
+      try {
+        decrypted = decryptSecret(ws);
+      } catch {
+        // Malformed/undecryptable secret for this tenant — skip it, try the rest
+        continue;
+      }
+      if (decrypted && !secrets.includes(decrypted)) secrets.push(decrypted);
     }
   } catch { /* if DB fails, continue with what we have */ }
 
@@ -149,13 +161,28 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
     let tenantId: string | null = null;
 
     if (originalEvents.length > 0) {
+      // PREFERRED PATH: the resend_email_id uniquely identifies the original
+      // send, so prospect_id + tenant_id come straight from our own record.
+      // This is authoritative and never crosses tenants.
       prospectId = originalEvents[0].prospect_id;
       sequenceId = originalEvents[0].sequence_id;
       enrollmentId = originalEvents[0].enrollment_id;
       stepId = originalEvents[0].step_id;
       tenantId = originalEvents[0].tenant_id;
     } else {
-      // Try to find prospect by email (could be any tenant)
+      // FALLBACK PATH (best-effort): no email_event matched the resend_email_id
+      // (e.g. the event predates event recording). The Resend webhook is GLOBAL,
+      // so this lookup intentionally cannot be scoped to a single tenant up front.
+      //
+      // RISK: if the same email exists as a prospect in more than one tenant we
+      // could attribute the event to the wrong tenant. To bound the blast radius
+      // we match the EXACT email only (no domain/fuzzy match) and take a single
+      // row. The resend_email_id match above is ALWAYS preferred over this email
+      // match, so this branch only runs when we have no authoritative record.
+      // All downstream INSERT/UPDATE statements use the tenant_id resolved here,
+      // so they stay tenant-consistent.
+      // NOTE: this single SELECT is the one deliberate cross-tenant read; it is
+      // safe because it only resolves which tenant owns the recipient.
       if (recipientEmail) {
         const prospects = await query<any[]>(
           'SELECT id, tenant_id FROM prospects WHERE email = ? LIMIT 1',
@@ -301,11 +328,11 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
             );
           }
 
-          // Insert score history record
+          // Insert score history record (tenant-scoped)
           await query(
-            `INSERT INTO prospect_score_history (id, prospect_id, score, score_breakdown)
-             VALUES (?, ?, ?, ?)`,
-            [uuidv4(), prospectId, p.lead_score, JSON.stringify({ trigger: 'email_clicked', increment: 10 })]
+            `INSERT INTO prospect_score_history (id, tenant_id, prospect_id, score, score_breakdown)
+             VALUES (?, ?, ?, ?, ?)`,
+            [uuidv4(), tenantId, prospectId, p.lead_score, JSON.stringify({ trigger: 'email_clicked', increment: 10 })]
           );
         }
 

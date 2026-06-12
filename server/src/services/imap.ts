@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 import { getAllActiveTenants } from '../middleware/tenant';
 import { classifyReply } from './ai';
+import { decryptSecret } from '../utils/crypto';
 
 /**
  * Poll IMAP inbox for a single tenant.
@@ -20,7 +21,7 @@ export async function pollImapForTenant(
     secure: true,
     auth: {
       user: imapConfig.user,
-      pass: imapConfig.pass,
+      pass: decryptSecret(imapConfig.pass),
     },
     logger: false,
   });

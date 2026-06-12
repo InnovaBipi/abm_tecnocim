@@ -74,18 +74,45 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
           return;
         }
       } else {
-        // Return list of available tenants so frontend can ask user to choose
-        // Don't verify password yet — just signal that disambiguation is needed
-        res.status(409).json({
-          success: false,
-          error: 'multiple_tenants',
-          tenants: users.map((u: any) => ({
-            slug: u.tenant_slug,
-            name: u.tenant_name,
-            logo_url: u.tenant_logo_url,
-          })),
-        });
-        return;
+        // Do NOT reveal which tenants an email belongs to before authentication —
+        // that would leak tenant membership to anyone who knows the email. Verify
+        // the password against every candidate tenant FIRST, then disambiguate.
+        const matches: any[] = [];
+        for (const candidate of users) {
+          // eslint-disable-next-line no-await-in-loop
+          const ok = await comparePassword(password, candidate.password);
+          if (ok) {
+            matches.push(candidate);
+          }
+        }
+
+        if (matches.length === 0) {
+          // Password invalid in all tenants — same generic error, no enumeration.
+          res.status(401).json({
+            success: false,
+            error: 'Invalid email or password.',
+          });
+          return;
+        }
+
+        if (matches.length === 1) {
+          // Authenticated against exactly one tenant — log straight in.
+          user = matches[0];
+        } else {
+          // Authenticated against multiple tenants (same email+password reused).
+          // Now it's safe to ask the user to choose — they've proven they own
+          // the credentials for these tenants.
+          res.status(409).json({
+            success: false,
+            error: 'multiple_tenants',
+            tenants: matches.map((u: any) => ({
+              slug: u.tenant_slug,
+              name: u.tenant_name,
+              logo_url: u.tenant_logo_url,
+            })),
+          });
+          return;
+        }
       }
     } else {
       user = users[0];

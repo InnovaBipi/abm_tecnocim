@@ -5,6 +5,7 @@ import { logger } from '../config/logger';
 import { query } from '../config/database';
 import { getEmailFooter, getUnsubscribeUrl } from '../routes/unsubscribe';
 import { getTenantConfig, type Tenant } from '../middleware/tenant';
+import { decryptSecret } from '../utils/crypto';
 
 // Per-tenant Resend client cache
 const resendClients = new Map<string, Resend>();
@@ -48,7 +49,10 @@ export async function sendEmail(
 
   if (tenantId) {
     tenant = await getTenantConfig(tenantId);
-    const apiKey = tenant?.config?.email?.resend_api_key || config.RESEND_API_KEY;
+    const tenantApiKey = tenant?.config?.email?.resend_api_key
+      ? decryptSecret(tenant.config.email.resend_api_key)
+      : '';
+    const apiKey = tenantApiKey || config.RESEND_API_KEY;
     client = getResendClientForTenant(apiKey);
   } else {
     client = getResendClient();

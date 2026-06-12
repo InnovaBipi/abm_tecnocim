@@ -5,6 +5,7 @@ import { query } from '../config/database';
 import { authenticate, hashPassword, comparePassword, requireRole } from '../middleware/auth';
 import { config } from '../config/env';
 import { getTenantConfig, clearTenantCache } from '../middleware/tenant';
+import { encryptSecret, decryptSecret } from '../utils/crypto';
 
 const router = Router();
 
@@ -37,6 +38,7 @@ const updateProfileSchema = z.object({
   first_name: z.string().optional(),
   last_name: z.string().optional(),
   email: z.string().email().optional(),
+  current_password: z.string().optional(),
   sender_email: z.string().email().nullable().optional(),
   sender_name: z.string().nullable().optional(),
 });
@@ -50,6 +52,27 @@ router.put('/profile', async (req: Request, res: Response): Promise<void> => {
     }
 
     const data = validation.data;
+
+    // Changing the email requires re-authenticating with the current password.
+    if (data.email !== undefined) {
+      const current = await query<any[]>('SELECT email, password FROM users WHERE id = ?', [req.user!.id]);
+      if (current.length === 0) {
+        res.status(404).json({ success: false, error: 'User not found.' });
+        return;
+      }
+      if (data.email !== current[0].email) {
+        if (!data.current_password) {
+          res.status(400).json({ success: false, error: 'Current password is required to change email.' });
+          return;
+        }
+        const isValid = await comparePassword(data.current_password, current[0].password);
+        if (!isValid) {
+          res.status(401).json({ success: false, error: 'Current password is incorrect.' });
+          return;
+        }
+      }
+    }
+
     const setClauses: string[] = [];
     const params: any[] = [];
 
@@ -153,7 +176,9 @@ router.get('/email', async (req: Request, res: Response): Promise<void> => {
     const emailConfig = tenant.config.email || {};
     const imapConfig = tenant.config.imap || {};
 
-    const effectiveKey = emailConfig.resend_api_key || config.RESEND_API_KEY;
+    // Decrypt at-rest secrets before masking (stored keys may be 'enc:v1:' or legacy plaintext).
+    const storedKey = emailConfig.resend_api_key ? decryptSecret(emailConfig.resend_api_key) : '';
+    const effectiveKey = storedKey || config.RESEND_API_KEY;
 
     res.json({
       success: true,
@@ -207,12 +232,13 @@ router.put('/email', requireRole('admin', 'manager'), async (req: Request, res: 
     if (from_name !== undefined) { updates.push("'$.email.from_name', ?"); params.push(from_name); }
     if (reply_to !== undefined) { updates.push("'$.email.reply_to', ?"); params.push(reply_to); }
     if (notification_email !== undefined) { updates.push("'$.email.notification_email', ?"); params.push(notification_email); }
-    if (resend_api_key !== undefined) { updates.push("'$.email.resend_api_key', ?"); params.push(resend_api_key); }
-    if (webhook_secret !== undefined) { updates.push("'$.email.webhook_secret', ?"); params.push(webhook_secret); }
+    // Secrets are encrypted at rest (no-op when SECRETS_ENCRYPTION_KEY is unset).
+    if (resend_api_key !== undefined) { updates.push("'$.email.resend_api_key', ?"); params.push(encryptSecret(resend_api_key)); }
+    if (webhook_secret !== undefined) { updates.push("'$.email.webhook_secret', ?"); params.push(encryptSecret(webhook_secret)); }
     if (imap_host !== undefined) { updates.push("'$.imap.host', ?"); params.push(imap_host); }
     if (imap_port !== undefined) { updates.push("'$.imap.port', ?"); params.push(imap_port); }
     if (imap_user !== undefined) { updates.push("'$.imap.user', ?"); params.push(imap_user); }
-    if (imap_pass !== undefined) { updates.push("'$.imap.pass', ?"); params.push(imap_pass); }
+    if (imap_pass !== undefined) { updates.push("'$.imap.pass', ?"); params.push(encryptSecret(imap_pass)); }
 
     if (updates.length === 0) {
       res.status(400).json({ success: false, error: 'No fields to update.' });
@@ -249,7 +275,8 @@ router.post('/email/webhook-setup', requireRole('admin'), async (req: Request, r
       return;
     }
 
-    const apiKey = tenant.config.email?.resend_api_key || config.RESEND_API_KEY;
+    const storedApiKey = tenant.config.email?.resend_api_key ? decryptSecret(tenant.config.email.resend_api_key) : '';
+    const apiKey = storedApiKey || config.RESEND_API_KEY;
     if (!apiKey) {
       res.status(400).json({ success: false, error: 'No Resend API key configured for this tenant.' });
       return;
@@ -277,7 +304,7 @@ router.post('/email/webhook-setup', requireRole('admin'), async (req: Request, r
 
     await query(
       `UPDATE tenants SET config = JSON_SET(config, '$.email.webhook_secret', ?) WHERE id = ?`,
-      [data.signing_secret, req.user!.tenantId]
+      [encryptSecret(data.signing_secret), req.user!.tenantId]
     );
     clearTenantCache(req.user!.tenantId);
 

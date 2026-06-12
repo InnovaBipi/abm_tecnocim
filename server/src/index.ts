@@ -45,6 +45,28 @@ async function main(): Promise<void> {
   // Security headers
   app.use(helmet());
 
+  // Content-Security-Policy in NON-BREAKING Report-Only mode. This never blocks
+  // any resource — it only surfaces violations (if a report-uri/report-to is
+  // configured) so the policy can be validated against the SPA before being
+  // enforced. helmet's default CSP is disabled above; enabling enforced CSP
+  // would break inline styles/images in the React SPA, so we intentionally only
+  // emit the Report-Only header here.
+  app.use(
+    helmet.contentSecurityPolicy({
+      reportOnly: true,
+      useDefaults: false,
+      directives: {
+        'default-src': ["'self'"],
+        'img-src': ["'self'", 'data:', 'https:'],
+        'style-src': ["'self'", "'unsafe-inline'"],
+        'script-src': ["'self'"],
+        'object-src': ["'none'"],
+        'frame-ancestors': ["'none'"],
+        'base-uri': ["'self'"],
+      },
+    })
+  );
+
   // CORS - allow frontend origin
   app.use(cors({
     origin: config.FRONTEND_URL,
