@@ -214,7 +214,12 @@ router.get('/export', async (req: Request, res: Response): Promise<void> => {
 
     const escapeCsvField = (value: unknown): string => {
       if (value === null || value === undefined) return '';
-      const str = String(value);
+      let str = String(value);
+      // Neutralize CSV formula injection: a leading =, +, -, @, tab or CR makes
+      // spreadsheet apps evaluate the cell as a formula. Prefix with a single quote.
+      if (/^[=+\-@\t\r]/.test(str)) {
+        str = "'" + str;
+      }
       if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
         return '"' + str.replace(/"/g, '""') + '"';
       }

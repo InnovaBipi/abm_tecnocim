@@ -44,7 +44,7 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, config.JWT_SECRET) as JwtPayload;
+    const decoded = jwt.verify(token, config.JWT_SECRET, { algorithms: ['HS256'] }) as JwtPayload;
 
     req.user = {
       id: decoded.userId,
@@ -85,7 +85,7 @@ export function optionalAuth(req: Request, res: Response, next: NextFunction): v
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, config.JWT_SECRET) as JwtPayload;
+    const decoded = jwt.verify(token, config.JWT_SECRET, { algorithms: ['HS256'] }) as JwtPayload;
     req.user = {
       id: decoded.userId,
       email: decoded.email,

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { companiesApi, prospectsApi } from '@/services/api';
+import { safeExternalUrl } from '@/lib/sanitize';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -290,13 +291,13 @@ export default function CompanyDetail() {
                     <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Links</h3>
                     <div className="space-y-2">
                       {company.website_url && (
-                        <a href={company.website_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-primary-600 hover:underline">
+                        <a href={safeExternalUrl(company.website_url)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-primary-600 hover:underline">
                           <Globe className="h-4 w-4" /> Website
                           <ExternalLink className="h-3 w-3" />
                         </a>
                       )}
                       {company.linkedin_url && (
-                        <a href={company.linkedin_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-primary-600 hover:underline">
+                        <a href={safeExternalUrl(company.linkedin_url)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-primary-600 hover:underline">
                           <Linkedin className="h-4 w-4" /> LinkedIn
                           <ExternalLink className="h-3 w-3" />
                         </a>
