@@ -3,8 +3,15 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../config/database';
 import { getTenantConfig, buildTenantAIContext } from '../../middleware/tenant';
 import { resolveProspectTimezone, distributeEmailsAcrossBusinessDays, isBusinessDay, getNextBusinessDay } from '../../services/scheduling';
+import { sanitizeEmailHtml } from '../../utils/sanitizeHtml';
 
 const router = Router();
+
+// Defensive caps to bound cost / DoS on unbounded loops.
+const MAX_NUM_STEPS = 7;
+const MAX_PROSPECTS_PER_REQUEST = 500;
+const MAX_BULK_INSERT_EMAILS = 1000;
+const MAX_EMAIL_IDS = 500;
 
 // --- POST /:id/generate-emails - Generate personalized emails with AI ---
 router.post('/:id/generate-emails', async (req: Request, res: Response): Promise<void> => {
@@ -14,6 +21,18 @@ router.post('/:id/generate-emails', async (req: Request, res: Response): Promise
 
     if (!prospect_ids || !Array.isArray(prospect_ids) || prospect_ids.length === 0) {
       res.status(400).json({ success: false, error: 'prospect_ids array is required.' });
+      return;
+    }
+
+    // Bound the prospect loop defensively (cost / DoS).
+    if (prospect_ids.length > MAX_PROSPECTS_PER_REQUEST) {
+      res.status(400).json({ success: false, error: `prospect_ids cannot exceed ${MAX_PROSPECTS_PER_REQUEST} per request.` });
+      return;
+    }
+
+    // Validate num_steps to a reasonable range (1..7).
+    if (!Number.isInteger(num_steps) || num_steps < 1 || num_steps > MAX_NUM_STEPS) {
+      res.status(400).json({ success: false, error: `num_steps must be an integer between 1 and ${MAX_NUM_STEPS}.` });
       return;
     }
 
@@ -109,12 +128,13 @@ router.post('/:id/generate-emails', async (req: Request, res: Response): Promise
         // Save generated emails to DB
         for (const step of generatedSteps) {
           const emailId = uuidv4();
+          const safeBodyHtml = sanitizeEmailHtml(step.body_html);
           await query(
             `INSERT INTO generated_emails (id, tenant_id, campaign_id, prospect_id, step_number, subject, body_html, delay_days, status)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')
              ON DUPLICATE KEY UPDATE subject = VALUES(subject), body_html = VALUES(body_html),
              delay_days = VALUES(delay_days), status = 'draft', updated_at = NOW()`,
-            [emailId, req.user!.tenantId, id, prospectId, step.step_number, step.subject, step.body_html, step.delay_days]
+            [emailId, req.user!.tenantId, id, prospectId, step.step_number, step.subject, safeBodyHtml, step.delay_days]
           );
         }
 
@@ -250,7 +270,7 @@ router.put('/:id/generated-emails/:emailId', async (req: Request, res: Response)
     }
     if (body_html !== undefined) {
       setClauses.push('body_html = ?');
-      params.push(body_html);
+      params.push(sanitizeEmailHtml(body_html));
     }
     if (status !== undefined) {
       setClauses.push('status = ?');
@@ -308,6 +328,10 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
 
     if (!email_ids || !Array.isArray(email_ids) || email_ids.length === 0) {
       res.status(400).json({ success: false, error: 'email_ids array is required.' });
+      return;
+    }
+    if (email_ids.length > MAX_EMAIL_IDS) {
+      res.status(400).json({ success: false, error: `email_ids cannot exceed ${MAX_EMAIL_IDS} per request.` });
       return;
     }
 
@@ -389,6 +413,10 @@ router.post('/:id/reject-emails', async (req: Request, res: Response): Promise<v
       res.status(400).json({ success: false, error: 'email_ids array is required.' });
       return;
     }
+    if (email_ids.length > MAX_EMAIL_IDS) {
+      res.status(400).json({ success: false, error: `email_ids cannot exceed ${MAX_EMAIL_IDS} per request.` });
+      return;
+    }
 
     const placeholders = email_ids.map(() => '?').join(',');
     await query(
@@ -412,6 +440,12 @@ router.post('/:id/bulk-insert-emails', async (req: Request, res: Response): Prom
 
     if (!emails || !Array.isArray(emails) || emails.length === 0) {
       res.status(400).json({ success: false, error: 'emails array is required.' });
+      return;
+    }
+
+    // Bound the insert loop defensively (cost / DoS).
+    if (emails.length > MAX_BULK_INSERT_EMAILS) {
+      res.status(400).json({ success: false, error: `emails cannot exceed ${MAX_BULK_INSERT_EMAILS} per request.` });
       return;
     }
 
@@ -441,7 +475,7 @@ router.post('/:id/bulk-insert-emails', async (req: Request, res: Response): Prom
       await query(
         `INSERT INTO generated_emails (id, tenant_id, campaign_id, prospect_id, step_number, subject, body_html, delay_days, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
-        [emailId, tenantId, id, email.prospect_id, email.step_number || 1, email.subject, email.body_html, email.delay_days || 0]
+        [emailId, tenantId, id, email.prospect_id, email.step_number || 1, email.subject, sanitizeEmailHtml(email.body_html), email.delay_days || 0]
       );
       inserted++;
     }

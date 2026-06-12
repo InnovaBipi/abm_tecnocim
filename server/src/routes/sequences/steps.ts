@@ -3,13 +3,18 @@ import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { query, getConnection } from '../../config/database';
 import { getTenantConfig, buildTenantAIContext } from '../../middleware/tenant';
+import { sanitizeEmailHtml } from '../../utils/sanitizeHtml';
 
 const router = Router();
+
+// Defensive caps to bound cost / DoS on unbounded loops.
+const MAX_STEPS = 50;
+const MAX_NUM_STEPS = 7;
 
 // --- Validation Schemas ---
 
 const stepSchema = z.object({
-  step_number: z.number().positive(),
+  step_number: z.number().int().positive().max(MAX_STEPS),
   step_type: z.enum(['email', 'wait', 'condition']).optional(),
   subject: z.string().optional().nullable(),
   body_html: z.string().optional().nullable(),
@@ -29,7 +34,7 @@ const stepSchema = z.object({
 });
 
 const addStepsSchema = z.object({
-  steps: z.array(stepSchema).min(1, 'At least one step is required'),
+  steps: z.array(stepSchema).min(1, 'At least one step is required').max(MAX_STEPS, `At most ${MAX_STEPS} steps are allowed`),
 });
 
 // --- POST /:id/steps - Add/update steps ---
@@ -81,7 +86,7 @@ router.post('/:id/steps', async (req: Request, res: Response): Promise<void> => 
             step.step_number,
             step.step_type || 'email',
             step.subject || null,
-            step.body_html || null,
+            step.body_html ? sanitizeEmailHtml(step.body_html) : null,
             step.body_text || null,
             step.delay_days || 0,
             step.delay_hours || 0,
@@ -128,6 +133,12 @@ router.post('/:id/generate-personalized', async (req: Request, res: Response): P
 
     if (!prospect_id) {
       res.status(400).json({ success: false, error: 'prospect_id is required.' });
+      return;
+    }
+
+    // Validate num_steps to a reasonable range (1..7) when provided.
+    if (num_steps !== undefined && (!Number.isInteger(num_steps) || num_steps < 1 || num_steps > MAX_NUM_STEPS)) {
+      res.status(400).json({ success: false, error: `num_steps must be an integer between 1 and ${MAX_NUM_STEPS}.` });
       return;
     }
 
@@ -442,7 +453,7 @@ router.post('/:id/generate-branched', async (req: Request, res: Response): Promi
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
           [
             stepId, id, step.step_number, step.step_type,
-            step.subject || null, step.body_html || null,
+            step.subject || null, step.body_html ? sanitizeEmailHtml(step.body_html) : null,
             step.delay_days, step.delay_hours,
             step.branch_label || null,
             step.condition_config ? JSON.stringify(step.condition_config) : null,

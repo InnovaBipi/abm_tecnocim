@@ -1,11 +1,21 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import { z } from 'zod';
 import { query } from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { getTenantConfig } from '../middleware/tenant';
 import { calculateOptimalSendTime, resolveProspectTimezone, distributeEmailsAcrossBusinessDays, getWarmupDailyLimit, isBusinessDay } from '../services/scheduling';
 
 const router = Router();
+
+// Defensive cap to bound batch send / approve loops (cost / DoS).
+const MAX_EMAIL_IDS = 200;
+
+// Bounded array of UUIDs for batch operations on email ids.
+const emailIdsSchema = z
+  .array(z.string().uuid())
+  .min(1, 'email_ids array is required')
+  .max(MAX_EMAIL_IDS, `email_ids cannot exceed ${MAX_EMAIL_IDS} per request`);
 
 router.use(authenticate);
 
@@ -183,12 +193,12 @@ router.put('/:emailId/reject', async (req: Request, res: Response): Promise<void
 // --- POST /bulk-approve - Bulk approve → schedule emails (warmup-aware) ---
 router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email_ids } = req.body;
-
-    if (!email_ids || !Array.isArray(email_ids) || email_ids.length === 0) {
-      res.status(400).json({ success: false, error: 'email_ids array is required.' });
+    const parsed = emailIdsSchema.safeParse(req.body?.email_ids);
+    if (!parsed.success) {
+      res.status(400).json({ success: false, error: parsed.error.issues[0]?.message || 'Invalid email_ids.' });
       return;
     }
+    const email_ids = parsed.data;
 
     const tenantId = req.user!.tenantId;
 
@@ -258,8 +268,16 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
 
     const { email_ids } = req.body;
 
-    // If email_ids provided, send only those. Otherwise, send all scheduled.
+    // If email_ids provided, validate + bound it (cost / DoS). Otherwise, send all scheduled.
     let emailsToSend: any[];
+
+    if (email_ids !== undefined && email_ids !== null) {
+      const parsed = emailIdsSchema.safeParse(email_ids);
+      if (!parsed.success) {
+        res.status(400).json({ success: false, error: parsed.error.issues[0]?.message || 'Invalid email_ids.' });
+        return;
+      }
+    }
 
     if (email_ids && Array.isArray(email_ids) && email_ids.length > 0) {
       const placeholders = email_ids.map(() => '?').join(',');
@@ -434,6 +452,15 @@ router.post('/redistribute', async (req: Request, res: Response): Promise<void> 
   try {
     const { email_ids, campaign_id } = req.body;
     const tenantId = req.user!.tenantId;
+
+    // If email_ids provided, validate + bound it (cost / DoS).
+    if (email_ids !== undefined && email_ids !== null) {
+      const parsed = emailIdsSchema.safeParse(email_ids);
+      if (!parsed.success) {
+        res.status(400).json({ success: false, error: parsed.error.issues[0]?.message || 'Invalid email_ids.' });
+        return;
+      }
+    }
 
     let whereClause = 'ge.tenant_id = ? AND p.tenant_id = ? AND ge.status = \'scheduled\'';
     const params: any[] = [tenantId, tenantId];

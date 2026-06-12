@@ -33,16 +33,28 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  // MIME types browsers / OSes legitimately report for CSV and Excel files.
+  // Note: many clients send octet-stream or text/plain for .csv, so we treat
+  // those as "neutral" (not proof, but not disqualifying either).
   const allowedMimeTypes = [
     'text/csv',
     'text/plain',
+    'application/csv',
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/octet-stream',
   ];
   const allowedExtensions = ['.csv', '.xls', '.xlsx'];
   const ext = path.extname(file.originalname).toLowerCase();
+  const mime = (file.mimetype || '').toLowerCase();
 
-  if (allowedMimeTypes.includes(file.mimetype) || allowedExtensions.includes(ext)) {
+  // Hardened policy (stricter than the previous "mime OR ext"):
+  // 1) The extension MUST be one of the allowed spreadsheet extensions, AND
+  // 2) the reported MIME must be coherent (in the allow-list) — generic
+  //    octet-stream / text/plain are tolerated because real clients send them.
+  // This rejects e.g. "evil.exe" renamed traffic and disallowed-extension files
+  // while keeping every legitimate CSV/Excel upload working.
+  if (allowedExtensions.includes(ext) && allowedMimeTypes.includes(mime)) {
     cb(null, true);
   } else {
     cb(new Error('Only CSV and Excel files are allowed.'));
