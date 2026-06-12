@@ -1,21 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { query } from '../config/database';
-import { authenticate, generateToken, hashPassword, comparePassword } from '../middleware/auth';
-import { getTenantConfig, getTenantBySlug } from '../middleware/tenant';
+import { authenticate, generateToken, comparePassword } from '../middleware/auth';
+import { getTenantConfig, sanitizeTenantConfig } from '../middleware/tenant';
 
 const router = Router();
 
 // --- Validation Schemas ---
-
-const registerSchema = z.object({
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-  first_name: z.string().min(1, 'First name is required'),
-  last_name: z.string().min(1, 'Last name is required'),
-  tenant_slug: z.string().min(1, 'Tenant slug is required'),
-});
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -23,86 +14,14 @@ const loginSchema = z.object({
 });
 
 // --- POST /register ---
-router.post('/register', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const validation = registerSchema.safeParse(req.body);
-    if (!validation.success) {
-      res.status(400).json({
-        success: false,
-        error: 'Validation failed',
-        details: validation.error.flatten().fieldErrors,
-      });
-      return;
-    }
-
-    const { email, password, first_name, last_name, tenant_slug } = validation.data;
-
-    // Resolve tenant by slug
-    const tenant = await getTenantBySlug(tenant_slug);
-    if (!tenant) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid tenant.',
-      });
-      return;
-    }
-
-    // Check if user already exists in this tenant
-    const existing = await query<any[]>(
-      'SELECT id FROM users WHERE email = ? AND tenant_id = ?',
-      [email, tenant.id]
-    );
-
-    if (existing.length > 0) {
-      res.status(409).json({
-        success: false,
-        error: 'An account with this email already exists.',
-      });
-      return;
-    }
-
-    // Hash password and create user
-    const hashedPassword = await hashPassword(password);
-    const userId = uuidv4();
-
-    await query(
-      `INSERT INTO users (id, tenant_id, email, password, first_name, last_name, role)
-       VALUES (?, ?, ?, ?, ?, ?, 'member')`,
-      [userId, tenant.id, email, hashedPassword, first_name, last_name]
-    );
-
-    // Generate JWT with tenantId
-    const token = generateToken(userId, email, 'member', tenant.id);
-
-    res.status(201).json({
-      success: true,
-      data: {
-        token,
-        user: {
-          id: userId,
-          email,
-          first_name,
-          last_name,
-          role: 'member',
-        },
-        tenant: {
-          id: tenant.id,
-          name: tenant.name,
-          slug: tenant.slug,
-          logo_url: tenant.logo_url,
-          primary_color: tenant.primary_color,
-          secondary_color: tenant.secondary_color,
-          config: tenant.config,
-        },
-      },
-    });
-  } catch (error: any) {
-    console.error('Registration error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'An error occurred during registration.',
-    });
-  }
+// Public self-registration is DISABLED. The platform is invite-only: accounts are
+// provisioned by a tenant admin via POST /api/users (requireRole('admin')). Leaving an
+// open registration endpoint let anyone create a member account in any tenant by slug.
+router.post('/register', async (_req: Request, res: Response): Promise<void> => {
+  res.status(403).json({
+    success: false,
+    error: 'Public registration is disabled. Contact your administrator to request access.',
+  });
 });
 
 // --- POST /login ---
@@ -239,7 +158,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
           logo_url: user.tenant_logo_url,
           primary_color: user.tenant_primary_color,
           secondary_color: user.tenant_secondary_color,
-          config: tenantConfig,
+          config: sanitizeTenantConfig(tenantConfig),
         },
       },
     });
@@ -290,7 +209,7 @@ router.get('/me', authenticate, async (req: Request, res: Response): Promise<voi
           logo_url: tenant.logo_url,
           primary_color: tenant.primary_color,
           secondary_color: tenant.secondary_color,
-          config: tenant.config,
+          config: sanitizeTenantConfig(tenant.config),
         } : null,
       },
     });

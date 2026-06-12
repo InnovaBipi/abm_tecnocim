@@ -28,7 +28,7 @@ const get = (p) => new Promise((r, j) => {
 
 (async () => {
   // Login
-  const login = await post('/api/auth/login', { email: 'alfons.marques@tecnocim.com', password: 'Tecnocim2026!', tenant_slug: 'tecnocim' });
+  const login = await post('/api/auth/login', { email: 'alfons.marques@tecnocim.com', password: process.env.ABM_PASSWORD, tenant_slug: 'tecnocim' });
   if (!login.success) { console.log('Login failed:', login.error); return; }
   TOKEN = login.data.token;
 

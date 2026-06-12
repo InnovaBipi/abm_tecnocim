@@ -133,6 +133,31 @@ export async function getTenantBySlug(slug: string): Promise<Tenant | null> {
 }
 
 /**
+ * Remove per-tenant secrets from a config object before it is sent to the client.
+ * NEVER expose resend_api_key, webhook_secret, or IMAP credentials in an API response.
+ * Deep-clones so the in-memory tenant cache is never mutated.
+ */
+export function sanitizeTenantConfig(config: any): any {
+  const c = JSON.parse(JSON.stringify(config || {}));
+  if (c.email) {
+    delete c.email.resend_api_key;
+    delete c.email.webhook_secret;
+  }
+  // IMAP credentials (incl. pass) are never needed by the frontend; the Settings
+  // page reads connection status via the admin-only GET /api/settings/email.
+  delete c.imap;
+  return c;
+}
+
+/**
+ * Return a tenant safe to send to the client (secrets stripped from config).
+ * Use this in every API response that includes a tenant.
+ */
+export function publicTenantView(tenant: Tenant): Tenant {
+  return { ...tenant, config: sanitizeTenantConfig(tenant.config) };
+}
+
+/**
  * Clear the tenant config cache (call after settings changes).
  */
 export function clearTenantCache(tenantId?: string): void {

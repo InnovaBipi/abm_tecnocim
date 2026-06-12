@@ -19,6 +19,13 @@ vi.mock('../config/database', () => ({
 vi.mock('../middleware/tenant', () => ({
   getTenantBySlug: vi.fn(),
   getTenantConfig: vi.fn(),
+  // Real implementation so tests can assert secrets are stripped from responses.
+  sanitizeTenantConfig: (c: any) => {
+    const x = JSON.parse(JSON.stringify(c || {}));
+    if (x.email) { delete x.email.resend_api_key; delete x.email.webhook_secret; }
+    delete x.imap;
+    return x;
+  },
 }));
 
 // Partial mock: keep real hashPassword/comparePassword/generateToken
@@ -353,6 +360,71 @@ describe('GET /api/auth/me', () => {
       expect.stringContaining('tenant_id'),
       expect.arrayContaining([TEST_TENANT.id])
     );
+
+    await srv.close();
+  });
+
+  it('strips tenant secrets (resend_api_key, webhook_secret, imap) from the response (C1)', async () => {
+    vi.spyOn(authMiddleware, 'authenticate').mockImplementation(
+      (req: any, _res: any, next: () => void) => {
+        req.user = { id: 'user-uuid-abc', email: 'alfons@tecnocim.com', role: 'admin', tenantId: TEST_TENANT.id };
+        next();
+      }
+    );
+
+    const srv = await createTestServer();
+
+    mockQuery.mockResolvedValueOnce([
+      { id: 'user-uuid-abc', email: 'alfons@tecnocim.com', first_name: 'Alfons', last_name: 'Marques', role: 'admin', tenant_id: TEST_TENANT.id },
+    ]);
+    mockGetTenantConfig.mockResolvedValueOnce({
+      ...TEST_TENANT,
+      config: {
+        email: { from_email: 'a@b.com', resend_api_key: 're_SECRET', webhook_secret: 'whsec_SECRET' },
+        imap: { host: 'h', port: 993, user: 'u', pass: 'IMAP_SECRET' },
+        branding: { app_name: 'X' },
+      },
+    });
+
+    const token = authMiddleware.generateToken('user-uuid-abc', 'alfons@tecnocim.com', 'admin', TEST_TENANT.id);
+    const res = await srv.fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+    const body = await res.json() as any;
+
+    expect(res.status).toBe(200);
+    const cfg = body.data.tenant.config;
+    expect(cfg.email).not.toHaveProperty('resend_api_key');
+    expect(cfg.email).not.toHaveProperty('webhook_secret');
+    expect(cfg).not.toHaveProperty('imap');
+    // Non-secret fields must survive
+    expect(cfg.email.from_email).toBe('a@b.com');
+    expect(cfg.branding.app_name).toBe('X');
+
+    await srv.close();
+  });
+});
+
+// ---------------------------------------------------------------------------------
+// POST /api/auth/register (public registration disabled — C2)
+// ---------------------------------------------------------------------------------
+
+describe('POST /api/auth/register', () => {
+  it('returns 403 — public self-registration is disabled', async () => {
+    const srv = await createTestServer();
+
+    const res = await srv.fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'attacker@evil.com', password: 'Password123',
+        first_name: 'A', last_name: 'B', tenant_slug: 'tecnocim',
+      }),
+    });
+    const body = await res.json() as any;
+
+    expect(res.status).toBe(403);
+    expect(body.success).toBe(false);
+    // No account must be created
+    expect(mockQuery).not.toHaveBeenCalled();
 
     await srv.close();
   });

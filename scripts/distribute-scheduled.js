@@ -15,7 +15,7 @@ const https = require('https');
 
 const BASE = process.env.ABM_BASE_URL || 'https://abm.tecnociminnova.com';
 const EMAIL = process.env.ABM_EMAIL || 'alfons.marques@tecnocim.com';
-const PASSWORD = process.env.ABM_PASSWORD || 'Tecnocim2026!';
+const PASSWORD = process.env.ABM_PASSWORD;
 const CAMPAIGN_ID = process.argv[2] || null;
 
 function api(method, path, body, token) {
