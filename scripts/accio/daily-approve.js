@@ -5,7 +5,7 @@
 //
 // Usage: node daily-approve.js [--campaign <id>] [--tranche 400] [--bounce-thresh 4] [--dry]
 'use strict';
-const { api } = require('./lib');
+const { api, ensureToken } = require('./lib');
 
 const CAMPAIGN = process.env.ACCIO_CAMPAIGN || '09ff25ad-04e5-4d5e-906d-af3a0795c2f3';
 function args() { const a = process.argv.slice(2), o = {}; for (let i = 0; i < a.length; i++) if (a[i].startsWith('--')) o[a[i].slice(2)] = (a[i + 1] && !a[i + 1].startsWith('--')) ? a[++i] : true; return o; }
@@ -17,6 +17,7 @@ function madridDate(offsetDays = 0) {
 
 (async () => {
   const o = args();
+  await ensureToken();
   const campaign = o.campaign || CAMPAIGN;
   const tranche = Number(o.tranche || 400);
   const bounceThresh = Number(o['bounce-thresh'] || 4);

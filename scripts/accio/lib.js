@@ -45,9 +45,17 @@ async function login() {
   const j = await res.json();
   const t = j?.data?.token;
   if (!t) throw new Error('Login failed: ' + JSON.stringify(j).slice(0, 200));
-  fs.writeFileSync(TOKEN_FILE, t);
   TOKEN = t;
+  try { fs.writeFileSync(TOKEN_FILE, t); } catch { /* cloud/Linux: token file path may be unwritable — keep in-memory */ }
   return t;
+}
+
+// Ensure a usable token in-process: env -> file -> login (if creds present).
+async function ensureToken() {
+  if (process.env.ABM_TOKEN) { TOKEN = process.env.ABM_TOKEN.trim(); return TOKEN; }
+  try { TOKEN = fs.readFileSync(TOKEN_FILE, 'utf8').trim(); if (TOKEN) return TOKEN; } catch { /* no file */ }
+  if (process.env.ABM_EMAIL && process.env.ABM_PASSWORD) return await login();
+  throw new Error('No token: set ABM_TOKEN, a token file, or ABM_EMAIL+ABM_PASSWORD');
 }
 
 const STEP_DELAY = { 1: 0, 2: 3, 3: 7 };
@@ -55,4 +63,4 @@ const STEP_DELAY = { 1: 0, 2: 3, 3: 7 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const chunk = (arr, n) => { const o = []; for (let i = 0; i < arr.length; i += n) o.push(arr.slice(i, i + n)); return o; };
 
-module.exports = { BASE, TENANT_SLUG, api, login, token, STEP_DELAY, sleep, chunk };
+module.exports = { BASE, TENANT_SLUG, api, login, ensureToken, token, STEP_DELAY, sleep, chunk };
