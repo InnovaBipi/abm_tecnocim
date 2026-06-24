@@ -25,6 +25,7 @@ import outboxRoutes from './routes/outbox';
 import usersRoutes from './routes/users';
 import webhookRoutes from './routes/webhooks';
 import unsubscribeRoutes from './routes/unsubscribe';
+import cleanupRoutes from './routes/admin/cleanup';
 
 async function main(): Promise<void> {
   // --- Production safety checks ---
@@ -156,6 +157,7 @@ async function main(): Promise<void> {
   app.use('/api/outbox/send', sendLimiter);
   app.use('/api/outbox', outboxRoutes);
   app.use('/api/users', usersRoutes);
+  app.use('/api/admin', cleanupRoutes);
 
   // Admin: run pending migrations on-demand
   app.post('/api/admin/migrate', authenticate, async (req, res) => {
