@@ -1,0 +1,515 @@
+[
+  {
+    "prospect_id": "prospect-1",
+    "company_name": "Recuperados Plásticos Cataluña S.L.",
+    "step_number": 1,
+    "subject": "ACCIÓ + Reciclatge Plàstic",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Recuperados Plásticos Cataluña.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra al sector de reciclatge plàstic. La demanda de materials reciclats de qualitat s'incrementa any rere any, i aquesta ajuda pot finançar projectes de millora de processos i innovació.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-1",
+    "company_name": "Recuperados Plásticos Cataluña S.L.",
+    "step_number": 2,
+    "subject": "Fins a €120k en reciclatge",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'oportunitat ACCIÓ per al sector de reciclatge.</p><p>Considerant la vostra experiència en gestió de materials reciclats, el programa ACCIÓ permet finançar fins a €120.000 per a innovació de processos i millora d'instal·lacions. El nostre acompanyament inclou anàlisi de viabilitat, redacció de candidatura, i seguiment post-aprovació.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-1",
+    "company_name": "Recuperados Plásticos Cataluña S.L.",
+    "step_number": 3,
+    "subject": "Última oportunitat",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: finançament ACCIÓ fins a €120k per a innovació en reciclatge.</p><p>El programa tanca el 16 de juliol — encara hi ha temps per preparar una candidatura guanyadora. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, podem agilitzar el procés.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-2",
+    "company_name": "IMT21 S.L.",
+    "step_number": 1,
+    "subject": "ACCIÓ per a Maquinaria Industrial",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a IMT21.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en el sector de maquinaria industrial. La innovació en processos de fabricació i automatització són prioritats clau del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-2",
+    "company_name": "IMT21 S.L.",
+    "step_number": 2,
+    "subject": "€120k innovació maquinaria",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'ajuda ACCIÓ per al sector de maquinaria.</p><p>Considerant la vostra experiència en desenvolupament de solucions industrials, el programa ACCIÓ permet finançar fins a €120.000 per a projectes d'innovació tecnològica. El nostre equip multidisciplinar pot guiar-vos en tot el procés administratiu.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-2",
+    "company_name": "IMT21 S.L.",
+    "step_number": 3,
+    "subject": "Últim termini disponible",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a innovació en maquinaria industrial.</p><p>El programa tanca el 16 de juliol — és un termini que convé respectar. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, podem agilitzar tot el procés de candidatura.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-3",
+    "company_name": "Auxicolor S.A.",
+    "step_number": 1,
+    "subject": "ACCIÓ per a Químics Textils",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Auxicolor.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en químics tèxtils i colorants. L'exportació i la innovació en formulacions són factors que el programa prioritza per a empreses com la vostra.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-3",
+    "company_name": "Auxicolor S.A.",
+    "step_number": 2,
+    "subject": "€120k per a colorants tèxtils",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'oportunitat ACCIÓ per al sector químic tèxtil.</p><p>Considerant la vostra projecció exportadora (60% de producció internacional), el programa ACCIÓ permet finançar fins a €120.000 per a innovació en formulacions i processos. Podem agilitzar tot l'acompanyament administratiu necessari.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-3",
+    "company_name": "Auxicolor S.A.",
+    "step_number": 3,
+    "subject": "16 de juliol — termini final",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a innovació en tèxtils i colorants.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, comptem amb l'experiència necessària per agilitzar la candidatura.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-4",
+    "company_name": "Chemipol S.A.",
+    "step_number": 1,
+    "subject": "ACCIÓ + Química Especialitzada",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Chemipol.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en química especialitzada i biocides. Els projectes d'innovació en formulacions i sostenibilitat són prioritaris dins del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-4",
+    "company_name": "Chemipol S.A.",
+    "step_number": 2,
+    "subject": "€120k innovació biocides",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'ajuda ACCIÓ per al sector químic especialitzat.</p><p>Considerant els vostres 40+ anys d'experiència i certificacions ISO, el programa ACCIÓ permet finançar fins a €120.000 per a R+D en biocides i additius. Podem gestionar tot l'expedient administratiu amb garantia de qualitat.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-4",
+    "company_name": "Chemipol S.A.",
+    "step_number": 3,
+    "subject": "Darrera oportunitat",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a innovació en química especialitzada.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, tenim l'experiència per agilitzar la candidatura amb èxit.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-5",
+    "company_name": "Giditec S.L.",
+    "step_number": 1,
+    "subject": "ACCIÓ per a Maquinaria Papel",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Giditec.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en maquinaria per a paper i plàstic. L'automatització i la innovació tecnològica són àrees prioritàries del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-5",
+    "company_name": "Giditec S.L.",
+    "step_number": 2,
+    "subject": "€120k per a maquinaria innovadora",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'oportunitat ACCIÓ per a maquinaria especialitzada.</p><p>Considerant la complexitat tècnica de les vostres solucions, el programa ACCIÓ permet finançar fins a €120.000 per a projectes d'innovació i desenvolupament. El nostre equip pot guiar-vos en tot el procés de candidatura.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-5",
+    "company_name": "Giditec S.L.",
+    "step_number": 3,
+    "subject": "16 de juliol límit",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a maquinaria innovadora.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, podem agilitzar la candidatura sense demora.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-6",
+    "company_name": "Fontanet-Ritex S.A.",
+    "step_number": 1,
+    "subject": "ACCIÓ Maquinaria Tèxtil",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Fontanet-Ritex.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en maquinaria tèxtil. Els projectes que potencien la competitivitat i la innovació són prioritaris dins del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-6",
+    "company_name": "Fontanet-Ritex S.A.",
+    "step_number": 2,
+    "subject": "€120k innovació tèxtil",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'ajuda ACCIÓ per a maquinaria tèxtil.</p><p>Considerant la vostra trayectòria en el sector, el programa ACCIÓ permet finançar fins a €120.000 per a projectes d'innovació i desenvolupament tecnològic. Podem gestionar tot el procés administratiu amb garanties de qualitat.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-6",
+    "company_name": "Fontanet-Ritex S.A.",
+    "step_number": 3,
+    "subject": "Ocasió, fins al 16 juliol",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a maquinaria tèxtil innovadora.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, ens en encarregarem del procés ràpidament.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-7",
+    "company_name": "Plastics Llorens S.L.",
+    "step_number": 1,
+    "subject": "ACCIÓ Injecció Plàstics",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Plastics Llorens.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en injecció de plàstics. La innovació en processos de fabricació i sostenibilitat són prioritats clau del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-7",
+    "company_name": "Plastics Llorens S.L.",
+    "step_number": 2,
+    "subject": "€120k per a injecció plàstica",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'oportunitat ACCIÓ per a empreses de plàstics.</p><p>Considerant la vostra especialitat en injecció, el programa ACCIÓ permet finançar fins a €120.000 per a innovació en processos i millora d'equipament. El nostre acompanyament inclou validació tècnica i gestió integral de la candidatura.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-7",
+    "company_name": "Plastics Llorens S.L.",
+    "step_number": 3,
+    "subject": "Últim termini juliol",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a innovació en injecció de plàstics.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, podem accelerar el procés de candidatura.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-8",
+    "company_name": "Recuperaciones Romeu S.L.",
+    "step_number": 1,
+    "subject": "ACCIÓ Reciclatge Lleida",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Recuperaciones Romeu.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en reciclatge. Els projectes que milloren processos de separació i valorització de residus són prioritaris.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-8",
+    "company_name": "Recuperaciones Romeu S.L.",
+    "step_number": 2,
+    "subject": "€120k innovació reciclatge",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'ajuda ACCIÓ per al reciclatge.</p><p>Considerant la vostra experiència, el programa ACCIÓ permet finançar fins a €120.000 per a projectes que potencien la valorització de residus. Podem guiar-vos en tot el procés administratiu amb garanties tècniques.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-8",
+    "company_name": "Recuperaciones Romeu S.L.",
+    "step_number": 3,
+    "subject": "16 de juliol deadline",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a reciclatge innovador.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, us hi ajudem ràpidament.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-9",
+    "company_name": "Cartones Soler S.L.",
+    "step_number": 1,
+    "subject": "ACCIÓ Embalatge Cartó",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Cartones Soler.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en embalatge de cartó. La innovació en dissenys sostenibles i processos eficients són prioritàries dins del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-9",
+    "company_name": "Cartones Soler S.L.",
+    "step_number": 2,
+    "subject": "€120k embalatge sostenible",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'oportunitat ACCIÓ per a empreses d'embalatge.</p><p>Considerant la demanda de solucions sostenibles, el programa ACCIÓ permet finançar fins a €120.000 per a innovació en dissenys i processos d'embalatge. Podem agilitzar tot l'acompanyament administratiu necessari.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-9",
+    "company_name": "Cartones Soler S.L.",
+    "step_number": 3,
+    "subject": "Última ocasió juliol",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a embalatge innovador.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, comptem amb l'experiència per accelerar la candidatura.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-10",
+    "company_name": "Embalex S.L.U.",
+    "step_number": 1,
+    "subject": "ACCIÓ Embalatge Industrial",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Embalex.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en embalatge industrial. Els projectes que potencien l'eficiència i la innovació són prioritaris dins del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-10",
+    "company_name": "Embalex S.L.U.",
+    "step_number": 2,
+    "subject": "€120k innovació embalatge",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'ajuda ACCIÓ per a empreses d'embalatge industrial.</p><p>Considerant la vostra especialitat, el programa ACCIÓ permet finançar fins a €120.000 per a projectes d'innovació i modernització. El nostre equip pot gestionar tot el procés administratiu amb garantia.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-10",
+    "company_name": "Embalex S.L.U.",
+    "step_number": 3,
+    "subject": "Termini 16 de juliol",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a embalatge industrial.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, podem procedir ràpidament.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-11",
+    "company_name": "Cartodelta S.L.",
+    "step_number": 1,
+    "subject": "ACCIÓ Cartó Ondulat",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Cartodelta.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en cartó ondulat. La innovació en processos de fabricació i dissenys personalitzats són prioritàries dins del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-11",
+    "company_name": "Cartodelta S.L.",
+    "step_number": 2,
+    "subject": "€120k cartó ondulat",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'oportunitat ACCIÓ per a cartó ondulat.</p><p>Considerant la vostra experiència en el sector, el programa ACCIÓ permet finançar fins a €120.000 per a innovació en processos i millora tècnica. Podem guiar-vos en tot l'acompanyament administratiu necessari.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-11",
+    "company_name": "Cartodelta S.L.",
+    "step_number": 3,
+    "subject": "Últim termini juliol",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a cartó ondulat.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, agilitzem la candidatura.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-12",
+    "company_name": "Fraalfa S.L.",
+    "step_number": 1,
+    "subject": "ACCIÓ PLV Cartó",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Fraalfa.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en embalatge i PLV. Els projectes que potencien la creativitat i la innovació són prioritaris dins del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-12",
+    "company_name": "Fraalfa S.L.",
+    "step_number": 2,
+    "subject": "€120k innovació PLV",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'ajuda ACCIÓ per a empreses de PLV.</p><p>Considerant la vostra especialitat en embalatge creatiu, el programa ACCIÓ permet finançar fins a €120.000 per a projectes d'innovació. El nostre equip pot agilitzar tot el procés administratiu.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-12",
+    "company_name": "Fraalfa S.L.",
+    "step_number": 3,
+    "subject": "16 de juliol darrera data",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a PLV innovador.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, ens en encarregarem ràpidament.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-13",
+    "company_name": "Aluminios y Plásticos Cataluña S.L.",
+    "step_number": 1,
+    "subject": "ACCIÓ Metalls i Plàstics",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Aluminios y Plásticos Cataluña.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en metalls i plàstics tècnics. La innovació en materials i processos híbrids són prioritàries dins del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-13",
+    "company_name": "Aluminios y Plásticos Cataluña S.L.",
+    "step_number": 2,
+    "subject": "€120k metalls i plàstics",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'oportunitat ACCIÓ per a empreses de metalls.</p><p>Considerant la vostra especialitat en materials combinats, el programa ACCIÓ permet finançar fins a €120.000 per a innovació en processos tècnics. Podem agilitzar tot l'acompanyament administratiu necessari.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-13",
+    "company_name": "Aluminios y Plásticos Cataluña S.L.",
+    "step_number": 3,
+    "subject": "Oportunitat fins juliol",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a metalls i plàstics.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, comptem amb l'expertesa necessària.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-14",
+    "company_name": "Xartplastic S.L.",
+    "step_number": 1,
+    "subject": "ACCIÓ Plàstics Tècnics",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Xartplastic.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en palés i contenidors de plàstic. L'innovació en dissenys ergonòmics i sostenibilitat són prioritàries dins del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-14",
+    "company_name": "Xartplastic S.L.",
+    "step_number": 2,
+    "subject": "€120k plàstics innovadors",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'ajuda ACCIÓ per a empreses de plàstics tècnics.</p><p>Considerant la vostra especialitat, el programa ACCIÓ permet finançar fins a €120.000 per a projectes d'innovació en dissenys i processos. El nostre equip pot gestionar tot el procés administratiu.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-14",
+    "company_name": "Xartplastic S.L.",
+    "step_number": 3,
+    "subject": "Última data juliol",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a plàstics tècnics.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, podem procedir sense demora.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-15",
+    "company_name": "Textil-Girona S.L.",
+    "step_number": 1,
+    "subject": "ACCIÓ Textils Girona",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Textil-Girona.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en tèxtils. Els projectes que potencien la innovació en processos i sostenibilitat són prioritaris dins del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-15",
+    "company_name": "Textil-Girona S.L.",
+    "step_number": 2,
+    "subject": "€120k innovació tèxtil",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'oportunitat ACCIÓ per a tèxtils.</p><p>Considerant la tradició tèxtil de Girona, el programa ACCIÓ permet finançar fins a €120.000 per a innovació en processos i tecnologia. Podem agilitzar tot l'acompanyament administratiu necessari.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-15",
+    "company_name": "Textil-Girona S.L.",
+    "step_number": 3,
+    "subject": "Darrera oportunitat",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a tèxtils innovadors.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, comptem amb l'expertesa necessària.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-16",
+    "company_name": "J.P. Bautista S.L.",
+    "step_number": 1,
+    "subject": "ACCIÓ Metalisteria",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a J.P. Bautista.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en metalisteria i estructures. La innovació en processos de fabricació és prioritària dins del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-16",
+    "company_name": "J.P. Bautista S.L.",
+    "step_number": 2,
+    "subject": "€120k estructures metàl·liques",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'ajuda ACCIÓ per a metalisteria.</p><p>Considerant la vostra especialitat en estructures, el programa ACCIÓ permet finançar fins a €120.000 per a innovació en processos i equipament. El nostre equip pot gestionar tot el procés administratiu.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-16",
+    "company_name": "J.P. Bautista S.L.",
+    "step_number": 3,
+    "subject": "16 de juliol termini",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a metalisteria.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, procedirem sense demora.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-17",
+    "company_name": "Hierros Iserte S.L.",
+    "step_number": 1,
+    "subject": "ACCIÓ Acer i Hierro",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Hierros Iserte.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en acers i hierro. Els projectes que potencien la innovació i l'eficiència són prioritaris dins del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-17",
+    "company_name": "Hierros Iserte S.L.",
+    "step_number": 2,
+    "subject": "€120k acers innovadors",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'oportunitat ACCIÓ per a empreses de metalls.</p><p>Considerant la vostra experiència en acers, el programa ACCIÓ permet finançar fins a €120.000 per a innovació en processos i tecnologia. Podem agilitzar tot l'acompanyament administratiu necessari.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-17",
+    "company_name": "Hierros Iserte S.L.",
+    "step_number": 3,
+    "subject": "Oportunitat fins juliol",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a acers innovadors.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, ens en encarregarem ràpidament.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-18",
+    "company_name": "Gerona Textil S.A.",
+    "step_number": 1,
+    "subject": "ACCIÓ Hilatura Textil",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Gerona Textil.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en hilatura i tèxtils. L'innovació en processos de producció és prioritària dins del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-18",
+    "company_name": "Gerona Textil S.A.",
+    "step_number": 2,
+    "subject": "€120k hilatura innovadora",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'ajuda ACCIÓ per a hiladura i tèxtils.</p><p>Considerant la vostra tradició en tèxtils, el programa ACCIÓ permet finançar fins a €120.000 per a innovació en processos i tecnologia. El nostre equip pot agilitzar tot el procés administratiu.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-18",
+    "company_name": "Gerona Textil S.A.",
+    "step_number": 3,
+    "subject": "Última ocasió juliol",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a hiladura innovadora.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, comptem amb l'experiència necessària.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-19",
+    "company_name": "Incabo S.A.",
+    "step_number": 1,
+    "subject": "ACCIÓ Tèxtils Tècnics",
+    "body_html": "<p>Hola,</p><p>Des de Tecnocim, especialistes en gestió d'ajuts I+D+i, ens dirigim a Incabo.</p><p>Hem identificat l'oportunitat del programa ACCIÓ \"Noves Oportunitats 2026\", ideal per a empreses com la vostra en tèxtils tècnics. Els projectes que potencien la innovació en materials especialitzats són prioritaris dins del programa.</p><p>Té sentit explorar-ho?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 0,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-19",
+    "company_name": "Incabo S.A.",
+    "step_number": 2,
+    "subject": "€120k tèxtils especialitzats",
+    "body_html": "<p>Hola,</p><p>Fa uns dies ens dirigim a vosaltres sobre l'oportunitat ACCIÓ per a tèxtils especialitzats.</p><p>Considerant la vostra experiència, el programa ACCIÓ permet finançar fins a €120.000 per a innovació en materials i processos tècnics. Podem agilitzar tot l'acompanyament administratiu necessari.</p><p>Tindria sentit explorar aquesta línia de financiació junts?</p><p>Salutacions cordials,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 3,
+    "language": "ca"
+  },
+  {
+    "prospect_id": "prospect-19",
+    "company_name": "Incabo S.A.",
+    "step_number": 3,
+    "subject": "16 de juliol límit",
+    "body_html": "<p>Hola,</p><p>Recordem la nostra proposta: ACCIÓ fins a €120k per a tèxtils tècnics.</p><p>El programa tanca el 16 de juliol. Sense pressió: si no és el moment, ho entenem. Però si hi ha interès, podem accelerar la candidatura.</p><p>Salutacions,<br>Alfons Marquès<br>Tecnocim Innova</p>",
+    "delay_days": 7,
+    "language": "ca"
+  }
+]
