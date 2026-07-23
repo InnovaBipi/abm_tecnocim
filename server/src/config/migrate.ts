@@ -33,12 +33,24 @@ export async function runMigrations(): Promise<void> {
   });
 
   try {
-    // 1. Apply schema.sql (idempotent via CREATE TABLE IF NOT EXISTS)
+    // 1. Apply schema.sql (base tables). On an already-provisioned DB the first
+    //    CREATE TABLE throws ER_TABLE_EXISTS_ERROR. Swallow it HERE so the
+    //    numbered migrations below still run — previously this error bubbled to
+    //    the outer catch and aborted the whole runner, so no numbered migration
+    //    ever auto-applied on an existing prod DB.
     if (fs.existsSync(schemaPath)) {
       logger.debug('Applying schema.sql');
       const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
-      await connection.query(schemaSql);
-      logger.debug('schema.sql applied');
+      try {
+        await connection.query(schemaSql);
+        logger.debug('schema.sql applied');
+      } catch (err: any) {
+        if (err.code === 'ER_TABLE_EXISTS_ERROR') {
+          logger.debug('schema.sql tables already exist, continuing to migrations');
+        } else {
+          throw err;
+        }
+      }
     }
 
     // 2. Ensure _migrations tracking table exists
