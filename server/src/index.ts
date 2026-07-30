@@ -10,6 +10,7 @@ import { logger } from './config/logger';
 import { testConnection } from './config/database';
 import pool from './config/database';
 import { startScheduler } from './jobs/scheduler';
+import { startDeliverabilityAlerts } from './jobs/deliverabilityAlert';
 import { authenticate } from './middleware/auth';
 
 // Import route handlers
@@ -265,6 +266,13 @@ async function main(): Promise<void> {
     startScheduler();
   } catch (error: any) {
     logger.warn('Scheduler failed to start', { error: error.message });
+  }
+
+  // --- Start deliverability alert monitor ---
+  try {
+    startDeliverabilityAlerts();
+  } catch (error: any) {
+    logger.warn('Deliverability alert monitor failed to start', { error: error.message });
   }
 
   // --- Start server ---

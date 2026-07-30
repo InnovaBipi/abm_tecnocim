@@ -53,6 +53,16 @@ export interface TenantConfig {
     daily_limit_max: number;
     ramp_up_days: number;
   };
+  // Optional per-tenant deliverability alerting. When present, a monitor job
+  // emails recipient_email if bounce/complaint rates over the last window_hours
+  // exceed the thresholds (min_sample sends required first). See jobs/deliverabilityAlert.ts.
+  alerts?: {
+    recipient_email: string;
+    bounce_pct_threshold: number;    // e.g. 2  (percent)
+    complaint_pct_threshold: number; // e.g. 0.1 (percent)
+    min_sample: number;              // e.g. 30 (min sends in window before evaluating)
+    window_hours?: number;           // e.g. 48
+  };
 }
 
 export interface Tenant {
