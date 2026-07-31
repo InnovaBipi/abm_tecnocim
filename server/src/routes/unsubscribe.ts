@@ -76,7 +76,12 @@ export function getEmailFooter(
   const identityLine = identityParts.join(' | ');
 
   // Privacy policy link
-  const dataSource = legal?.data_source || (isEn ? 'their corporate website' : 'su página web corporativa');
+  // Fuente de datos: si el tenant no la declara, se omite la cláusula de origen
+  // y el pie indica únicamente la base de interés legítimo (p.ej. listas sin origen
+  // público como TreeMG, donde afirmar un origen concreto sería inexacto).
+  const dataSource = legal?.data_source; // '' / undefined → sin cláusula de origen
+  const srcEs = dataSource ? ` obtenida de fuentes de acceso público (${dataSource}),` : '';
+  const srcEn = dataSource ? ` obtained from publicly available sources (${dataSource}),` : '';
   const privacyLink = privacyUrl
     ? ` <a href="${privacyUrl}" style="color:#b0b0b0;text-decoration:underline;">${isEn ? 'Privacy policy' : 'Política de privacidad'}</a>.`
     : '';
@@ -84,12 +89,12 @@ export function getEmailFooter(
   // RGPD/LSSI compliance disclaimer (default Spanish; English when language === 'english')
   const spanishDisclaimer = `<p style="margin:8px 0 0 0;font-size:10px;color:#b0b0b0;line-height:1.4;">
     ${identityLine}<br/>
-    Este correo se dirige a la dirección de contacto público de su empresa, obtenida de fuentes de acceso público (${dataSource}), con base en interés legítimo (Art. 6.1.f RGPD).
+    Este correo se dirige a la dirección de contacto público de su empresa,${srcEs} con base en interés legítimo (Art. 6.1.f RGPD).
     Puede ejercer sus derechos de acceso, rectificación, supresión y oposición contactando a <a href="mailto:${contactEmail}" style="color:#b0b0b0;">${contactEmail}</a> o usando el enlace inferior.${privacyLink}
   </p>`;
   const englishDisclaimer = `<p style="margin:8px 0 0 0;font-size:10px;color:#b0b0b0;line-height:1.4;">
     ${identityLine}<br/>
-    This email is addressed to your company's public business contact, obtained from publicly available sources (${dataSource}), on the basis of legitimate interest (Art. 6.1.f GDPR).
+    This email is addressed to your company's public business contact,${srcEn} on the basis of legitimate interest (Art. 6.1.f GDPR).
     You may exercise your rights of access, rectification, erasure and objection by contacting <a href="mailto:${contactEmail}" style="color:#b0b0b0;">${contactEmail}</a> or using the link below.${privacyLink}
   </p>`;
   const rgpdDisclaimer = isEn ? englishDisclaimer : spanishDisclaimer;

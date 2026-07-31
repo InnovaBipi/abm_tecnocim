@@ -79,7 +79,7 @@ VALUES (
             'cif', 'B98416480',
             'address', 'C/ Josep Saltó 21-23, Local 2, 08191 Rubí (Barcelona)',
             'privacy_url', '',
-            'data_source', 'Pendiente de definir (ver nota RGPD sobre BBDD comprada)'
+            'data_source', ''
         ),
         'branding', JSON_OBJECT(
             'app_name', 'Prospecting TreeMG',
