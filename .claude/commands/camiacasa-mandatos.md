@@ -58,7 +58,7 @@ Identical to buy-side: Tier 1 named (acquisitions/asset-management/expansion tit
 
 ## What It Does
 
-Mirrors the 4-phase structure of `scripts/camiacasa-eu-prospect.wf.js` (clone it to `scripts/camiacasa-mandatos.wf.js`, swap CAMPAIGN_ID, STATE_DIR, SEGMENT_CONFIG and the generation prompt to the sell-side pitch above):
+Launches `scripts/camiacasa-mandatos.wf.js` — the sell-side mirror of `camiacasa-eu-prospect.wf.js` (own CAMPAIGN_ID `527ae0d1`, own STATE_DIR `scripts/output/camiacasa-mandatos`, 6 sell-side segments, commercialization pitch, and setup that **merges the buy-side `seen-domains.json`** into the exclude set). Same 4-phase structure:
 
 1. **Setup**: Auth CamiaCasa (`C:/Users/user/tmp_auth_cc.txt`) + paginated tenant dedup (`GET /api/prospects` → `data.prospects`) + merge buy-side `seen-domains.json` into the exclude set + rotation state → select segment
 2. **Research**: WebSearch discovery of asset-holders per segment → named-contact hunt (parallel chunks ≤4-5) → MX verify
