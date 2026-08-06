@@ -468,10 +468,8 @@ log(`Contacts: ${targets.length} targets (${namedCount} named, ${targets.length 
 
 phase('Generate')
 
-const emailResults = await pipeline(
-  targets,
-  // Stage 1: Enrichment — durable holdings + reason-to-commercialize only.
-  async (company) => {
+// Stage 1: Enrichment — durable holdings + reason-to-commercialize only.
+const enrichStage = async (company) => {
     let enrichment = null
     for (let ea = 0; ea < 3 && !enrichment; ea++) {
       enrichment = await agent(
@@ -495,10 +493,10 @@ const emailResults = await pipeline(
       return null
     }
     return { company, enrichment }
-  },
+  }
 
-  // Stage 2: Generate + QA + native-language eval (retry 3x)
-  async (enrichData) => {
+// Stage 2: Generate + QA + native-language eval (retry 3x)
+const generateStage = async (enrichData) => {
     if (!enrichData) return null
     const { company, enrichment } = enrichData
     const L = LANG_RULES[company.language]
@@ -635,7 +633,13 @@ const emailResults = await pipeline(
     }
     return null
   }
-)
+
+// Throttle to sequential waves of 4: enrich fires WebSearch per company; ~16 concurrent
+// trips the transient API rate limit (429 burst, "not your usage limit"). Waves keep it low.
+const emailResults = []
+for (const wave of chunk(targets, 4)) {
+  emailResults.push(...await pipeline(wave, enrichStage, generateStage))
+}
 
 const validResults = emailResults.filter(Boolean)
 const qaPassRate = emailResults.length > 0
