@@ -17,6 +17,9 @@ const emailIdsSchema = z
   .min(1, 'email_ids array is required')
   .max(MAX_EMAIL_IDS, `email_ids cannot exceed ${MAX_EMAIL_IDS} per request`);
 
+// Calendar day (interpreted in server local time) for future-dated redistribution.
+const startDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'start_date must be YYYY-MM-DD');
+
 router.use(authenticate);
 
 // --- GET / - List all generated emails cross-campaign ---
@@ -322,7 +325,7 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const { sendEmail } = await import('../services/email');
+    const { sendEmail, getCampaignAttachments } = await import('../services/email');
 
     let sent = 0;
     let failed = 0;
@@ -367,6 +370,9 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
         const fromAddress = `${fromName} <${fromEmail}>`;
         const replyTo = tenantReplyTo;
 
+        // Optional per-campaign attachment (e.g. blind-teaser PDF); [] when none → unchanged behaviour.
+        const attachments = await getCampaignAttachments(email.campaign_id, req.user!.tenantId);
+
         const result = await sendEmail(
           email.prospect_email,
           email.subject,
@@ -374,7 +380,9 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
           undefined,
           fromAddress,
           replyTo,
-          req.user!.tenantId
+          req.user!.tenantId,
+          undefined,
+          attachments
         );
 
         if (result.success) {
@@ -450,7 +458,7 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
 // --- POST /redistribute - Redistribute scheduled emails across business days (warmup-aware) ---
 router.post('/redistribute', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email_ids, campaign_id } = req.body;
+    const { email_ids, campaign_id, start_date } = req.body;
     const tenantId = req.user!.tenantId;
 
     // If email_ids provided, validate + bound it (cost / DoS).
@@ -460,6 +468,17 @@ router.post('/redistribute', async (req: Request, res: Response): Promise<void> 
         res.status(400).json({ success: false, error: parsed.error.issues[0]?.message || 'Invalid email_ids.' });
         return;
       }
+    }
+
+    // Optional future start date: distribution begins no earlier than this day.
+    let startDate: Date | undefined;
+    if (start_date !== undefined && start_date !== null) {
+      const parsed = startDateSchema.safeParse(start_date);
+      if (!parsed.success) {
+        res.status(400).json({ success: false, error: 'Invalid start_date. Use an ISO date (YYYY-MM-DD).' });
+        return;
+      }
+      startDate = new Date(`${parsed.data}T00:00:00`);
     }
 
     let whereClause = 'ge.tenant_id = ? AND p.tenant_id = ? AND ge.status = \'scheduled\'';
@@ -507,7 +526,8 @@ router.post('/redistribute', async (req: Request, res: Response): Promise<void> 
     const { schedule, distribution, dailyLimit } = await distributeEmailsAcrossBusinessDays(
       emailsForDistribution,
       tenantId,
-      emailIds
+      emailIds,
+      startDate
     );
 
     let updated = 0;

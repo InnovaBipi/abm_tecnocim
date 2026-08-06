@@ -23,6 +23,7 @@ import importRoutes from './routes/imports';
 import dashboardRoutes from './routes/dashboard';
 import settingsRoutes from './routes/settings';
 import outboxRoutes from './routes/outbox';
+import repliesRoutes from './routes/replies';
 import usersRoutes from './routes/users';
 import webhookRoutes from './routes/webhooks';
 import unsubscribeRoutes from './routes/unsubscribe';
@@ -157,6 +158,7 @@ async function main(): Promise<void> {
   // the router handles /send first and the limiter never runs.
   app.use('/api/outbox/send', sendLimiter);
   app.use('/api/outbox', outboxRoutes);
+  app.use('/api/replies', repliesRoutes);
   app.use('/api/users', usersRoutes);
   app.use('/api/admin', cleanupRoutes);
 

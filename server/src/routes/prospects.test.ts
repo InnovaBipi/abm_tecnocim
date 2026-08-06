@@ -43,7 +43,8 @@ const mockQuery = query as ReturnType<typeof vi.fn>;
 // ---------------------------------------------------------------------------------
 
 interface TestServer {
-  fetch: (path: string, options?: RequestInit) => Promise<Response>;
+  // globalThis.Response: the express Response import shadows the fetch Response type
+  fetch: (path: string, options?: RequestInit) => Promise<globalThis.Response>;
   close: () => Promise<void>;
 }
 

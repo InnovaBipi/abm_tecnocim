@@ -9,7 +9,7 @@
  * separately when integration tests exist.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // The module imports `query` and `getTenantConfig` at the bottom for the
 // warmup-aware helpers. Mock them so the module can be imported without a
@@ -315,5 +315,105 @@ describe('getNextBusinessDay', () => {
     const original = saturday.toISOString();
     getNextBusinessDay(saturday);
     expect(saturday.toISOString()).toBe(original);
+  });
+});
+
+// ---------------------------------------------------------------------------------
+// distributeEmailsAcrossBusinessDays — startDate (future launch date)
+// ---------------------------------------------------------------------------------
+
+import { distributeEmailsAcrossBusinessDays, getMadridDateString } from './scheduling';
+import { query } from '../config/database';
+import { getTenantConfig } from '../middleware/tenant';
+
+describe('distributeEmailsAcrossBusinessDays with startDate', () => {
+  const mockedQuery = vi.mocked(query);
+  const mockedGetTenantConfig = vi.mocked(getTenantConfig);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Old domain (warmup ramp finished) + fixed 100/day config, empty queue, nothing sent.
+    mockedQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('MIN(occurred_at)')) return [{ first_sent: '2026-01-01 09:00:00' }] as any;
+      if (sql.includes('COUNT(*)')) return [{ count: 0 }] as any;
+      return [] as any;
+    });
+    mockedGetTenantConfig.mockResolvedValue({
+      config: { warmup: { daily_limit_base: 100, daily_limit_max: 100, ramp_up_days: 1 } },
+    } as any);
+  });
+
+  const emails = (n: number, delayDays = 0) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `email-${delayDays}-${i}`,
+      prospectTimezone: 'Europe/Madrid',
+      delayDays,
+    }));
+
+  // Next weekday at least `minDaysAhead` days in the future.
+  const futureWeekday = (minDaysAhead: number): Date => {
+    const d = new Date();
+    d.setDate(d.getDate() + minDaysAhead);
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+
+  it('without startDate schedules no earlier than today (existing behavior)', async () => {
+    const { schedule } = await distributeEmailsAcrossBusinessDays(emails(3), 'tenant-x');
+    const todayStr = getMadridDateString();
+    expect(schedule.size).toBe(3);
+    for (const date of schedule.values()) {
+      expect(getMadridDateString(date) >= todayStr).toBe(true);
+    }
+  });
+
+  it('with a future startDate schedules nothing before that date', async () => {
+    const start = futureWeekday(10);
+    const startStr = getMadridDateString(start);
+    const { schedule } = await distributeEmailsAcrossBusinessDays(emails(5), 'tenant-x', undefined, start);
+    expect(schedule.size).toBe(5);
+    for (const date of schedule.values()) {
+      expect(getMadridDateString(date) >= startStr).toBe(true);
+    }
+  });
+
+  it('applies delay_days relative to the future startDate, not today', async () => {
+    const start = futureWeekday(10);
+    const minDelayed = new Date(start);
+    minDelayed.setDate(minDelayed.getDate() + 3);
+    const minDelayedStr = getMadridDateString(minDelayed);
+    const { schedule } = await distributeEmailsAcrossBusinessDays(emails(2, 3), 'tenant-x', undefined, start);
+    expect(schedule.size).toBe(2);
+    for (const date of schedule.values()) {
+      expect(getMadridDateString(date) >= minDelayedStr).toBe(true);
+    }
+  });
+
+  it('ignores a past startDate and behaves as if starting today', async () => {
+    const past = new Date('2020-01-06T00:00:00');
+    const todayStr = getMadridDateString();
+    const { schedule } = await distributeEmailsAcrossBusinessDays(emails(2), 'tenant-x', undefined, past);
+    expect(schedule.size).toBe(2);
+    for (const date of schedule.values()) {
+      expect(getMadridDateString(date) >= todayStr).toBe(true);
+    }
+  });
+
+  it('shifts a weekend startDate to the following Monday', async () => {
+    // Find a Saturday at least 10 days out.
+    const d = new Date();
+    d.setDate(d.getDate() + 10);
+    while (d.getDay() !== 6) d.setDate(d.getDate() + 1);
+    d.setHours(0, 0, 0, 0);
+    const monday = new Date(d);
+    monday.setDate(monday.getDate() + 2);
+    const mondayStr = getMadridDateString(monday);
+
+    const { schedule } = await distributeEmailsAcrossBusinessDays(emails(2), 'tenant-x', undefined, d);
+    expect(schedule.size).toBe(2);
+    for (const date of schedule.values()) {
+      expect(getMadridDateString(date) >= mondayStr).toBe(true);
+    }
   });
 });

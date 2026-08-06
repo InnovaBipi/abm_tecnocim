@@ -237,7 +237,7 @@ export async function pollImapForTenant(
               uid: msg.uid,
               match_type: matchType,
               reply_classification: replyClassification,
-              reply_snippet: replyBodyText.substring(0, 500),
+              reply_snippet: replyBodyText.substring(0, 2000),
             }),
           ]
         );

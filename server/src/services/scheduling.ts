@@ -502,10 +502,23 @@ export function getNextBusinessDays(startDate: Date, count: number): Date[] {
 export async function distributeEmailsAcrossBusinessDays(
   emails: Array<{ id: string; prospectTimezone: string; delayDays: number }>,
   tenantId: string,
-  excludeIds?: string[]
+  excludeIds?: string[],
+  startDate?: Date
 ): Promise<{ schedule: Map<string, Date>; distribution: Record<string, number>; dailyLimit: number }> {
   const dailyLimit = await getWarmupDailyLimit(tenantId);
   const scheduledCounts = await getScheduledCountByDate(tenantId, excludeIds);
+
+  // Distribution starts today, or at startDate when a future launch date is requested.
+  // delay_days offsets are relative to this start (step cadence is preserved).
+  const now = new Date();
+  let effectiveStart = now;
+  if (startDate && startDate.getTime() > now.getTime()) {
+    effectiveStart = new Date(startDate);
+    // Anchor at local midday: business days inherit this time-of-day, and the
+    // optimal-send seed (setUTCHours) must not roll the UTC date back a day
+    // for a midnight-local start in timezones ahead of UTC.
+    effectiveStart.setHours(12, 0, 0, 0);
+  }
 
   // Get today's sent count and add to capacity tracking
   const todayStr = getMadridDateString();
@@ -514,7 +527,7 @@ export async function distributeEmailsAcrossBusinessDays(
 
   // Generate enough business days (worst case: all emails on separate days)
   const daysNeeded = Math.ceil(emails.length / Math.max(dailyLimit, 1)) + 5;
-  const businessDays = getNextBusinessDays(new Date(), daysNeeded);
+  const businessDays = getNextBusinessDays(effectiveStart, daysNeeded);
 
   const schedule = new Map<string, Date>();
   const distribution: Record<string, number> = {};
@@ -528,7 +541,7 @@ export async function distributeEmailsAcrossBusinessDays(
 
   for (const email of emails) {
     // Determine earliest allowed date based on delay_days
-    const earliestDate = new Date();
+    const earliestDate = new Date(effectiveStart);
     if (email.delayDays > 0) {
       earliestDate.setDate(earliestDate.getDate() + email.delayDays);
     }
