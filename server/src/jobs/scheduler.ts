@@ -524,49 +524,48 @@ async function cancelBouncedFollowups(): Promise<void> {
  * Runs before sending to prevent emailing prospects who already responded.
  */
 async function cancelRepliedFollowups(): Promise<void> {
-  // Find prospects who have replied (from IMAP detection or webhooks)
+  // Find prospects who have replied (from IMAP detection or webhooks).
+  // Per prospect+tenant: the latest reply time, and whether any reply was negative/unsubscribe.
   const replied = await query<any[]>(
-    `SELECT DISTINCT ee.prospect_id, ge.campaign_id, ee.metadata
+    `SELECT ee.prospect_id, ee.tenant_id,
+            MAX(ee.occurred_at) AS last_reply,
+            MAX(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(ee.metadata, '$.reply_classification')) IN ('negative','unsubscribe') THEN 1 ELSE 0 END) AS is_negative
      FROM email_events ee
-     JOIN generated_emails ge ON ge.prospect_id = ee.prospect_id AND ge.status = 'scheduled'
-     WHERE ee.event_type = 'replied'`
+     WHERE ee.event_type = 'replied' AND ee.tenant_id IS NOT NULL
+     GROUP BY ee.prospect_id, ee.tenant_id`
   );
 
   for (const r of replied) {
-    // Cancel all scheduled follow-ups for this prospect+campaign
+    // Cancel only the ORIGINAL sequence follow-ups — scheduled emails created at/before the reply.
+    // A deliberate re-engagement created AFTER the reply (e.g. a post-summer follow-up campaign)
+    // is intentional and must survive, so it is NOT cancelled here.
     const result = await query<any>(
       `UPDATE generated_emails
        SET status = 'rejected',
            metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'prospect_replied')
-       WHERE prospect_id = ? AND campaign_id = ? AND status = 'scheduled'`,
-      [r.prospect_id, r.campaign_id]
+       WHERE prospect_id = ? AND tenant_id = ? AND status = 'scheduled' AND created_at <= ?`,
+      [r.prospect_id, r.tenant_id, r.last_reply]
     );
 
     if (result.affectedRows > 0) {
-      logger.info('Cancelled scheduled emails for replied prospect', { count: result.affectedRows, prospectId: r.prospect_id, campaignId: r.campaign_id });
+      logger.info('Cancelled original-sequence emails for replied prospect', { count: result.affectedRows, prospectId: r.prospect_id });
     }
 
-    // If reply was classified as negative/unsubscribe, mark prospect
-    let classification: string | undefined;
-    try {
-      const meta = typeof r.metadata === 'string' ? JSON.parse(r.metadata) : r.metadata;
-      classification = meta?.reply_classification;
-    } catch { /* ignore parse errors */ }
-
-    if (classification === 'negative' || classification === 'unsubscribe') {
-      // Also cancel ALL scheduled emails across all campaigns for this prospect
+    if (r.is_negative) {
+      // Negative/unsubscribe: cancel ALL scheduled emails (even later re-engagements) and
+      // stop future outreach — they explicitly said no.
       await query(
         `UPDATE generated_emails
          SET status = 'rejected',
              metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'prospect_rejected')
-         WHERE prospect_id = ? AND status = 'scheduled'`,
-        [r.prospect_id]
+         WHERE prospect_id = ? AND tenant_id = ? AND status = 'scheduled'`,
+        [r.prospect_id, r.tenant_id]
       );
 
       // Mark prospect to prevent future outreach
       await query(
-        `UPDATE prospects SET status = 'rejected', do_not_contact = TRUE WHERE id = ? AND do_not_contact = FALSE`,
-        [r.prospect_id]
+        `UPDATE prospects SET status = 'rejected', do_not_contact = TRUE WHERE id = ? AND tenant_id = ? AND do_not_contact = FALSE`,
+        [r.prospect_id, r.tenant_id]
       );
     }
   }
