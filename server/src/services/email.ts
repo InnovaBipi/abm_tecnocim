@@ -42,7 +42,8 @@ export async function sendEmail(
   from?: string,
   replyTo?: string,
   tenantId?: string,
-  language?: 'spanish' | 'catalan' | 'english'
+  language?: 'spanish' | 'catalan' | 'english',
+  attachments?: Array<{ filename: string; content: string }>
 ): Promise<{ id: string; success: boolean }> {
   let client: Resend;
   let tenant: Tenant | null = null;
@@ -79,6 +80,8 @@ export async function sendEmail(
         'List-Unsubscribe': `<${unsubscribeUrl}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
+      // Attachments only included when present → no-op for the existing flow (backward compatible).
+      ...(attachments && attachments.length ? { attachments } : {}),
       // Note: open/click tracking is configured at domain level via Resend API
       // (resend.domains.update), not per-email. Enabled on tecnocim.com domain.
     });
@@ -93,6 +96,22 @@ export async function sendEmail(
     logger.error('Email send failed', { to, error: error.message });
     throw error;
   }
+}
+
+/**
+ * Fetch a campaign's attachment(s) as Resend-ready { filename, content(base64) }.
+ * Returns [] when the campaign has none → callers stay backward compatible.
+ */
+export async function getCampaignAttachments(
+  campaignId: string,
+  tenantId: string
+): Promise<Array<{ filename: string; content: string }>> {
+  if (!campaignId || !tenantId) return [];
+  const rows = await query<any[]>(
+    'SELECT filename, content_base64 FROM campaign_attachments WHERE campaign_id = ? AND tenant_id = ?',
+    [campaignId, tenantId]
+  );
+  return rows.map((r: any) => ({ filename: r.filename, content: r.content_base64 }));
 }
 
 /**

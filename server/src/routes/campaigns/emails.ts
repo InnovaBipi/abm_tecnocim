@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { query } from '../../config/database';
+import { query, getConnection } from '../../config/database';
 import { getTenantConfig, buildTenantAIContext } from '../../middleware/tenant';
+import { enrichProspect } from '../../services/enrichment';
 import { resolveProspectTimezone, distributeEmailsAcrossBusinessDays, isBusinessDay, getNextBusinessDay } from '../../services/scheduling';
 import { sanitizeEmailHtml } from '../../utils/sanitizeHtml';
 
@@ -96,6 +97,28 @@ router.post('/:id/generate-emails', async (req: Request, res: Response): Promise
       if (prospect.enrichment_data) {
         enrichment = typeof prospect.enrichment_data === 'string'
           ? JSON.parse(prospect.enrichment_data) : prospect.enrichment_data;
+      }
+
+      // Auto-enrich if missing
+      if (!enrichment && prospect.company_name) {
+        try {
+          await enrichProspect(prospectId);
+
+          // Re-fetch prospect with new enrichment
+          const enrichedProspects = await query<any[]>(
+            `SELECT enrichment_data FROM prospects WHERE id = ? AND tenant_id = ?`,
+            [prospectId, req.user!.tenantId]
+          );
+
+          if (enrichedProspects[0]?.enrichment_data) {
+            enrichment = typeof enrichedProspects[0].enrichment_data === 'string'
+              ? JSON.parse(enrichedProspects[0].enrichment_data)
+              : enrichedProspects[0].enrichment_data;
+          }
+        } catch (enrichError) {
+          // Log but don't block — generation can proceed with null enrichment
+          console.warn(`[generate-emails] Auto-enrich failed for prospect ${prospectId}:`, enrichError);
+        }
       }
 
       try {
@@ -196,9 +219,9 @@ router.get('/:id/generated-emails', async (req: Request, res: Response): Promise
               ge.approved_at, ge.approved_by, ge.sent_at, ge.scheduled_for,
               ge.metadata, ge.created_at, ge.updated_at,
               p.first_name, p.last_name, p.full_name, p.email as prospect_email,
-              p.title as prospect_title, c.name as company_name
+              p.title as prospect_title, comp.name as company_name
        FROM generated_emails ge
-       JOIN prospects p ON ge.prospect_id = p.id
+       LEFT JOIN prospects p ON ge.prospect_id = p.id
        LEFT JOIN companies comp ON p.company_id = comp.id
        LEFT JOIN campaigns c ON ge.campaign_id = c.id
        ${whereSQL}
@@ -465,19 +488,31 @@ router.post('/:id/bulk-insert-emails', async (req: Request, res: Response): Prom
       const prospect = await query<any[]>('SELECT id FROM prospects WHERE id = ? AND tenant_id = ?', [email.prospect_id, tenantId]);
       if (prospect.length === 0) continue;
 
-      // Delete any existing draft for this prospect+campaign+step to avoid duplicates
-      await query(
-        'DELETE FROM generated_emails WHERE prospect_id = ? AND campaign_id = ? AND step_number = ? AND tenant_id = ?',
-        [email.prospect_id, id, email.step_number || 1, tenantId]
-      );
+      // Atomic transaction: delete old + insert new
+      const conn = await getConnection();
+      try {
+        await conn.beginTransaction();
 
-      const emailId = uuidv4();
-      await query(
-        `INSERT INTO generated_emails (id, tenant_id, campaign_id, prospect_id, step_number, subject, body_html, delay_days, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
-        [emailId, tenantId, id, email.prospect_id, email.step_number || 1, email.subject, sanitizeEmailHtml(email.body_html), email.delay_days || 0]
-      );
-      inserted++;
+        await conn.query(
+          'DELETE FROM generated_emails WHERE prospect_id = ? AND campaign_id = ? AND step_number = ? AND tenant_id = ?',
+          [email.prospect_id, id, email.step_number || 1, tenantId]
+        );
+
+        const emailId = uuidv4();
+        await conn.query(
+          `INSERT INTO generated_emails (id, tenant_id, campaign_id, prospect_id, step_number, subject, body_html, delay_days, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
+          [emailId, tenantId, id, email.prospect_id, email.step_number || 1, email.subject, sanitizeEmailHtml(email.body_html), email.delay_days || 0]
+        );
+
+        await conn.commit();
+        inserted++;
+      } catch (txError: any) {
+        await conn.rollback();
+        console.error(`[bulk-insert-emails] Transaction failed for prospect ${email.prospect_id}:`, txError);
+      } finally {
+        conn.release();
+      }
     }
 
     res.json({ success: true, data: { message: `Inserted ${inserted} email(s).`, inserted } });

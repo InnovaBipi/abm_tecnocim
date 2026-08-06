@@ -222,12 +222,12 @@ function buildSearchQuery(prospect: any, industryContext?: string): string {
 
 /**
  * Build an analysis prompt for Gemini to extract structured data.
- * When industryContext is provided, also extracts suggested use cases.
+ * Always extracts suggested use cases — industry-specific if industryContext provided, otherwise general business opportunities.
  */
 function buildAnalysisPrompt(prospect: any, perplexityData: string, websiteData: string, industryContext?: string): string {
-  const useCaseField = industryContext
-    ? `  "suggested_use_cases": ["specific use case 1 for this company related to ${industryContext}", "use case 2", "use case 3"],\n`
-    : '';
+  const useCaseInstruction = industryContext
+    ? `\nIMPORTANT: For "suggested_use_cases", think specifically about how ${industryContext} could solve REAL problems for THIS company based on the research data. Be specific to their industry, size, and activities. Do not be generic.`
+    : `\nIMPORTANT: For "suggested_use_cases", identify 3 specific business opportunities or improvements relevant to THIS company based on their industry and the research data. Think about tax optimization, operational efficiency, or innovation opportunities.`;
 
   return `Analyze the following data about a prospect and their company. Extract structured information.
 
@@ -256,9 +256,9 @@ Extract and return the following as JSON:
   "business_relevance": "how relevant this prospect is for business engagement",
   "key_insights": ["insight 1", "insight 2"],
   "recommended_approach": "best approach to engage this prospect",
-${useCaseField}  "pain_points": ["specific challenge this company likely faces"]
-}
-${industryContext ? `\nIMPORTANT: For "suggested_use_cases", think specifically about how ${industryContext} could solve REAL problems for THIS company based on the research data. Be specific to their industry, size, and activities. Do not be generic.` : ''}
+  "suggested_use_cases": ["specific opportunity 1 for this company", "opportunity 2", "opportunity 3"],
+  "pain_points": ["specific challenge this company likely faces"]
+}${useCaseInstruction}
 
 Return ONLY valid JSON, no other text.`;
 }

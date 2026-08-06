@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 import { logger } from '../config/logger';
 import { processJobs, addJob } from './queue';
-import { sendEmail, sendSequenceEmail } from '../services/email';
+import { sendEmail, sendSequenceEmail, getCampaignAttachments } from '../services/email';
 import { recalculateAllScores } from '../services/scoring';
 import { calculateOptimalSendTime, resolveProspectTimezone, isWithinSendWindow, getWarmupDailyLimit, getSentCountForDate, getMadridDateString, resolveProspectLanguage } from '../services/scheduling';
 import { pollImapForReplies } from '../services/imap';
@@ -785,6 +785,9 @@ async function processScheduledOutboxEmails(): Promise<void> {
       const loc = locRows[0] || {};
       const language = resolveProspectLanguage({ country: loc.country, region: loc.region, city: loc.city, title: email.prospect_title });
 
+      // Optional per-campaign attachment (e.g. blind-teaser PDF); [] when none → unchanged behaviour.
+      const attachments = await getCampaignAttachments(email.campaign_id, emailTenantId);
+
       const result = await sendEmail(
         email.prospect_email,
         email.subject,
@@ -793,7 +796,8 @@ async function processScheduledOutboxEmails(): Promise<void> {
         fromAddress,
         replyTo,
         emailTenantId,
-        language
+        language,
+        attachments
       );
 
       if (result.success) {

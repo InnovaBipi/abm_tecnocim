@@ -429,13 +429,13 @@ export async function generatePersonalizedSequence(
   if (ai) {
     enrichmentContext = `
 ENRICHMENT DATA (from AI research on this prospect):
-- Company Description: ${ai.company_description || 'Unknown'}
-- Industry: ${ai.company_industry || 'Unknown'}
-- Employees: ${ai.company_employee_count || 'Unknown'}
-- Annual Revenue: ${ai.company_annual_revenue || 'Unknown'}
-- Business Relevance: ${ai.business_relevance || ai.real_estate_relevance || 'Unknown'}
-- Investment Interest Score: ${ai.investment_interest_score || 'Unknown'}/10
-- Recommended Approach: ${ai.recommended_approach || 'Unknown'}
+- Company Description: ${ai.company_description || ''}
+- Industry: ${ai.company_industry || ''}
+- Employees: ${ai.company_employee_count || ''}
+- Annual Revenue: ${ai.company_annual_revenue || ''}
+- Business Relevance: ${ai.business_relevance || ai.real_estate_relevance || ''}
+- Investment Interest Score: ${ai.investment_interest_score || ''}/10
+- Recommended Approach: ${ai.recommended_approach || ''}
 - Key Insights:
 ${(ai.key_insights || []).map((k: string, i: number) => `  ${i + 1}. ${k}`).join('\n')}
 ${(ai.suggested_use_cases && ai.suggested_use_cases.length > 0) ? `- Suggested Use Cases for This Company:\n${ai.suggested_use_cases.map((uc: string, i: number) => `  ${i + 1}. ${uc}`).join('\n')}` : ''}
@@ -447,6 +447,18 @@ ${(ai.pain_points && ai.pain_points.length > 0) ? `- Pain Points / Challenges:\n
     enrichmentContext += `
 DETAILED RESEARCH:
 ${research.substring(0, 2000)}
+`;
+  }
+
+  // Fallback: if no enrichment data, provide minimum context
+  if (!enrichmentContext) {
+    enrichmentContext = `
+AVAILABLE CONTEXT (no enrichment data available — base personalization on this):
+- Company: ${prospect.company_name || ''}
+- Industry: ${prospect.industry || ''}
+- Location: ${prospect.city || ''}${prospect.region ? ', ' + prospect.region : ''}${prospect.country ? ', ' + prospect.country : ''}
+- Typical pain points in this sector: derive from industry knowledge and market position
+- Note: Perform personalization based on company name, industry classification, and geographic context.
 `;
   }
 
@@ -507,8 +519,8 @@ ${existingStepsContext}
 ${languageInstruction}
 
 ===== CRITICAL INSTRUCTIONS =====
-1. DO NOT write generic emails. Use the enrichment data to create SPECIFIC connections between the prospect's business and this ${entityLabel}.
-2. Reference their company's actual activities, growth, market position, or strategy where relevant.
+1. DO NOT write generic emails. Use the enrichment data to create SPECIFIC connections between the prospect's business and this ${entityLabel}. If enrichment data is limited, derive personalization from company name, industry, and location to create meaningful context.
+2. Reference their company's actual activities, growth, market position, or strategy where relevant. If specific facts are unavailable, use industry-level insights and geographic context.
 3. Adapt the angle to the prospect's industry and how it connects to ${ctx.industry_context}.
 4. YOU MUST write the entire email (subject + body) in the language specified above. This is mandatory.
 5. Tone: professional, concise, knowledgeable. No salesy language. No exclamation marks. Sound like a peer, not a salesperson.
