@@ -426,6 +426,89 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
   }
 });
 
+// --- POST /:id/schedule-drafts - Bulk-schedule ALL draft emails of a campaign in ONE server-side call ---
+// Converts every draft in the campaign to 'scheduled', distributed across business days at the warmup
+// limit starting no earlier than start_date (YYYY-MM-DD; defaults to today). Does NOT activate the
+// campaign — so a future queue (e.g. September) can be prepared safely and activated later. Avoids the
+// client having to PUT hundreds of emails one by one.
+router.post('/:id/schedule-drafts', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const tenantId = req.user!.tenantId;
+    const { start_date } = req.body;
+
+    let startDate: Date | undefined;
+    if (start_date !== undefined && start_date !== null) {
+      if (typeof start_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(start_date)) {
+        res.status(400).json({ success: false, error: 'start_date must be YYYY-MM-DD.' });
+        return;
+      }
+      startDate = new Date(`${start_date}T00:00:00`);
+    }
+
+    const campaign = await query<any[]>(
+      'SELECT id FROM campaigns WHERE id = ? AND tenant_id = ?',
+      [id, tenantId]
+    );
+    if (campaign.length === 0) {
+      res.status(404).json({ success: false, error: 'Campaign not found.' });
+      return;
+    }
+
+    const emails = await query<any[]>(
+      `SELECT ge.id, ge.delay_days, p.timezone, p.country, p.city
+       FROM generated_emails ge
+       JOIN prospects p ON ge.prospect_id = p.id AND p.tenant_id = ge.tenant_id
+       WHERE ge.campaign_id = ? AND ge.tenant_id = ? AND ge.status = 'draft'`,
+      [id, tenantId]
+    );
+
+    if (emails.length === 0) {
+      res.json({ success: true, data: { message: 'No hay borradores que programar.', count: 0 } });
+      return;
+    }
+
+    const emailsForDistribution = emails.map(e => ({
+      id: e.id,
+      prospectTimezone: resolveProspectTimezone(e),
+      delayDays: e.delay_days || 0,
+    }));
+
+    const { schedule, distribution, dailyLimit } = await distributeEmailsAcrossBusinessDays(
+      emailsForDistribution,
+      tenantId,
+      undefined,
+      startDate
+    );
+
+    let scheduled = 0;
+    for (const email of emails) {
+      const scheduledFor = schedule.get(email.id);
+      if (!scheduledFor) continue;
+      const dateStr = scheduledFor.toISOString().replace('T', ' ').substring(0, 19);
+      await query(
+        `UPDATE generated_emails SET status = 'scheduled', approved_at = NOW(), approved_by = ?, scheduled_for = ?
+         WHERE id = ? AND tenant_id = ? AND status = 'draft'`,
+        [req.user!.id, dateStr, email.id, tenantId]
+      );
+      scheduled++;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        message: `Programados ${scheduled} borrador(es) desde ${start_date || 'hoy'} (sin activar la campaña).`,
+        count: scheduled,
+        distribution,
+        daily_limit: dailyLimit,
+      },
+    });
+  } catch (error: any) {
+    console.error('Schedule drafts error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred while scheduling drafts.' });
+  }
+});
+
 // --- POST /:id/reject-emails - Bulk reject ---
 router.post('/:id/reject-emails', async (req: Request, res: Response): Promise<void> => {
   try {
