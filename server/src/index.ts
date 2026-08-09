@@ -25,6 +25,10 @@ import settingsRoutes from './routes/settings';
 import outboxRoutes from './routes/outbox';
 import repliesRoutes from './routes/replies';
 import { handleMcpRequest, mcpMethodNotAllowed } from './mcp';
+import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
+import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
+import { AbmOAuthProvider } from './mcp/oauth-provider';
+import { handleOAuthLogin } from './mcp/oauth-login';
 import usersRoutes from './routes/users';
 import webhookRoutes from './routes/webhooks';
 import unsubscribeRoutes from './routes/unsubscribe';
@@ -163,9 +167,32 @@ async function main(): Promise<void> {
   app.use('/api/users', usersRoutes);
   app.use('/api/admin', cleanupRoutes);
 
-  // --- MCP server (Streamable HTTP, stateless) — lets Claude / ChatGPT / Claude Code drive the platform ---
-  // Under /api so DigitalOcean routes it to this service. Auth = platform JWT (OAuth 2.1 discovery lands in Phase B).
-  app.post('/api/mcp', handleMcpRequest);
+  // --- MCP server (Streamable HTTP) + OAuth 2.1 — lets Claude / ChatGPT / Claude Code drive the platform ---
+  const PUBLIC_URL = (process.env.PUBLIC_URL || 'https://abm.tecnociminnova.com').replace(/\/$/, '');
+  const mcpResourceUrl = `${PUBLIC_URL}/api/mcp`;
+  const oauthProvider = new AbmOAuthProvider();
+
+  // OAuth AS + Protected Resource Metadata (RFC 9728/8414), /authorize, /token, /register, /revoke.
+  // Mounted at root — DigitalOcean routes /.well-known, /authorize, /token, /register to this service.
+  app.use(
+    mcpAuthRouter({
+      provider: oauthProvider,
+      issuerUrl: new URL(PUBLIC_URL),
+      baseUrl: new URL(PUBLIC_URL),
+      resourceServerUrl: new URL(mcpResourceUrl),
+      scopesSupported: ['mcp'],
+      resourceName: 'ABM Tecnocim Innova',
+    })
+  );
+  // Login/consent form target (rendered by the provider's authorize()).
+  app.post('/oauth/login', handleOAuthLogin);
+
+  // The MCP endpoint itself: bearer-protected (401 + WWW-Authenticate resource_metadata on failure).
+  const mcpBearer = requireBearerAuth({
+    verifier: oauthProvider,
+    resourceMetadataUrl: `${PUBLIC_URL}/.well-known/oauth-protected-resource`,
+  });
+  app.post('/api/mcp', mcpBearer, handleMcpRequest);
   app.get('/api/mcp', mcpMethodNotAllowed);
   app.delete('/api/mcp', mcpMethodNotAllowed);
 

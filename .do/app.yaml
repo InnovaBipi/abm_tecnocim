@@ -66,6 +66,19 @@ services:
     routes:
       - path: /api
         preserve_path_prefix: true
+      # OAuth 2.1 for the MCP server (root-level endpoints must reach the API service, not the SPA)
+      - path: /.well-known
+        preserve_path_prefix: true
+      - path: /authorize
+        preserve_path_prefix: true
+      - path: /token
+        preserve_path_prefix: true
+      - path: /register
+        preserve_path_prefix: true
+      - path: /revoke
+        preserve_path_prefix: true
+      - path: /oauth
+        preserve_path_prefix: true
 
 static_sites:
   - name: web

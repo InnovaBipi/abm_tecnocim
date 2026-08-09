@@ -1,33 +1,27 @@
 import { Request, Response } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { authFromHeader } from './context';
+import { McpAuth } from './context';
 import { registerReadOnlyTools } from './tools/readonly';
 
-/** Public base URL of this server (for OAuth metadata discovery). */
-function baseUrl(req: Request): string {
-  const envUrl = process.env.PUBLIC_URL;
-  if (envUrl) return envUrl.replace(/\/$/, '');
-  return `${req.protocol}://${req.get('host')}`;
-}
-
 /**
- * Handle an MCP Streamable-HTTP request (stateless JSON mode). Each request:
- *  1. Validates the Bearer JWT → tenant-scoped auth (401 with WWW-Authenticate if missing).
- *  2. Builds a fresh McpServer with tools bound to that tenant.
- *  3. Lets the transport process the JSON-RPC request and reply.
- * Stateless (no session store) keeps it simple and horizontally safe for multiple clients.
+ * Handle an MCP Streamable-HTTP request (stateless JSON mode). Auth is enforced UPSTREAM by the
+ * SDK `requireBearerAuth` middleware, which validates the OAuth access token (= platform JWT) and
+ * sets `req.auth`. Here we derive the tenant-scoped context and build a fresh McpServer per request.
  */
 export async function handleMcpRequest(req: Request, res: Response): Promise<void> {
-  const auth = authFromHeader(req.headers.authorization);
-  if (!auth) {
-    res.set(
-      'WWW-Authenticate',
-      `Bearer resource_metadata="${baseUrl(req)}/.well-known/oauth-protected-resource"`
-    );
+  const info = (req as any).auth as { extra?: Record<string, any> } | undefined;
+  const extra = info?.extra;
+  if (!extra?.tenantId || !extra?.userId) {
     res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized' }, id: null });
     return;
   }
+  const auth: McpAuth = {
+    tenantId: extra.tenantId,
+    userId: extra.userId,
+    email: extra.email,
+    role: extra.role,
+  };
 
   const server = new McpServer(
     { name: 'abm-tecnocim', version: '1.0.0' },
