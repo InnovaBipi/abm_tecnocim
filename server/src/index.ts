@@ -190,7 +190,8 @@ async function main(): Promise<void> {
   // The MCP endpoint itself: bearer-protected (401 + WWW-Authenticate resource_metadata on failure).
   const mcpBearer = requireBearerAuth({
     verifier: oauthProvider,
-    resourceMetadataUrl: `${PUBLIC_URL}/.well-known/oauth-protected-resource`,
+    // RFC 9728 path-specific PRM location (the SDK serves it under the resource server's path).
+    resourceMetadataUrl: `${PUBLIC_URL}/.well-known/oauth-protected-resource/api/mcp`,
   });
   app.post('/api/mcp', mcpBearer, handleMcpRequest);
   app.get('/api/mcp', mcpMethodNotAllowed);
