@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { query } from '../config/database';
-import { createAuthorizationCode } from './oauth-provider';
+import { createAuthorizationCode, parseJsonCol } from './oauth-provider';
 import type { OAuthClientInformationFull, OAuthClientInformationFull as Client } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { AuthorizationParams } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 
@@ -77,7 +77,7 @@ export async function handleOAuthLogin(req: Request, res: Response): Promise<voi
     res.status(400).send('Unknown client.');
     return;
   }
-  const redirects: string[] = JSON.parse(clients[0].redirect_uris || '[]');
+  const redirects: string[] = parseJsonCol<string[]>(clients[0].redirect_uris, []);
   if (!redirects.includes(redirect_uri)) {
     res.status(400).send('Invalid redirect_uri.');
     return;

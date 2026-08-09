@@ -12,6 +12,19 @@ import { renderLoginPage } from './oauth-login';
 const ACCESS_TTL_SECONDS = 60 * 60 * 24 * 7; // 7d, matches the platform JWT
 const CODE_TTL_MS = 10 * 60 * 1000; // 10 min
 
+/** JSON columns come back already-parsed from mysql2; only JSON.parse strings. */
+export function parseJsonCol<T>(v: any, fallback: T): T {
+  if (v == null) return fallback;
+  if (typeof v === 'string') {
+    try {
+      return JSON.parse(v) as T;
+    } catch {
+      return fallback;
+    }
+  }
+  return v as T;
+}
+
 /** Persist DCR clients in `oauth_clients` (global — a client is the Claude/ChatGPT app). */
 class AbmClientsStore implements OAuthRegisteredClientsStore {
   async getClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {
@@ -22,8 +35,8 @@ class AbmClientsStore implements OAuthRegisteredClientsStore {
       client_id: r.client_id,
       client_secret: r.client_secret || undefined,
       client_name: r.client_name || undefined,
-      redirect_uris: JSON.parse(r.redirect_uris),
-      grant_types: r.grant_types ? JSON.parse(r.grant_types) : ['authorization_code', 'refresh_token'],
+      redirect_uris: parseJsonCol<string[]>(r.redirect_uris, []),
+      grant_types: parseJsonCol<string[]>(r.grant_types, ['authorization_code', 'refresh_token']),
       response_types: ['code'],
       scope: r.scope || 'mcp',
       token_endpoint_auth_method: r.token_endpoint_auth_method || 'none',
