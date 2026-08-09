@@ -4,6 +4,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { McpAuth } from './context';
 import { registerReadOnlyTools } from './tools/readonly';
 import { registerWriteTools } from './tools/write';
+import { registerPrompts } from './prompts';
 
 /**
  * Handle an MCP Streamable-HTTP request (stateless JSON mode). Auth is enforced UPSTREAM by the
@@ -26,10 +27,11 @@ export async function handleMcpRequest(req: Request, res: Response): Promise<voi
 
   const server = new McpServer(
     { name: 'abm-tecnocim', version: '1.0.0' },
-    { instructions: 'Tools to operate the ABM/CamiaCasa platform (prospects, campaigns, emails, replies). All actions are scoped to your tenant.' }
+    { instructions: 'Tools to operate the ABM/CamiaCasa platform (prospects, campaigns, emails, replies). All actions are scoped to your tenant. Server-side workflow prompts available: campana_360, programar_borradores, barrido_respuestas.' }
   );
   registerReadOnlyTools(server, auth);
   registerWriteTools(server, auth);
+  registerPrompts(server, auth);
 
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // stateless
