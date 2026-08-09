@@ -24,6 +24,7 @@ import dashboardRoutes from './routes/dashboard';
 import settingsRoutes from './routes/settings';
 import outboxRoutes from './routes/outbox';
 import repliesRoutes from './routes/replies';
+import { handleMcpRequest, mcpMethodNotAllowed } from './mcp';
 import usersRoutes from './routes/users';
 import webhookRoutes from './routes/webhooks';
 import unsubscribeRoutes from './routes/unsubscribe';
@@ -161,6 +162,12 @@ async function main(): Promise<void> {
   app.use('/api/replies', repliesRoutes);
   app.use('/api/users', usersRoutes);
   app.use('/api/admin', cleanupRoutes);
+
+  // --- MCP server (Streamable HTTP, stateless) — lets Claude / ChatGPT / Claude Code drive the platform ---
+  // Under /api so DigitalOcean routes it to this service. Auth = platform JWT (OAuth 2.1 discovery lands in Phase B).
+  app.post('/api/mcp', handleMcpRequest);
+  app.get('/api/mcp', mcpMethodNotAllowed);
+  app.delete('/api/mcp', mcpMethodNotAllowed);
 
   // Admin: run pending migrations on-demand
   app.post('/api/admin/migrate', authenticate, async (req, res) => {
