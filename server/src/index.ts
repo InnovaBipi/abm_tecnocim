@@ -185,7 +185,9 @@ async function main(): Promise<void> {
     })
   );
   // Login/consent form target (rendered by the provider's authorize()).
-  app.post('/oauth/login', handleOAuthLogin);
+  // Shares authLimiter (10/15min per IP) with /api/auth so this public endpoint
+  // is not brute-forceable — a credential-stuffing bot hitting both shares one budget.
+  app.post('/oauth/login', authLimiter, handleOAuthLogin);
 
   // The MCP endpoint itself: bearer-protected (401 + WWW-Authenticate resource_metadata on failure).
   const mcpBearer = requireBearerAuth({

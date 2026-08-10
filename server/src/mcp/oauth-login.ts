@@ -71,6 +71,16 @@ export async function handleOAuthLogin(req: Request, res: Response): Promise<voi
     return;
   }
 
+  // Defense in depth: enforce PKCE S256 at our own endpoint boundary. The SDK's /authorize
+  // handler already requires code_challenge_method=S256 (z.literal('S256')) and /token verifies
+  // with verifyChallenge (S256), so 'plain' cannot succeed — this makes the intent explicit and
+  // guards a direct POST to /oauth/login that never passed through the SDK's authorize schema.
+  const { code_challenge_method } = req.body || {};
+  if (code_challenge_method && code_challenge_method !== 'S256') {
+    res.status(400).send('Unsupported code_challenge_method: only S256 is allowed.');
+    return;
+  }
+
   // Validate client + redirect_uri.
   const clients = await query<any[]>('SELECT * FROM oauth_clients WHERE client_id = ?', [client_id]);
   if (!clients.length) {

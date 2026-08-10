@@ -44,7 +44,17 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, config.JWT_SECRET, { algorithms: ['HS256'] }) as JwtPayload;
+    const decoded = jwt.verify(token, config.JWT_SECRET, { algorithms: ['HS256'] }) as JwtPayload & { aud?: string };
+
+    // Audience binding: tokens minted for the MCP surface (aud:'mcp') must not be usable
+    // against the REST API. REST tokens carry no aud, so this only rejects OAuth/MCP tokens.
+    if (decoded.aud === 'mcp') {
+      res.status(401).json({
+        success: false,
+        error: 'This token is not valid for the REST API.',
+      });
+      return;
+    }
 
     req.user = {
       id: decoded.userId,
@@ -85,13 +95,16 @@ export function optionalAuth(req: Request, res: Response, next: NextFunction): v
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, config.JWT_SECRET, { algorithms: ['HS256'] }) as JwtPayload;
-    req.user = {
-      id: decoded.userId,
-      email: decoded.email,
-      role: decoded.role,
-      tenantId: decoded.tenantId,
-    };
+    const decoded = jwt.verify(token, config.JWT_SECRET, { algorithms: ['HS256'] }) as JwtPayload & { aud?: string };
+    // MCP-audience tokens are not valid for the REST API (see authenticate()).
+    if (decoded.aud !== 'mcp') {
+      req.user = {
+        id: decoded.userId,
+        email: decoded.email,
+        role: decoded.role,
+        tenantId: decoded.tenantId,
+      };
+    }
   } catch {
     // Token is invalid but we allow the request to continue without user
   }

@@ -132,6 +132,8 @@ export class AbmOAuthProvider implements OAuthServerProvider {
       throw new Error('invalid_token');
     }
     if (!decoded.tenantId || !decoded.userId) throw new Error('invalid_token');
+    // A refresh token (30d, typ:'refresh') must never be accepted as an access token.
+    if (decoded.typ === 'refresh') throw new Error('invalid_token');
     return {
       token,
       clientId: decoded.clientId || 'mcp',
@@ -161,7 +163,9 @@ export class AbmOAuthProvider implements OAuthServerProvider {
         role = u[0].role;
       }
     }
-    const accessToken = jwt.sign({ userId, email, role, tenantId, clientId, scope }, config.JWT_SECRET, {
+    // aud:'mcp' binds this token to the MCP surface. The REST authenticate() middleware
+    // rejects aud:'mcp', so a leaked OAuth/connector token cannot be replayed against the REST API.
+    const accessToken = jwt.sign({ userId, email, role, tenantId, clientId, scope, aud: 'mcp' }, config.JWT_SECRET, {
       expiresIn: '7d',
       algorithm: 'HS256',
     });
@@ -183,7 +187,12 @@ export class AbmOAuthProvider implements OAuthServerProvider {
   }
 }
 
-/** Create + store a fresh authorization code (called by the /oauth/login handler after auth). */
+/**
+ * Create + store a fresh authorization code (called by the /oauth/login handler after auth).
+ * PKCE is S256-only end to end: the SDK's /authorize handler requires code_challenge_method=S256
+ * and the /token handler verifies the code_verifier with verifyChallenge (S256), so a stored
+ * challenge can only be redeemed by a matching S256 verifier — 'plain' downgrade cannot succeed.
+ */
 export async function createAuthorizationCode(input: {
   clientId: string;
   redirectUri: string;
