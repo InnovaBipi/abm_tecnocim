@@ -53,6 +53,12 @@ export interface TenantConfig {
     daily_limit_max: number;
     ramp_up_days: number;
   };
+  // Optional operational notes for AI clients: delivered verbatim inside the MCP server
+  // instructions on every initialize, so standing guardrails travel with the connector.
+  // Edited via the settings_set_mcp_notes MCP tool (admin/manager).
+  mcp?: {
+    instructions?: string;
+  };
   // Optional per-tenant deliverability alerting. When present, a monitor job
   // emails recipient_email if bounce/complaint rates over the last window_hours
   // exceed the thresholds (min_sample sends required first). See jobs/deliverabilityAlert.ts.

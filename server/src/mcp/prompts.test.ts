@@ -3,6 +3,7 @@ import { registerPrompts } from './prompts';
 import type { McpAuth } from './context';
 
 vi.mock('../config/database', () => ({ query: vi.fn() }));
+vi.mock('../services/scheduling', () => ({ getMadridDateString: vi.fn(() => '2026-08-10') }));
 import { query } from '../config/database';
 
 const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
@@ -106,13 +107,13 @@ describe('MCP prompts', () => {
       expect(text).toContain('anterior a la start_date de la campaña');
     });
 
-    it('warns when start_date is in the past', async () => {
+    it('warns when start_date is before Madrid-today', async () => {
       const prompts = register();
       mockQuery
         .mockResolvedValueOnce([{ id: 'cam-1', name: 'Mandatos', status: 'paused', start_date: null }])
         .mockResolvedValueOnce([{ c: 10 }]);
-      const result = await prompts['programar_borradores'].cb({ campaign_id: 'cam-1', start_date: '2020-01-01' });
-      expect(textOf(result)).toContain('ANTERIOR a hoy');
+      const result = await prompts['programar_borradores'].cb({ campaign_id: 'cam-1', start_date: '2026-08-09' });
+      expect(textOf(result)).toContain('ANTERIOR a hoy (2026-08-10)');
     });
   });
 

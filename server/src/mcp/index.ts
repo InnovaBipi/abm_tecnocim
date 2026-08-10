@@ -2,9 +2,13 @@ import { Request, Response } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { McpAuth } from './context';
+import { getTenantConfig } from '../middleware/tenant';
 import { registerReadOnlyTools } from './tools/readonly';
 import { registerWriteTools } from './tools/write';
 import { registerPrompts } from './prompts';
+
+const BASE_INSTRUCTIONS =
+  'Tools to operate the ABM/CamiaCasa platform (prospects, campaigns, emails, replies). All actions are scoped to your tenant. Server-side workflow prompts available: campana_360, programar_borradores, barrido_respuestas.';
 
 /**
  * Handle an MCP Streamable-HTTP request (stateless JSON mode). Auth is enforced UPSTREAM by the
@@ -25,9 +29,23 @@ export async function handleMcpRequest(req: Request, res: Response): Promise<voi
     role: extra.role,
   };
 
+  // Per-tenant operational notes (config.mcp.instructions, editable via settings_set_mcp_notes)
+  // ride along in the initialize instructions, so every client — Claude.ai, ChatGPT, Claude Code —
+  // receives the tenant's standing guardrails automatically. Cached 5 min by getTenantConfig.
+  let instructions = BASE_INSTRUCTIONS;
+  try {
+    const tenant = await getTenantConfig(auth.tenantId);
+    const notes = tenant?.config?.mcp?.instructions?.trim();
+    if (notes) {
+      instructions += `\n\n## Tenant operational notes (standing rules set by the tenant admin — ALWAYS follow them)\n${notes}`;
+    }
+  } catch (err: any) {
+    console.error('MCP: could not load tenant notes:', err?.message || err);
+  }
+
   const server = new McpServer(
     { name: 'abm-tecnocim', version: '1.0.0' },
-    { instructions: 'Tools to operate the ABM/CamiaCasa platform (prospects, campaigns, emails, replies). All actions are scoped to your tenant. Server-side workflow prompts available: campana_360, programar_borradores, barrido_respuestas.' }
+    { instructions }
   );
   registerReadOnlyTools(server, auth);
   registerWriteTools(server, auth);

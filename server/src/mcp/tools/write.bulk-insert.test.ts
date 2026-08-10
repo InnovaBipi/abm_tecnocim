@@ -99,7 +99,8 @@ describe('emails_bulk_insert', () => {
     mockQuery
       .mockResolvedValueOnce([{ id: 'cam-1' }]) // campaign
       .mockResolvedValueOnce([{ id: 'p1' }, { id: 'p2' }]) // prospects
-      .mockResolvedValueOnce([{ prospect_id: 'p1' }]); // enrollment: p2 not enrolled
+      .mockResolvedValueOnce([{ prospect_id: 'p1' }]) // enrollment: p2 not enrolled
+      .mockResolvedValueOnce([]); // no protected rows
     const conn = makeConn();
     mockGetConnection.mockResolvedValue(conn);
     const emails = [email('p1', 1), email('p1', 2), email('p2', 1)];
@@ -107,13 +108,15 @@ describe('emails_bulk_insert', () => {
     expect(out.inserted).toBe(3);
     expect(out.expected).toBe(3);
     expect(out.mismatch).toBe(false);
+    expect(out.skipped_protected).toEqual([]);
     expect(out.not_enrolled_prospect_ids).toEqual(['p2']);
     expect(out.note).toContain('prospects_add_to_campaign');
     expect(conn.commit).toHaveBeenCalledTimes(3);
-    // every DELETE and INSERT inside the tx is tenant-scoped
+    // every DELETE and INSERT inside the tx is tenant-scoped, and the DELETE only touches draft/rejected
     for (const [sql, params] of conn.query.mock.calls) {
       expect(sql).toContain('tenant_id');
       expect(params).toContain('test-tenant-id');
+      if (sql.includes('DELETE')) expect(sql).toContain("status IN ('draft', 'rejected')");
     }
   });
 
@@ -122,7 +125,8 @@ describe('emails_bulk_insert', () => {
     mockQuery
       .mockResolvedValueOnce([{ id: 'cam-1' }])
       .mockResolvedValueOnce([{ id: 'p1' }, { id: 'p2' }])
-      .mockResolvedValueOnce([{ prospect_id: 'p1' }, { prospect_id: 'p2' }]);
+      .mockResolvedValueOnce([{ prospect_id: 'p1' }, { prospect_id: 'p2' }])
+      .mockResolvedValueOnce([]); // no protected rows
     const okConn = makeConn();
     const badConn = makeConn();
     badConn.query.mockRejectedValueOnce(new Error('deadlock'));
@@ -134,6 +138,51 @@ describe('emails_bulk_insert', () => {
     expect(badConn.rollback).toHaveBeenCalled();
     expect(badConn.release).toHaveBeenCalled();
     expect(okConn.commit).toHaveBeenCalled();
+  });
+
+  it('rejects batches with duplicate prospect+step pairs before touching the DB', async () => {
+    const tool = getTool('emails_bulk_insert');
+    mockQuery.mockResolvedValueOnce([{ id: 'cam-1' }]); // campaign
+    const out = parse(await tool({ campaign_id: 'cam-1', emails: [email('p1', 1), email('p1', 1)] }));
+    expect(out.error).toContain('Duplicate prospect+step');
+    expect(out.duplicate_keys).toEqual(['p1:1']);
+    expect(mockGetConnection).not.toHaveBeenCalled();
+  });
+
+  it('never replaces emails that progressed beyond draft (skipped_protected, no mismatch)', async () => {
+    const tool = getTool('emails_bulk_insert');
+    mockQuery
+      .mockResolvedValueOnce([{ id: 'cam-1' }])
+      .mockResolvedValueOnce([{ id: 'p1' }])
+      .mockResolvedValueOnce([{ prospect_id: 'p1' }])
+      .mockResolvedValueOnce([{ prospect_id: 'p1', step_number: 1, status: 'sent' }]); // step 1 already sent
+    const conn = makeConn();
+    mockGetConnection.mockResolvedValue(conn);
+    const out = parse(await tool({ campaign_id: 'cam-1', emails: [email('p1', 1), email('p1', 2)] }));
+    expect(out.inserted).toBe(1); // only step 2
+    expect(out.skipped_protected).toEqual([{ prospect_id: 'p1', step_number: 1, status: 'sent' }]);
+    expect(out.mismatch).toBe(false); // skip is intentional, not data loss
+    expect(out.note).toContain('email_update');
+    expect(conn.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns about do_not_contact / unsubscribed prospects without blocking the insert', async () => {
+    const tool = getTool('emails_bulk_insert');
+    mockQuery
+      .mockResolvedValueOnce([{ id: 'cam-1' }])
+      .mockResolvedValueOnce([
+        { id: 'p1', do_not_contact: 1, status: 'contacted' },
+        { id: 'p2', do_not_contact: 0, status: 'unsubscribed' },
+        { id: 'p3', do_not_contact: 0, status: 'new' },
+      ])
+      .mockResolvedValueOnce([{ prospect_id: 'p1' }, { prospect_id: 'p2' }, { prospect_id: 'p3' }])
+      .mockResolvedValueOnce([]);
+    const conn = makeConn();
+    mockGetConnection.mockResolvedValue(conn);
+    const out = parse(await tool({ campaign_id: 'cam-1', emails: [email('p1'), email('p2'), email('p3')] }));
+    expect(out.inserted).toBe(3);
+    expect(out.do_not_contact_prospect_ids.sort()).toEqual(['p1', 'p2']);
+    expect(out.note).toContain('scheduler will never send');
   });
 
   it('caps the batch at 500', async () => {

@@ -523,7 +523,7 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
   reg(server, 'emails_bulk_insert', {
     title: 'Bulk insert emails',
     description:
-      'Insert pre-written emails (e.g. Claude-generated sequences) into a campaign as DRAFT. Unlike the REST bulk-insert endpoint, validation is fail-fast and all-or-nothing: if ANY prospect_id is invalid or any entry is malformed, NOTHING is inserted and the offending ids/indexes are returned. Replaces existing drafts for the same prospect+step. Max 500 emails/call.',
+      'Insert pre-written emails (e.g. Claude-generated sequences) into a campaign as DRAFT. Validation is fail-fast and all-or-nothing: if ANY prospect_id is invalid, any entry is malformed, or the batch has duplicate prospect+step pairs, NOTHING is inserted and the offending ids/indexes are returned. Replaces existing DRAFT/REJECTED emails for the same prospect+step; emails already scheduled/sent are NEVER touched (reported in skipped_protected). Max 500 emails/call.',
     inputSchema: {
       campaign_id: z.string().describe('Campaign UUID.'),
       emails: z.array(z.object({
@@ -549,34 +549,65 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
     if (malformed.length) {
       return textResult({ error: 'Malformed entries (missing prospect_id/subject/body_html). Nothing inserted.', malformed_indexes: malformed });
     }
+    const stepKey = (e: any) => `${e.prospect_id}:${e.step_number || 1}`;
+    const seenKeys = new Set<string>();
+    const duplicates: string[] = [];
+    for (const e of emails) {
+      const k = stepKey(e);
+      if (seenKeys.has(k)) duplicates.push(k);
+      seenKeys.add(k);
+    }
+    if (duplicates.length) {
+      return textResult({ error: 'Duplicate prospect+step pairs in the batch. Nothing inserted.', duplicate_keys: duplicates });
+    }
     const uniqueIds: string[] = [...new Set(emails.map((e: any) => String(e.prospect_id)))] as string[];
     const ph = uniqueIds.map(() => '?').join(',');
     const found = await query<any[]>(
-      `SELECT id FROM prospects WHERE id IN (${ph}) AND tenant_id = ?`, [...uniqueIds, t]);
+      `SELECT id, do_not_contact, status FROM prospects WHERE id IN (${ph}) AND tenant_id = ?`, [...uniqueIds, t]);
     const foundSet = new Set(found.map((r) => r.id));
     const invalid = uniqueIds.filter((id) => !foundSet.has(id));
     if (invalid.length) {
       return textResult({ error: 'Unknown prospect_ids for this tenant. Nothing inserted.', invalid_prospect_ids: invalid });
     }
+    const doNotContact = found
+      .filter((r) => r.do_not_contact || ['unsubscribed', 'bounced'].includes(r.status))
+      .map((r) => r.id);
     const enrolled = await query<any[]>(
       `SELECT prospect_id FROM campaign_prospects WHERE campaign_id = ? AND prospect_id IN (${ph})`,
       [campaign_id, ...uniqueIds]);
     const enrolledSet = new Set(enrolled.map((r) => r.prospect_id));
     const notEnrolled = uniqueIds.filter((id) => !enrolledSet.has(id));
 
+    // Never touch emails that left draft state: a scheduled/sent/replied row holds send
+    // history (warmup counting, audit) and replacing it could re-send an already-sent step.
+    const protectedRows = await query<any[]>(
+      `SELECT prospect_id, step_number, status FROM generated_emails
+       WHERE campaign_id = ? AND tenant_id = ? AND prospect_id IN (${ph})
+         AND status NOT IN ('draft', 'rejected')`,
+      [campaign_id, t, ...uniqueIds]);
+    const protectedMap = new Map(protectedRows.map((r) => [`${r.prospect_id}:${r.step_number}`, r.status]));
+
     let inserted = 0;
     const failed: string[] = [];
+    const skippedProtected: Array<{ prospect_id: string; step_number: number; status: string }> = [];
     for (const email of emails) {
+      const step = email.step_number || 1;
+      const existingStatus = protectedMap.get(stepKey(email));
+      if (existingStatus) {
+        skippedProtected.push({ prospect_id: email.prospect_id, step_number: step, status: existingStatus });
+        continue;
+      }
       const conn = await getConnection();
       try {
         await conn.beginTransaction();
         await conn.query(
-          'DELETE FROM generated_emails WHERE prospect_id = ? AND campaign_id = ? AND step_number = ? AND tenant_id = ?',
-          [email.prospect_id, campaign_id, email.step_number || 1, t]);
+          `DELETE FROM generated_emails WHERE prospect_id = ? AND campaign_id = ? AND step_number = ? AND tenant_id = ?
+             AND status IN ('draft', 'rejected')`,
+          [email.prospect_id, campaign_id, step, t]);
         await conn.query(
           `INSERT INTO generated_emails (id, tenant_id, campaign_id, prospect_id, step_number, subject, body_html, delay_days, status)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
-          [uuidv4(), t, campaign_id, email.prospect_id, email.step_number || 1, email.subject,
+          [uuidv4(), t, campaign_id, email.prospect_id, step, email.subject,
            sanitizeEmailHtml(email.body_html), email.delay_days || 0]);
         await conn.commit();
         inserted++;
@@ -591,12 +622,22 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
     return textResult({
       inserted,
       expected: emails.length,
-      mismatch: inserted !== emails.length,
+      mismatch: inserted + skippedProtected.length !== emails.length,
+      skipped_protected: skippedProtected,
       failed_prospect_ids: failed,
       not_enrolled_prospect_ids: notEnrolled,
-      note: notEnrolled.length
-        ? 'Some prospects are not enrolled in this campaign — enroll them with prospects_add_to_campaign or their emails will not appear in campaign views.'
-        : undefined,
+      do_not_contact_prospect_ids: doNotContact,
+      note: [
+        notEnrolled.length
+          ? 'Some prospects are not enrolled in this campaign — enroll them with prospects_add_to_campaign or their emails will not appear in campaign views.'
+          : null,
+        doNotContact.length
+          ? 'Some prospects are do_not_contact/unsubscribed/bounced: their drafts were inserted but the scheduler will never send them — review before scheduling.'
+          : null,
+        skippedProtected.length
+          ? 'Some prospect+step emails already progressed beyond draft and were NOT replaced — use email_update if you really need to change them.'
+          : null,
+      ].filter(Boolean).join(' ') || undefined,
     });
   });
 
@@ -624,5 +665,33 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
     await query(`UPDATE tenants SET config = JSON_SET(config, ${updates.join(', ')}) WHERE id = ?`, params);
     clearTenantCache(t);
     return textResult({ updated: true });
+  });
+
+  // --- settings_set_mcp_notes ---
+  reg(server, 'settings_set_mcp_notes', {
+    title: 'Set tenant MCP operational notes',
+    description:
+      "Set the tenant's operational notes for AI clients. These notes are delivered to EVERY MCP client (Claude.ai, ChatGPT, Claude Code) inside the server instructions at connection time — use them for standing guardrails and playbook rules (e.g. \"do not activate campaign X before date Y\", signature rules). Empty string clears them. Admin/manager only. Max 4000 chars.",
+    inputSchema: {
+      instructions: z.string().describe('The notes (markdown ok). Empty string to clear.'),
+    },
+  }, async ({ instructions }: any) => {
+    if (!['admin', 'manager'].includes(auth.role)) {
+      return textResult({ error: 'Only admin or manager can set MCP notes.' });
+    }
+    if (typeof instructions !== 'string') return textResult({ error: 'instructions must be a string.' });
+    const trimmed = instructions.trim();
+    if (trimmed.length > 4000) return textResult({ error: 'instructions cannot exceed 4000 chars.' });
+    // JSON_MERGE_PATCH creates the $.mcp path if missing; a JSON null value removes the key.
+    await query(
+      `UPDATE tenants SET config = JSON_MERGE_PATCH(config, JSON_OBJECT('mcp', JSON_OBJECT('instructions', ?))) WHERE id = ?`,
+      [trimmed || null, t]);
+    clearTenantCache(t);
+    return textResult({
+      updated: true,
+      cleared: !trimmed,
+      instructions: trimmed || null,
+      note: 'Clients pick this up on their next connection/initialize (tenant config cache: 5 min).',
+    });
   });
 }

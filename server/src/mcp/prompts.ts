@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { query } from '../config/database';
+import { getMadridDateString } from '../services/scheduling';
 import { McpAuth } from './context';
 
 /**
@@ -50,7 +51,7 @@ export function registerPrompts(server: McpServer, auth: McpAuth): void {
       let scopeBlock: string;
       if (campaign_id) {
         const rows = await query<any[]>(
-          'SELECT id, name, status, start_date FROM campaigns WHERE id = ? AND tenant_id = ?',
+          "SELECT id, name, status, DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date FROM campaigns WHERE id = ? AND tenant_id = ?",
           [campaign_id, t]
         );
         if (!rows.length) {
@@ -112,7 +113,7 @@ Reglas: este informe es SOLO LECTURA — no cambies estados de campaña, no apru
         );
       }
       const rows = await query<any[]>(
-        'SELECT id, name, status, start_date FROM campaigns WHERE id = ? AND tenant_id = ?',
+        "SELECT id, name, status, DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date FROM campaigns WHERE id = ? AND tenant_id = ?",
         [campaign_id, t]
       );
       if (!rows.length) {
@@ -125,10 +126,10 @@ Reglas: este informe es SOLO LECTURA — no cambies estados de campaña, no apru
         "SELECT COUNT(*) AS c FROM generated_emails WHERE campaign_id = ? AND tenant_id = ? AND status = 'draft'",
         [campaign_id, t]
       );
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getMadridDateString();
       const warnings: string[] = [];
       if (start_date < today) warnings.push(`start_date ${start_date} es ANTERIOR a hoy (${today}) — confirma con el usuario antes de programar.`);
-      const camStart = cam.start_date ? new Date(cam.start_date).toISOString().slice(0, 10) : null;
+      const camStart = cam.start_date || null;
       if (camStart && start_date < camStart) {
         warnings.push(`start_date ${start_date} es anterior a la start_date de la campaña (${camStart}). NO programes antes de esa fecha sin confirmación explícita del usuario.`);
       }
@@ -171,9 +172,7 @@ Reglas:
         return promptResult(`since "${from}" no es válida (YYYY-MM-DD). Pide la fecha correcta al usuario.`);
       }
       if (!from) {
-        const d = new Date();
-        d.setDate(d.getDate() - 7);
-        from = d.toISOString().slice(0, 10);
+        from = getMadridDateString(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
       }
       const [count] = await query<any[]>(
         "SELECT COUNT(*) AS c FROM email_events WHERE tenant_id = ? AND event_type = 'replied' AND occurred_at >= ?",
