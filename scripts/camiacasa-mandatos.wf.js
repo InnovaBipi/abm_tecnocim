@@ -14,7 +14,7 @@ export const meta = {
     { title: 'Setup', detail: 'Auth CamiaCasa, dedup tenant-wide + merge buy-side seen-domains, read rotation state, select segment' },
     { title: 'Research', detail: 'Discover asset-holders, hunt named asset-management/expansion contacts (fallback generic), MX verify' },
     { title: 'Generate', detail: 'Enrich reason-to-commercialize + 3-step emails per language + QA (7 dims) + native eval, 3-retry' },
-    { title: 'Import', detail: 'Companies -> prospects -> enroll -> bulk-insert-emails (verified prospect_ids) -> persist state' }
+    { title: 'Import', detail: 'MCP tools: company_create -> prospect_create -> enroll -> emails_bulk_insert (fail-fast server-side) -> persist state' }
   ]
 }
 
@@ -413,7 +413,11 @@ if (candidates.length === 0) {
 
 // Hybrid contact hunt: named asset-management/sales/expansion contact first, generic fallback. Chunks of 4.
 const contactChunks = chunk(candidates, 4)
-const contactRes = await parallel(contactChunks.map((ch, i) => () => agent(
+const contactRes = []
+// Throttle contact-hunt to waves of 4 chunks (<=4 concurrent agents). At count 50 this phase
+// would otherwise fire ~13 concurrent agents and trip the transient API rate limit.
+for (const cwave of chunk(contactChunks, 4)) {
+  contactRes.push(...await parallel(cwave.map((ch) => () => agent(
   `For EACH company below, find the best outreach contact. Two-tier strategy:
 
   TIER 1 — NAMED CONTACT (preferred). Find a person holding a role that decides on selling/placing real estate:
@@ -430,8 +434,9 @@ const contactRes = await parallel(contactChunks.map((ch, i) => () => agent(
   Return one result per company: { domain, contact_type: 'named'|'generic'|'none', first_name?, last_name?, title?, email?, email_source?, mx_ok, language }. Use contact_type 'none' when no usable email exists (still return the row).
 
   Companies: ${JSON.stringify(ch.map(c => ({ name: c.name, domain: c.domain, city: c.city, country: c.country, entity_type: c.entity_type, source_url: c.source_url })))}`,
-  { label: `Contacts ${i + 1}/${contactChunks.length}`, phase: 'Research', schema: CONTACTS_SCHEMA }
-)))
+  { label: `Contacts (${ch.length})`, phase: 'Research', schema: CONTACTS_SCHEMA }
+  ))))
+}
 
 const contactByDomain = new Map()
 for (const r of contactRes.filter(Boolean)) {
@@ -702,34 +707,34 @@ const importPayload = validResults.map(r => ({
 }))
 
 const importResult = await agent(
-  `Import ${importPayload.length} prospects (+${importPayload.length * 3} emails) into campaign ${CAMPAIGN_ID} as DRAFT. Read the JWT from ${TOKEN_FILE} and use "Authorization: Bearer <token>" (curl --ssl-no-revoke); the API scopes all writes to the CamiaCasa tenant via the JWT. For any POST with a JSON body, write the body to a temp file and use curl --data-binary @file with -H "Content-Type: application/json" (UTF-8 safety).
+  `Import ${importPayload.length} prospects (+${importPayload.length * 3} emails) into campaign ${CAMPAIGN_ID} as DRAFT using the NATIVE MCP TOOLS of the abm-camiacasa connector (NOT curl — the MCP server scopes every write to the CamiaCasa tenant via the connector's token).
+
+  FIRST: load the tools in ONE ToolSearch call:
+  ToolSearch query "select:mcp__abm-camiacasa__company_create,mcp__abm-camiacasa__prospect_create,mcp__abm-camiacasa__prospects_add_to_campaign,mcp__abm-camiacasa__emails_bulk_insert,mcp__abm-camiacasa__generated_emails_list"
+  If the tools are NOT available, STOP immediately and return { error: "mcp_tools_unavailable" } — do NOT fall back to curl.
 
   COMPLETE DATA (full structure, no truncation):
   ${JSON.stringify(importPayload, null, 2)}
 
   STEPS — follow the ORDER exactly:
 
-  1. For EACH item, create the company: POST ${BASE_URL}/api/companies with the "company" object.
-     - On 201: take company_id = response.data.id
-     - On 409 (domain exists): GET ${BASE_URL}/api/companies?search=<domain> and take the matching company's id.
+  1. For EACH item, create the company: company_create with the "company" object fields.
+     - Dedup is server-side: if the domain exists the tool returns { id, deduped: true } — use that id, no 409 handling needed.
 
-  2. Create the prospect: POST ${BASE_URL}/api/prospects with the "prospect" object PLUS "company_id" from step 1.
-     - On 201: record prospect_id = response.data.id
-     - On 409 (email exists): SKIP this prospect entirely (already contacted) and log it. Do NOT reuse the old id.
+  2. Create the prospect: prospect_create with the "prospect" object fields PLUS company_id from step 1.
+     - If it returns { deduped: true } (email exists = already contacted): SKIP this prospect entirely and log it. Do NOT reuse the old id.
 
-  3. Build prospect_ids ONLY from 201 responses of step 2. Count = prospects_created.
+  3. Build prospect_ids ONLY from { created: true } responses of step 2. Count = prospects_created.
 
-  4. Enroll them in the campaign: POST ${BASE_URL}/api/campaigns/${CAMPAIGN_ID}/prospects with { "prospect_ids": [...] }.
+  4. Enroll them: prospects_add_to_campaign with { campaign_id: "${CAMPAIGN_ID}", prospect_ids: [...] }. Check added+skipped covers all ids; any "invalid" count is a hard error.
 
-  5. Bulk insert emails: POST ${BASE_URL}/api/campaigns/${CAMPAIGN_ID}/bulk-insert-emails with
-     { "emails": [ { "prospect_id": "<id from step 2>", "step_number": N, "subject": "...", "body_html": "...", "delay_days": N }, ... ] }
-     — one entry per email of each successfully created prospect (3 per prospect).
-     CRITICAL: the endpoint SILENTLY SKIPS emails whose prospect_id does not exist; the response field is data.inserted (NOT data.total_inserted). Compare data.inserted against prospects_created*3 and report any shortfall with the affected prospect_ids.
+  5. Insert the emails: emails_bulk_insert with { campaign_id: "${CAMPAIGN_ID}", emails: [ { prospect_id, step_number, subject, body_html, delay_days }, ... ] } — one entry per email of each successfully created prospect (3 per prospect).
+     Validation is fail-fast server-side: on any invalid prospect_id it inserts NOTHING and returns invalid_prospect_ids — if that happens, report it as an error (it means step 2/3 bookkeeping is broken). On success verify inserted === prospects_created*3 and mismatch === false; report failed_prospect_ids otherwise.
 
-  6. Verify: GET ${BASE_URL}/api/campaigns/${CAMPAIGN_ID}/generated-emails?status=draft — the response is { emails, byProspect, stats }: count NEW drafts in d.data.emails (NOT d.data.length) and cross-check d.data.stats.
+  6. Verify: generated_emails_list with { campaign_id: "${CAMPAIGN_ID}", status: "draft", limit: "100" } — confirm the NEW drafts appear (match by prospect_email) and the total grew by the inserted count.
 
   Return: { companies_created, prospects_created, prospects_skipped, enrolled, inserted, expected, verified_in_api, missing_prospect_ids, error? }`,
-  { label: 'Import: companies -> prospects -> enroll -> emails', phase: 'Import', schema: IMPORT_SCHEMA }
+  { label: 'Import via MCP: companies -> prospects -> enroll -> emails', phase: 'Import', schema: IMPORT_SCHEMA }
 )
 
 if (!importResult || importResult.inserted === 0) {

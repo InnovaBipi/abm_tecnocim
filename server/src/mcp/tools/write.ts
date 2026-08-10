@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { query } from '../../config/database';
+import { query, getConnection } from '../../config/database';
 import {
   distributeEmailsAcrossBusinessDays,
   resolveProspectTimezone,
@@ -517,6 +517,87 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
       `UPDATE generated_emails SET status = 'rejected', scheduled_for = NULL
        WHERE id IN (${ph}) AND tenant_id = ? AND status IN ('draft','approved','scheduled')`, [...email_ids, t]);
     return textResult({ rejected: r.affectedRows ?? null });
+  });
+
+  // --- emails_bulk_insert ---
+  reg(server, 'emails_bulk_insert', {
+    title: 'Bulk insert emails',
+    description:
+      'Insert pre-written emails (e.g. Claude-generated sequences) into a campaign as DRAFT. Unlike the REST bulk-insert endpoint, validation is fail-fast and all-or-nothing: if ANY prospect_id is invalid or any entry is malformed, NOTHING is inserted and the offending ids/indexes are returned. Replaces existing drafts for the same prospect+step. Max 500 emails/call.',
+    inputSchema: {
+      campaign_id: z.string().describe('Campaign UUID.'),
+      emails: z.array(z.object({
+        prospect_id: z.string().describe('Prospect UUID (must exist in this tenant).'),
+        step_number: z.number().optional().describe('Sequence step (default 1).'),
+        subject: z.string().describe('Email subject.'),
+        body_html: z.string().describe('Email body (HTML, will be sanitized).'),
+        delay_days: z.number().optional().describe('Days after previous step (default 0).'),
+      })).describe('Emails to insert (max 500).'),
+    },
+  }, async ({ campaign_id, emails }: any) => {
+    if (!Array.isArray(emails) || !emails.length) return textResult({ error: 'emails array is required.' });
+    if (emails.length > MAX_IDS) return textResult({ error: `emails cannot exceed ${MAX_IDS} per call.` });
+    const cam = await query<any[]>('SELECT id FROM campaigns WHERE id = ? AND tenant_id = ?', [campaign_id, t]);
+    if (!cam.length) return textResult({ error: 'Campaign not found.' });
+
+    // Fail-fast validation: reject the WHOLE batch before touching the DB, returning exactly
+    // what is wrong — this is the guard against the silent-skip data loss of the REST endpoint.
+    const malformed: number[] = [];
+    emails.forEach((e: any, i: number) => {
+      if (!e?.prospect_id || !e?.subject || !e?.body_html) malformed.push(i);
+    });
+    if (malformed.length) {
+      return textResult({ error: 'Malformed entries (missing prospect_id/subject/body_html). Nothing inserted.', malformed_indexes: malformed });
+    }
+    const uniqueIds: string[] = [...new Set(emails.map((e: any) => String(e.prospect_id)))] as string[];
+    const ph = uniqueIds.map(() => '?').join(',');
+    const found = await query<any[]>(
+      `SELECT id FROM prospects WHERE id IN (${ph}) AND tenant_id = ?`, [...uniqueIds, t]);
+    const foundSet = new Set(found.map((r) => r.id));
+    const invalid = uniqueIds.filter((id) => !foundSet.has(id));
+    if (invalid.length) {
+      return textResult({ error: 'Unknown prospect_ids for this tenant. Nothing inserted.', invalid_prospect_ids: invalid });
+    }
+    const enrolled = await query<any[]>(
+      `SELECT prospect_id FROM campaign_prospects WHERE campaign_id = ? AND prospect_id IN (${ph})`,
+      [campaign_id, ...uniqueIds]);
+    const enrolledSet = new Set(enrolled.map((r) => r.prospect_id));
+    const notEnrolled = uniqueIds.filter((id) => !enrolledSet.has(id));
+
+    let inserted = 0;
+    const failed: string[] = [];
+    for (const email of emails) {
+      const conn = await getConnection();
+      try {
+        await conn.beginTransaction();
+        await conn.query(
+          'DELETE FROM generated_emails WHERE prospect_id = ? AND campaign_id = ? AND step_number = ? AND tenant_id = ?',
+          [email.prospect_id, campaign_id, email.step_number || 1, t]);
+        await conn.query(
+          `INSERT INTO generated_emails (id, tenant_id, campaign_id, prospect_id, step_number, subject, body_html, delay_days, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
+          [uuidv4(), t, campaign_id, email.prospect_id, email.step_number || 1, email.subject,
+           sanitizeEmailHtml(email.body_html), email.delay_days || 0]);
+        await conn.commit();
+        inserted++;
+      } catch (txError: any) {
+        await conn.rollback();
+        failed.push(email.prospect_id);
+        console.error(`[mcp emails_bulk_insert] tx failed for prospect ${email.prospect_id}:`, txError?.message);
+      } finally {
+        conn.release();
+      }
+    }
+    return textResult({
+      inserted,
+      expected: emails.length,
+      mismatch: inserted !== emails.length,
+      failed_prospect_ids: failed,
+      not_enrolled_prospect_ids: notEnrolled,
+      note: notEnrolled.length
+        ? 'Some prospects are not enrolled in this campaign — enroll them with prospects_add_to_campaign or their emails will not appear in campaign views.'
+        : undefined,
+    });
   });
 
   // --- settings_set_warmup ---

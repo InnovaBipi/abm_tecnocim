@@ -63,7 +63,7 @@ Launches `scripts/camiacasa-mandatos.wf.js` — the sell-side mirror of `camiaca
 1. **Setup**: Auth CamiaCasa (`C:/Users/user/tmp_auth_cc.txt`) + paginated tenant dedup (`GET /api/prospects` → `data.prospects`) + merge buy-side `seen-domains.json` into the exclude set + rotation state → select segment
 2. **Research**: WebSearch discovery of asset-holders per segment → named-contact hunt (parallel chunks ≤4-5) → MX verify
 3. **Generate**: Enrich a concrete reason-to-commercialize per target → 3-step emails (hook → qualified-demand proof + soft valuation ask → gentle close) → QA 7 dimensions + native-language eval (3-retry, circuit breaker <70%). QA claim whitelist MUST match the pitch verbatim; adopt `corrected_emails` if returned.
-4. **Import**: `POST /api/companies` → `POST /api/prospects` (with company_id) → enroll in campaign `527ae0d1-431f-4eb4-8b1d-c1f84aeb3d95` → `bulk-insert-emails` with **verified prospect_ids** (assert `inserted === N×3`) → persist rotation state
+4. **Import (MCP-native since 10-ago)**: tools `mcp__abm-camiacasa__*` — `company_create` (dedup server-side por domain) → `prospect_create` (dedup por email, skip si `deduped`) → `prospects_add_to_campaign` (campaña `527ae0d1-431f-4eb4-8b1d-c1f84aeb3d95`) → `emails_bulk_insert` (**fail-fast server-side**: cualquier prospect_id inválido aborta el batch entero y devuelve los ids — assert `inserted === N×3 && !mismatch`) → verify con `generated_emails_list` → persist rotation state. Si las tools MCP no cargan, el agente ABORTA (`mcp_tools_unavailable`) — sin fallback a curl.
 
 **Status**: DRAFT (no auto-approval, no auto-send)
 **Signature**: "Alfons Marques / CamiaCasa" (no accent). Footer uses CamiaCasa `config.legal`.
