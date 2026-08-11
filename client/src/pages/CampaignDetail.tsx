@@ -124,6 +124,14 @@ export default function CampaignDetail() {
                 {campaign.asset_location ? ` - ${campaign.asset_location}` : ''}
               </p>
             )}
+            {campaign.sender_email && (
+              <p
+                className="text-sm text-slate-500 mt-1"
+                title="Los emails de esta campaña salen con este remitente. Los cuerpos ya generados conservan la firma con la que se generaron."
+              >
+                Remitente: {campaign.sender_name || ''} &lt;{campaign.sender_email}&gt;
+              </p>
+            )}
             {campaign.description && (
               <p className="text-sm text-slate-500 mt-1">{campaign.description}</p>
             )}

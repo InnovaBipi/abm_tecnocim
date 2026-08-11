@@ -14,12 +14,40 @@ vi.mock('../../middleware/tenant', () => ({
 }));
 vi.mock('../../utils/sanitizeHtml', () => ({ sanitizeEmailHtml: (h: string) => h }));
 
+// Guard logic has its own suite (services/contactGuard.test.ts); here it defaults to "all free"
+// and individual tests override the resolved value to exercise blocked/force paths.
+vi.mock('../../services/contactGuard', () => ({
+  checkCrossCampaignContact: vi.fn(async (_t: string, _c: string, ids: string[]) => ({
+    verdicts: new Map(ids.map((id) => [id, { blocked: false }])),
+    blockedIds: [],
+    domainWarnings: [],
+  })),
+  formatBlocked: vi.fn((r: any) =>
+    r.blockedIds.map((id: string) => ({
+      prospect_id: id,
+      reason: 'contacted_other_campaign',
+      other_campaign_id: 'cam-a',
+      other_campaign_name: 'Otra campaña',
+      email_status: 'sent',
+    }))),
+  shouldSkipEmail: vi.fn((verdict: any, metadata: any) => {
+    if (!verdict?.blocked) return false;
+    const meta = typeof metadata === 'string' ? JSON.parse(metadata) : metadata;
+    return !meta?.contact_guard_override;
+  }),
+}));
+vi.mock('../../services/sender', () => ({
+  applyCampaignSenderToAIContext: vi.fn(async (ctx: any) => ctx),
+}));
+
 import { query, getConnection } from '../../config/database';
+import { checkCrossCampaignContact } from '../../services/contactGuard';
 import { registerWriteTools } from './write';
 import type { McpAuth } from '../context';
 
 const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
 const mockGetConnection = getConnection as unknown as ReturnType<typeof vi.fn>;
+const mockGuard = checkCrossCampaignContact as unknown as ReturnType<typeof vi.fn>;
 
 const auth: McpAuth = { userId: 'test-user', email: 'test@test.com', role: 'admin', tenantId: 'test-tenant-id' };
 
@@ -191,5 +219,52 @@ describe('emails_bulk_insert', () => {
     const out = parse(await tool({ campaign_id: 'cam-1', emails }));
     expect(out.error).toContain('500');
     expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('skips prospects blocked by the cross-campaign guard and reports them', async () => {
+    const tool = getTool('emails_bulk_insert');
+    mockQuery
+      .mockResolvedValueOnce([{ id: 'cam-1' }])
+      .mockResolvedValueOnce([{ id: 'p1' }, { id: 'p2' }])
+      .mockResolvedValueOnce([{ prospect_id: 'p1' }, { prospect_id: 'p2' }])
+      .mockResolvedValueOnce([]); // no protected rows
+    mockGuard.mockResolvedValueOnce({
+      verdicts: new Map([
+        ['p1', { blocked: true, reason: 'contacted_other_campaign', other_campaign_name: 'Otra campaña', email_status: 'sent' }],
+        ['p2', { blocked: false }],
+      ]),
+      blockedIds: ['p1'],
+      domainWarnings: [],
+    });
+    const conn = makeConn();
+    mockGetConnection.mockResolvedValue(conn);
+    const out = parse(await tool({ campaign_id: 'cam-1', emails: [email('p1'), email('p2')] }));
+    expect(out.inserted).toBe(1); // only p2
+    expect(out.blocked_cross_campaign).toEqual([expect.objectContaining({ prospect_id: 'p1' })]);
+    expect(out.mismatch).toBe(false); // blocked skip is intentional
+    expect(out.note).toContain('force:true');
+    expect(conn.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('force:true inserts blocked prospects WITH the audited metadata override', async () => {
+    const tool = getTool('emails_bulk_insert');
+    mockQuery
+      .mockResolvedValueOnce([{ id: 'cam-1' }])
+      .mockResolvedValueOnce([{ id: 'p1' }])
+      .mockResolvedValueOnce([{ prospect_id: 'p1' }])
+      .mockResolvedValueOnce([]);
+    mockGuard.mockResolvedValueOnce({
+      verdicts: new Map([['p1', { blocked: true, reason: 'contacted_other_campaign' }]]),
+      blockedIds: ['p1'],
+      domainWarnings: [],
+    });
+    const conn = makeConn();
+    mockGetConnection.mockResolvedValue(conn);
+    const out = parse(await tool({ campaign_id: 'cam-1', emails: [email('p1')], force: true }));
+    expect(out.inserted).toBe(1);
+    expect(out.blocked_cross_campaign).toEqual([]);
+    const insert = conn.query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT'))!;
+    const metadataParam = insert[1][insert[1].length - 1];
+    expect(JSON.parse(metadataParam).contact_guard_override.by).toBe('test-user');
   });
 });

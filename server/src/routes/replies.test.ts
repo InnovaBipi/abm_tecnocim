@@ -31,9 +31,15 @@ vi.mock('../middleware/auth', async (importOriginal) => {
   };
 });
 
+vi.mock('../services/replies', () => ({
+  recordReply: vi.fn(),
+}));
+
 import { query } from '../config/database';
+import { recordReply } from '../services/replies';
 
 const mockQuery = query as ReturnType<typeof vi.fn>;
+const mockRecordReply = recordReply as ReturnType<typeof vi.fn>;
 
 interface TestServer {
   fetch: (path: string, options?: RequestInit) => Promise<Response>;
@@ -138,6 +144,113 @@ describe('GET /api/replies', () => {
       const res = await server.fetch('/api/replies?classification=spam');
       expect(res.status).toBe(400);
       expect(mockQuery).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe('POST /api/replies', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRecordReply.mockResolvedValue({
+      eventId: 'event-new',
+      prospectStatus: 'rejected',
+      doNotContact: true,
+      enrollmentsStopped: 1,
+      scheduledCancelled: 2,
+    });
+  });
+
+  const post = (server: TestServer, body: any) =>
+    server.fetch('/api/replies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  it('records a manual reply and returns the pipeline actions', async () => {
+    mockQuery
+      .mockResolvedValueOnce([{ id: 'prospect-1', email: 'ceo@acme.com' }]) // prospect lookup
+      .mockResolvedValueOnce([]); // dedupe check: none in 24h
+
+    const server = await createTestServer();
+    try {
+      const res = await post(server, {
+        prospect_email: 'CEO@acme.com',
+        classification: 'negative',
+        subject: 'RE: baja',
+        received_by: 'robert.belmonte@tecnocim.com',
+      });
+      const body: any = await res.json();
+
+      expect(res.status).toBe(201);
+      expect(body.data.actions).toEqual({
+        prospect_status: 'rejected',
+        do_not_contact: true,
+        enrollments_stopped: 1,
+        scheduled_emails_cancelled: 2,
+      });
+      // Email lookup lowercased and tenant-scoped
+      expect(mockQuery.mock.calls[0][1]).toEqual(['ceo@acme.com', 'test-tenant-id']);
+      expect(mockRecordReply).toHaveBeenCalledWith(expect.objectContaining({
+        tenantId: 'test-tenant-id',
+        prospectId: 'prospect-1',
+        classification: 'negative',
+        source: 'manual',
+        receivedBy: 'robert.belmonte@tecnocim.com',
+        recordedBy: 'test-user-id',
+      }));
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('404 when the prospect does not exist in the tenant', async () => {
+    mockQuery.mockResolvedValueOnce([]);
+    const server = await createTestServer();
+    try {
+      const res = await post(server, { prospect_email: 'ghost@nowhere.com', classification: 'positive' });
+      expect(res.status).toBe(404);
+      expect(mockRecordReply).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('400 without prospect_id/prospect_email or with bad classification', async () => {
+    const server = await createTestServer();
+    try {
+      const noProspect = await post(server, { classification: 'positive' });
+      expect(noProspect.status).toBe(400);
+      const badClass = await post(server, { prospect_email: 'a@b.com', classification: 'spam' });
+      expect(badClass.status).toBe(400);
+      expect(mockRecordReply).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('409 on duplicate within 24h; force:true bypasses the dedupe', async () => {
+    mockQuery
+      .mockResolvedValueOnce([{ id: 'prospect-1', email: 'ceo@acme.com' }])
+      .mockResolvedValueOnce([{ id: 'event-old' }]); // existing reply in 24h
+
+    const server = await createTestServer();
+    try {
+      const dup = await post(server, { prospect_email: 'ceo@acme.com', classification: 'positive' });
+      const dupBody: any = await dup.json();
+      expect(dup.status).toBe(409);
+      expect(dupBody.data.existing_event_id).toBe('event-old');
+      expect(mockRecordReply).not.toHaveBeenCalled();
+
+      mockQuery.mockReset();
+      mockQuery.mockResolvedValueOnce([{ id: 'prospect-1', email: 'ceo@acme.com' }]);
+      const forced = await post(server, { prospect_email: 'ceo@acme.com', classification: 'positive', force: true });
+      expect(forced.status).toBe(201);
+      expect(mockRecordReply).toHaveBeenCalledTimes(1);
+      // With force, the dedupe SELECT is skipped entirely
+      expect(mockQuery).toHaveBeenCalledTimes(1);
     } finally {
       await server.close();
     }

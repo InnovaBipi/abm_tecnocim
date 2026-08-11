@@ -11,6 +11,8 @@ import { pollImapForReplies } from '../services/imap';
 import { getAllActiveTenants, getTenantConfig } from '../middleware/tenant';
 import { resolveNextStep, evaluateConditionStep, EnrollmentContext } from './branching';
 import { evaluateAbTestsForTenant } from './ab-testing';
+import { resolveSender, type ResolvedSender } from '../services/sender';
+import { checkCrossCampaignContact, shouldSkipEmail, type GuardVerdict } from '../services/contactGuard';
 
 // Daily digest accumulator: collects send results throughout the day per tenant
 const dailyDigest = new Map<string, Array<{ name: string; email: string; subject: string; campaign: string; step: number; status: 'sent' | 'failed' | 'skipped'; reason?: string; tenant_id: string }>>();
@@ -636,7 +638,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
   const emailsToSend = await query<any[]>(
     `SELECT ge.*, p.email as prospect_email, p.first_name, p.last_name, p.full_name,
             p.title as prospect_title, p.do_not_contact, p.tenant_id,
-            cam.name as campaign_name
+            cam.name as campaign_name, cam.sender_user_id
      FROM generated_emails ge
      JOIN prospects p ON ge.prospect_id = p.id
      JOIN campaigns cam ON ge.campaign_id = cam.id
@@ -664,6 +666,30 @@ async function processScheduledOutboxEmails(): Promise<void> {
   const tenantWarmup = new Map<string, { limit: number; sentToday: number }>();
   // MX verification cache: domain -> hasValidMx (avoids redundant DNS queries per cycle)
   const mxCache = new Map<string, boolean>();
+  // Resolved sender cache: `${tenantId}:${senderUserId}` -> ResolvedSender
+  const senderCache = new Map<string, ResolvedSender>();
+
+  // Cross-campaign guard (final safety net): batch-check per (tenant, campaign).
+  // Send-time policy: only real sends in OTHER campaigns block (queuedBlocks:false).
+  const guardVerdicts = new Map<string, GuardVerdict>(); // key `${campaignId}:${prospectId}`
+  {
+    const groups = new Map<string, { tenantId: string; campaignId: string; prospectIds: string[] }>();
+    for (const email of emailsToSend) {
+      const key = `${email.tenant_id}:${email.campaign_id}`;
+      if (!groups.has(key)) groups.set(key, { tenantId: email.tenant_id, campaignId: email.campaign_id, prospectIds: [] });
+      groups.get(key)!.prospectIds.push(email.prospect_id);
+    }
+    for (const g of groups.values()) {
+      const res = await checkCrossCampaignContact(g.tenantId, g.campaignId, g.prospectIds, {
+        queuedBlocks: false, checkEnrollment: false, checkDomain: false,
+      });
+      for (const [pid, verdict] of res.verdicts) {
+        guardVerdicts.set(`${g.campaignId}:${pid}`, verdict);
+      }
+    }
+  }
+  // Intra-cycle dedup: prospects already sent to in THIS batch (any campaign)
+  const sentThisCycle = new Map<string, string>(); // prospect_id -> campaign_id
 
   let sent = 0;
   let failed = 0;
@@ -718,6 +744,32 @@ async function processScheduledOutboxEmails(): Promise<void> {
       continue;
     }
 
+    // Cross-campaign guard: prospect already contacted by ANOTHER campaign of this
+    // tenant (and no audited contact_guard_override on this row) -> reject + skip
+    const guardVerdict = guardVerdicts.get(`${email.campaign_id}:${email.prospect_id}`);
+    if (shouldSkipEmail(guardVerdict, email.metadata)) {
+      logger.info('Skipping scheduled email, cross-campaign contact', {
+        emailId: email.id, otherCampaign: guardVerdict?.other_campaign_name,
+      });
+      await query(
+        `UPDATE generated_emails SET status = 'rejected',
+         metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'cross_campaign_contact')
+         WHERE id = ? AND tenant_id = ?`,
+        [email.id, emailTenantId]
+      );
+      results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: `contactado por otra campaña (${guardVerdict?.other_campaign_name || '?'})`, tenant_id: emailTenantId });
+      continue;
+    }
+
+    // Intra-cycle dedup: another campaign already sent to this prospect in THIS
+    // batch. Leave the row scheduled (no reject) — next cycle's guard will see
+    // the sent row and resolve it deterministically.
+    const cycleSender = sentThisCycle.get(email.prospect_id);
+    if (cycleSender && cycleSender !== email.campaign_id) {
+      logger.info('Deferring email, prospect already emailed this cycle by another campaign', { emailId: email.id });
+      continue;
+    }
+
     // Skip do_not_contact
     if (email.do_not_contact) {
       logger.info('Skipping scheduled email, do_not_contact', { emailId: email.id });
@@ -768,13 +820,14 @@ async function processScheduledOutboxEmails(): Promise<void> {
     }
 
     try {
-      // Resolve per-tenant email config
-      const tenant = await getTenantConfig(emailTenantId);
-      const tenantEmail = tenant?.config?.email;
-      const rawFrom = tenantEmail?.from_email || 'noreply@example.com';
-      const fromName = tenantEmail?.from_name || 'Tecnocim Innova';
-      const fromAddress = `${fromName} <${rawFrom}>`;
-      const replyTo = tenantEmail?.reply_to || undefined;
+      // Resolve sender: campaign.sender_user_id -> users.sender_email/name -> tenant config
+      const senderKey = `${emailTenantId}:${email.sender_user_id || ''}`;
+      if (!senderCache.has(senderKey)) {
+        senderCache.set(senderKey, await resolveSender(emailTenantId, email.sender_user_id));
+      }
+      const resolved = senderCache.get(senderKey)!;
+      const fromAddress = resolved.fromAddress;
+      const replyTo = resolved.replyTo;
 
       // Resolve recipient language for the compliance footer (default Spanish; English for non-Spain)
       const locRows = await query<any[]>(
@@ -842,6 +895,7 @@ async function processScheduledOutboxEmails(): Promise<void> {
 
         sent++;
         tw.sentToday++;
+        sentThisCycle.set(email.prospect_id, email.campaign_id);
         results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'sent', tenant_id: emailTenantId });
       } else {
         failed++;

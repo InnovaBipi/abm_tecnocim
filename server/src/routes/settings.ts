@@ -6,6 +6,7 @@ import { authenticate, hashPassword, comparePassword, requireRole } from '../mid
 import { config } from '../config/env';
 import { getTenantConfig, clearTenantCache } from '../middleware/tenant';
 import { encryptSecret, decryptSecret } from '../utils/crypto';
+import { assertSenderDomainAllowed } from '../services/sender';
 
 const router = Router();
 
@@ -52,6 +53,16 @@ router.put('/profile', async (req: Request, res: Response): Promise<void> => {
     }
 
     const data = validation.data;
+
+    // Sender must belong to the tenant's verified Resend domain (null = clear, allowed)
+    if (data.sender_email) {
+      try {
+        await assertSenderDomainAllowed(req.user!.tenantId, data.sender_email);
+      } catch (domainErr: any) {
+        res.status(400).json({ success: false, error: domainErr.message });
+        return;
+      }
+    }
 
     // Changing the email requires re-authenticating with the current password.
     if (data.email !== undefined) {

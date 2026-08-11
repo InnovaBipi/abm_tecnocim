@@ -302,6 +302,11 @@ export default function Outbox() {
                     >
                       {email.campaign_name}
                     </button>
+                    {email.sender_email && (
+                      <p className="text-xs text-slate-400" title={`Remitente: ${email.sender_email}`}>
+                        De: {email.sender_name || email.sender_email}
+                      </p>
+                    )}
                   </TableCell>
                   <TableCell>
                     <button
@@ -409,6 +414,14 @@ export default function Outbox() {
                   {previewEmail.campaign_name}
                 </button>
               </div>
+              {previewEmail.sender_email && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-500 w-16">De:</span>
+                  <span className="text-sm text-slate-800">
+                    {previewEmail.sender_name || ''} &lt;{previewEmail.sender_email}&gt;
+                  </span>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-500 w-16">Paso:</span>
                 <span className="text-sm text-slate-800">{previewEmail.step_number}</span>

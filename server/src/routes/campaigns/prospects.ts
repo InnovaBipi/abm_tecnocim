@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { query } from '../../config/database';
+import { checkCrossCampaignContact, formatBlocked } from '../../services/contactGuard';
 
 const router = Router();
 
@@ -9,6 +10,7 @@ const router = Router();
 
 const addProspectsSchema = z.object({
   prospect_ids: z.array(z.string().uuid()).min(1, 'At least one prospect ID is required'),
+  force: z.boolean().optional(),
 });
 
 // --- POST /:id/prospects - Add prospects to campaign ---
@@ -36,11 +38,29 @@ router.post('/:id/prospects', async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    const { prospect_ids } = validation.data;
+    const { prospect_ids, force } = validation.data;
+
+    // Only prospects belonging to this tenant may be enrolled (prospect ids are
+    // client-supplied; without this check a foreign tenant's prospect id would insert)
+    const ph = prospect_ids.map(() => '?').join(',');
+    const ownRows = await query<any[]>(
+      `SELECT id FROM prospects WHERE id IN (${ph}) AND tenant_id = ?`,
+      [...prospect_ids, req.user!.tenantId]
+    );
+    const ownIds = new Set(ownRows.map((r) => r.id));
+    const invalidCount = prospect_ids.length - ownIds.size;
+
+    // Cross-campaign contact guard (layer A): impacted/queued/reserved elsewhere -> blocked
+    const guard = await checkCrossCampaignContact(req.user!.tenantId, String(id), [...ownIds], {
+      checkEnrollment: true, checkDomain: true,
+    });
+    const blockedSet = force ? new Set<string>() : new Set(guard.blockedIds);
+
     let addedCount = 0;
     let skippedCount = 0;
 
     for (const prospectId of prospect_ids) {
+      if (!ownIds.has(prospectId) || blockedSet.has(prospectId)) continue;
       try {
         const cpId = uuidv4();
         await query(
@@ -59,12 +79,17 @@ router.post('/:id/prospects', async (req: Request, res: Response): Promise<void>
       }
     }
 
+    const blocked = force ? [] : formatBlocked(guard);
     res.json({
       success: true,
       data: {
-        message: `Added ${addedCount} prospect(s) to campaign. ${skippedCount} already in campaign.`,
+        message: `Added ${addedCount} prospect(s) to campaign. ${skippedCount} already in campaign.${blocked.length > 0 ? ` ${blocked.length} blocked (already contacted by another campaign).` : ''}`,
         addedCount,
         skippedCount,
+        invalidCount,
+        blocked_cross_campaign: blocked,
+        domain_warnings: guard.domainWarnings,
+        forced: !!force,
       },
     });
   } catch (error: any) {

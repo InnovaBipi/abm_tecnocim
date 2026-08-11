@@ -8,6 +8,9 @@ export interface CampaignData {
   description?: string;
   asset_type?: string;
   asset_location?: string;
+  sender_user_id?: string | null;
+  sender_name?: string | null;
+  sender_email?: string | null;
   prospect_count?: number;
   prospects?: Record<string, unknown>[];
   emailStats?: {

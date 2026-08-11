@@ -5,6 +5,8 @@ import { getTenantConfig, buildTenantAIContext } from '../../middleware/tenant';
 import { enrichProspect } from '../../services/enrichment';
 import { resolveProspectTimezone, distributeEmailsAcrossBusinessDays, isBusinessDay, getNextBusinessDay } from '../../services/scheduling';
 import { sanitizeEmailHtml } from '../../utils/sanitizeHtml';
+import { checkCrossCampaignContact, formatBlocked, shouldSkipEmail } from '../../services/contactGuard';
+import { applyCampaignSenderToAIContext } from '../../services/sender';
 
 const router = Router();
 
@@ -41,7 +43,7 @@ router.post('/:id/generate-emails', async (req: Request, res: Response): Promise
     const campaigns = await query<any[]>(
       `SELECT id, tenant_id, name, description, campaign_type, status,
               asset_type, asset_location, asset_price, asset_details,
-              start_date, end_date, created_by, created_at, updated_at
+              start_date, end_date, created_by, sender_user_id, created_at, updated_at
        FROM campaigns WHERE id = ? AND tenant_id = ?`,
       [id, req.user!.tenantId]
     );
@@ -70,13 +72,26 @@ router.post('/:id/generate-emails', async (req: Request, res: Response): Promise
 
     const { generatePersonalizedSequence } = await import('../../services/ai');
 
-    // Build tenant AI context
+    // Build tenant AI context; campaign sender overrides the signature identity
     const tenant = await getTenantConfig(req.user!.tenantId);
-    const tenantAIContext = tenant ? buildTenantAIContext(tenant) : undefined;
+    let tenantAIContext = tenant ? buildTenantAIContext(tenant) : undefined;
+    if (tenantAIContext) {
+      tenantAIContext = await applyCampaignSenderToAIContext(tenantAIContext, req.user!.tenantId, campaign.sender_user_id);
+    }
+
+    // Cross-campaign guard BEFORE burning AI tokens on already-impacted prospects
+    const guard = await checkCrossCampaignContact(req.user!.tenantId, String(id), prospect_ids, {
+      checkEnrollment: false, checkDomain: false,
+    });
 
     const results: any[] = [];
 
     for (const prospectId of prospect_ids) {
+      const gv = guard.verdicts.get(prospectId);
+      if (gv?.blocked) {
+        results.push({ prospect_id: prospectId, status: 'blocked_cross_campaign', other_campaign_name: gv.other_campaign_name });
+        continue;
+      }
       // Load prospect with enrichment
       const prospects = await query<any[]>(
         `SELECT p.id, p.tenant_id, p.email, p.first_name, p.last_name,
@@ -370,13 +385,21 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
 
     // Get emails with prospect timezone data for smart scheduling
     const placeholders = email_ids.map(() => '?').join(',');
-    const emails = await query<any[]>(
-      `SELECT ge.id, ge.delay_days, ge.step_number, p.timezone, p.country, p.city
+    const allEmails = await query<any[]>(
+      `SELECT ge.id, ge.delay_days, ge.step_number, ge.prospect_id, ge.metadata, p.timezone, p.country, p.city
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id
        WHERE ge.id IN (${placeholders}) AND ge.campaign_id = ? AND ge.tenant_id = ? AND ge.status IN ('draft', 'rejected', 'bounced')`,
       [...email_ids, id, tenantId]
     );
+
+    // Cross-campaign guard: don't queue emails for prospects already impacted/queued
+    // by another campaign, unless the row carries an audited override.
+    const guard = await checkCrossCampaignContact(tenantId, String(id), allEmails.map(e => e.prospect_id), {
+      checkEnrollment: false, checkDomain: false,
+    });
+    const emails = allEmails.filter(e => !shouldSkipEmail(guard.verdicts.get(e.prospect_id), e.metadata));
+    const skippedCrossCampaign = allEmails.length - emails.length;
 
     // Distribute across business days respecting warmup limits
     const emailsForDistribution = emails.map(e => ({
@@ -414,8 +437,9 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
     res.json({
       success: true,
       data: {
-        message: `Programados ${scheduled} email(s) para envío.`,
+        message: `Programados ${scheduled} email(s) para envío.${skippedCrossCampaign > 0 ? ` ${skippedCrossCampaign} omitidos (contactados por otra campaña).` : ''}`,
         count: scheduled,
+        skipped_cross_campaign: skippedCrossCampaign,
         distribution,
         daily_limit: dailyLimit,
       },
@@ -455,16 +479,29 @@ router.post('/:id/schedule-drafts', async (req: Request, res: Response): Promise
       return;
     }
 
-    const emails = await query<any[]>(
-      `SELECT ge.id, ge.delay_days, p.timezone, p.country, p.city
+    const allDrafts = await query<any[]>(
+      `SELECT ge.id, ge.delay_days, ge.prospect_id, ge.metadata, p.timezone, p.country, p.city
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id AND p.tenant_id = ge.tenant_id
        WHERE ge.campaign_id = ? AND ge.tenant_id = ? AND ge.status = 'draft'`,
       [id, tenantId]
     );
 
-    if (emails.length === 0) {
+    if (allDrafts.length === 0) {
       res.json({ success: true, data: { message: 'No hay borradores que programar.', count: 0 } });
+      return;
+    }
+
+    // Cross-campaign guard: skip drafts of prospects already impacted/queued by
+    // another campaign (audited overrides pass through)
+    const guard = await checkCrossCampaignContact(tenantId, String(id), allDrafts.map(e => e.prospect_id), {
+      checkEnrollment: false, checkDomain: false,
+    });
+    const emails = allDrafts.filter(e => !shouldSkipEmail(guard.verdicts.get(e.prospect_id), e.metadata));
+    const skippedCrossCampaign = allDrafts.length - emails.length;
+
+    if (emails.length === 0) {
+      res.json({ success: true, data: { message: 'Todos los borradores están bloqueados por la guarda de contacto cruzado.', count: 0, skipped_cross_campaign: skippedCrossCampaign } });
       return;
     }
 
@@ -497,8 +534,9 @@ router.post('/:id/schedule-drafts', async (req: Request, res: Response): Promise
     res.json({
       success: true,
       data: {
-        message: `Programados ${scheduled} borrador(es) desde ${start_date || 'hoy'} (sin activar la campaña).`,
+        message: `Programados ${scheduled} borrador(es) desde ${start_date || 'hoy'} (sin activar la campaña).${skippedCrossCampaign > 0 ? ` ${skippedCrossCampaign} omitidos (contactados por otra campaña).` : ''}`,
         count: scheduled,
+        skipped_cross_campaign: skippedCrossCampaign,
         distribution,
         daily_limit: dailyLimit,
       },
@@ -563,29 +601,68 @@ router.post('/:id/bulk-insert-emails', async (req: Request, res: Response): Prom
     }
 
     const tenantId = req.user!.tenantId;
+    const force = req.body.force === true;
+
+    // Batch tenant check for prospect ids (was a per-email N+1 with silent skips)
+    const allIds = [...new Set(emails.map((e: any) => e.prospect_id).filter(Boolean))] as string[];
+    const ownSet = new Set<string>();
+    if (allIds.length > 0) {
+      const ph = allIds.map(() => '?').join(',');
+      const ownRows = await query<any[]>(
+        `SELECT id FROM prospects WHERE id IN (${ph}) AND tenant_id = ?`, [...allIds, tenantId]);
+      for (const r of ownRows) ownSet.add(r.id);
+    }
+    const invalidProspectIds = allIds.filter((pid) => !ownSet.has(pid));
+
+    // Cross-campaign contact guard (layer B)
+    const guard = await checkCrossCampaignContact(tenantId, String(id), [...ownSet], {
+      checkEnrollment: false, checkDomain: true,
+    });
+    const blockedSet = new Set(force ? [] : guard.blockedIds);
+    const overrideMeta = force
+      ? JSON.stringify({ contact_guard_override: { by: req.user!.id, at: new Date().toISOString() } })
+      : null;
+
     let inserted = 0;
+    let malformed = 0;
+    let skippedProtected = 0;
+    const blockedCross = new Set<string>();
     for (const email of emails) {
-      if (!email.prospect_id || !email.subject || !email.body_html) continue;
+      if (!email.prospect_id || !email.subject || !email.body_html) { malformed++; continue; }
+      if (!ownSet.has(email.prospect_id)) continue;
+      if (blockedSet.has(email.prospect_id)) { blockedCross.add(email.prospect_id); continue; }
+      const needsOverride = force && guard.verdicts.get(email.prospect_id)?.blocked;
 
-      // Verify prospect belongs to this tenant
-      const prospect = await query<any[]>('SELECT id FROM prospects WHERE id = ? AND tenant_id = ?', [email.prospect_id, tenantId]);
-      if (prospect.length === 0) continue;
-
-      // Atomic transaction: delete old + insert new
+      // Atomic transaction: delete old + insert new. Only draft/rejected rows may be
+      // replaced — a sent/scheduled row holds send history and must never be deleted.
       const conn = await getConnection();
       try {
         await conn.beginTransaction();
 
+        const [existing]: any = await conn.query(
+          `SELECT id FROM generated_emails
+           WHERE prospect_id = ? AND campaign_id = ? AND step_number = ? AND tenant_id = ?
+             AND status NOT IN ('draft', 'rejected') LIMIT 1`,
+          [email.prospect_id, id, email.step_number || 1, tenantId]
+        );
+        if (Array.isArray(existing) && existing.length > 0) {
+          await conn.rollback();
+          skippedProtected++;
+          continue;
+        }
+
         await conn.query(
-          'DELETE FROM generated_emails WHERE prospect_id = ? AND campaign_id = ? AND step_number = ? AND tenant_id = ?',
+          `DELETE FROM generated_emails WHERE prospect_id = ? AND campaign_id = ? AND step_number = ? AND tenant_id = ?
+             AND status IN ('draft', 'rejected')`,
           [email.prospect_id, id, email.step_number || 1, tenantId]
         );
 
         const emailId = uuidv4();
         await conn.query(
-          `INSERT INTO generated_emails (id, tenant_id, campaign_id, prospect_id, step_number, subject, body_html, delay_days, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
-          [emailId, tenantId, id, email.prospect_id, email.step_number || 1, email.subject, sanitizeEmailHtml(email.body_html), email.delay_days || 0]
+          `INSERT INTO generated_emails (id, tenant_id, campaign_id, prospect_id, step_number, subject, body_html, delay_days, status, metadata)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
+          [emailId, tenantId, id, email.prospect_id, email.step_number || 1, email.subject, sanitizeEmailHtml(email.body_html), email.delay_days || 0,
+           needsOverride ? overrideMeta : null]
         );
 
         await conn.commit();
@@ -598,7 +675,20 @@ router.post('/:id/bulk-insert-emails', async (req: Request, res: Response): Prom
       }
     }
 
-    res.json({ success: true, data: { message: `Inserted ${inserted} email(s).`, inserted } });
+    const blocked = formatBlocked(guard).filter((b) => blockedCross.has(b.prospect_id));
+    res.json({
+      success: true,
+      data: {
+        message: `Inserted ${inserted} email(s).${blocked.length > 0 ? ` ${blockedCross.size} prospect(s) blocked (already contacted by another campaign).` : ''}`,
+        inserted,
+        malformed,
+        skipped_protected: skippedProtected,
+        invalid_prospect_ids: invalidProspectIds,
+        blocked_cross_campaign: blocked,
+        domain_warnings: guard.domainWarnings,
+        forced: force,
+      },
+    });
   } catch (error: any) {
     console.error('Bulk insert emails error:', error);
     res.status(500).json({ success: false, error: 'An error occurred while inserting emails.' });

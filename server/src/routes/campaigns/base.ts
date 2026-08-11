@@ -18,9 +18,19 @@ const createCampaignSchema = z.object({
   status: z.enum(['draft', 'active', 'paused', 'completed', 'archived']).optional(),
   start_date: z.string().optional(),
   end_date: z.string().optional(),
+  sender_user_id: z.string().uuid().nullable().optional(),
 });
 
 const updateCampaignSchema = createCampaignSchema.partial();
+
+/** sender_user_id must reference an active user of this tenant. */
+async function validateSenderUser(tenantId: string, senderUserId: string): Promise<boolean> {
+  const rows = await query<any[]>(
+    'SELECT id FROM users WHERE id = ? AND tenant_id = ? AND is_active = TRUE',
+    [senderUserId, tenantId]
+  );
+  return rows.length > 0;
+}
 
 // --- GET / - List campaigns with prospect counts and email stats ---
 router.get('/', async (req: Request, res: Response): Promise<void> => {
@@ -66,6 +76,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       `SELECT cam.id, cam.tenant_id, cam.name, cam.description, cam.campaign_type,
               cam.status, cam.asset_type, cam.asset_location, cam.asset_price,
               cam.start_date, cam.end_date, cam.created_by, cam.created_at, cam.updated_at,
+              cam.sender_user_id, su.sender_name, su.sender_email,
               (SELECT COUNT(*) FROM campaign_prospects cp WHERE cp.campaign_id = cam.id AND cp.status = 'active') as prospect_count,
               (SELECT COUNT(*) FROM generated_emails ge
                WHERE ge.campaign_id = cam.id AND ge.tenant_id = cam.tenant_id AND ge.status = 'sent') as emails_sent,
@@ -76,6 +87,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
                WHERE ee.prospect_id IN (SELECT ge2.prospect_id FROM generated_emails ge2 WHERE ge2.campaign_id = cam.id)
                AND ee.tenant_id = cam.tenant_id AND ee.event_type = 'replied') as emails_replied
        FROM campaigns cam
+       LEFT JOIN users su ON cam.sender_user_id = su.id
        ${whereSQL}
        ORDER BY cam.created_at DESC
        LIMIT ? OFFSET ?`,
@@ -109,10 +121,13 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params;
 
     const campaigns = await query<any[]>(
-      `SELECT id, tenant_id, name, description, campaign_type, status,
-              asset_type, asset_location, asset_price, asset_details,
-              start_date, end_date, created_by, created_at, updated_at
-       FROM campaigns WHERE id = ? AND tenant_id = ?`,
+      `SELECT cam.id, cam.tenant_id, cam.name, cam.description, cam.campaign_type, cam.status,
+              cam.asset_type, cam.asset_location, cam.asset_price, cam.asset_details,
+              cam.start_date, cam.end_date, cam.created_by, cam.created_at, cam.updated_at,
+              cam.sender_user_id, su.sender_name, su.sender_email
+       FROM campaigns cam
+       LEFT JOIN users su ON cam.sender_user_id = su.id
+       WHERE cam.id = ? AND cam.tenant_id = ?`,
       [id, req.user!.tenantId]
     );
 
@@ -193,12 +208,18 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     }
 
     const data = validation.data;
+
+    if (data.sender_user_id && !(await validateSenderUser(req.user!.tenantId, data.sender_user_id))) {
+      res.status(400).json({ success: false, error: 'sender_user_id: user not found in this tenant (or inactive).' });
+      return;
+    }
+
     const id = uuidv4();
 
     await query(
       `INSERT INTO campaigns (id, tenant_id, name, description, asset_type, asset_location, asset_price,
-       asset_details, campaign_type, status, start_date, end_date, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       asset_details, campaign_type, status, start_date, end_date, created_by, sender_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         req.user!.tenantId,
@@ -213,14 +234,18 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
         data.start_date || null,
         data.end_date || null,
         req.user!.id,
+        data.sender_user_id || null,
       ]
     );
 
     const created = await query<any[]>(
-      `SELECT id, tenant_id, name, description, campaign_type, status,
-              asset_type, asset_location, asset_price, asset_details,
-              start_date, end_date, created_by, created_at, updated_at
-       FROM campaigns WHERE id = ? AND tenant_id = ?`,
+      `SELECT cam.id, cam.tenant_id, cam.name, cam.description, cam.campaign_type, cam.status,
+              cam.asset_type, cam.asset_location, cam.asset_price, cam.asset_details,
+              cam.start_date, cam.end_date, cam.created_by, cam.created_at, cam.updated_at,
+              cam.sender_user_id, su.sender_name, su.sender_email
+       FROM campaigns cam
+       LEFT JOIN users su ON cam.sender_user_id = su.id
+       WHERE cam.id = ? AND cam.tenant_id = ?`,
       [id, req.user!.tenantId]
     );
 
@@ -262,6 +287,13 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
     }
 
     const data = validation.data;
+
+    if (data.sender_user_id !== undefined && data.sender_user_id !== null
+        && !(await validateSenderUser(req.user!.tenantId, data.sender_user_id))) {
+      res.status(400).json({ success: false, error: 'sender_user_id: user not found in this tenant (or inactive).' });
+      return;
+    }
+
     const setClauses: string[] = [];
     const params: any[] = [];
 
@@ -275,6 +307,7 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       status: 'status',
       start_date: 'start_date',
       end_date: 'end_date',
+      sender_user_id: 'sender_user_id',
     };
 
     for (const [key, column] of Object.entries(fieldMap)) {
@@ -306,10 +339,13 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
     );
 
     const updated = await query<any[]>(
-      `SELECT id, tenant_id, name, description, campaign_type, status,
-              asset_type, asset_location, asset_price, asset_details,
-              start_date, end_date, created_by, created_at, updated_at
-       FROM campaigns WHERE id = ? AND tenant_id = ?`,
+      `SELECT cam.id, cam.tenant_id, cam.name, cam.description, cam.campaign_type, cam.status,
+              cam.asset_type, cam.asset_location, cam.asset_price, cam.asset_details,
+              cam.start_date, cam.end_date, cam.created_by, cam.created_at, cam.updated_at,
+              cam.sender_user_id, su.sender_name, su.sender_email
+       FROM campaigns cam
+       LEFT JOIN users su ON cam.sender_user_id = su.id
+       WHERE cam.id = ? AND cam.tenant_id = ?`,
       [id, req.user!.tenantId]
     );
 

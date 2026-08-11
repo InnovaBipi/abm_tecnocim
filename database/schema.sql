@@ -18,6 +18,8 @@ CREATE TABLE users (
     password    VARCHAR(255) NOT NULL,
     first_name  VARCHAR(100),
     last_name   VARCHAR(100),
+    sender_email VARCHAR(255) NULL,
+    sender_name  VARCHAR(100) NULL,
     role        ENUM('admin', 'manager', 'member', 'viewer') DEFAULT 'member',
     is_active   BOOLEAN DEFAULT TRUE,
     last_login  DATETIME,
@@ -137,10 +139,13 @@ CREATE TABLE campaigns (
     start_date        DATE,
     end_date          DATE,
     created_by        CHAR(36),
+    sender_user_id    CHAR(36),
     created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_campaign_status (status),
-    CONSTRAINT fk_campaign_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+    KEY idx_campaigns_sender_user (sender_user_id),
+    CONSTRAINT fk_campaign_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT fk_campaigns_sender_user FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE campaign_prospects (

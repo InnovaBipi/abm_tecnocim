@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 import { authenticate, requireRole, hashPassword } from '../middleware/auth';
+import { assertSenderDomainAllowed } from '../services/sender';
 
 const router = Router();
 router.use(authenticate);
@@ -41,10 +42,39 @@ router.get('/', requireRole('admin'), async (req: Request, res: Response): Promi
   }
 });
 
+// --- GET /senders - Available campaign senders (any authenticated role) ---
+// Minimal projection so non-admin users can pick a campaign sender without
+// access to the full user list.
+router.get('/senders', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const senders = await query<any[]>(
+      `SELECT id, first_name, last_name, sender_email, sender_name
+       FROM users
+       WHERE tenant_id = ? AND is_active = TRUE AND sender_email IS NOT NULL
+       ORDER BY first_name, last_name`,
+      [req.user!.tenantId]
+    );
+    res.json({ success: true, data: { senders } });
+  } catch (error: any) {
+    console.error('List senders error:', error);
+    res.status(500).json({ success: false, error: 'Error listing senders.' });
+  }
+});
+
 // --- POST / - Create user (admin only) ---
 router.post('/', requireRole('admin'), async (req: Request, res: Response): Promise<void> => {
   try {
     const data = createUserSchema.parse(req.body);
+
+    // Sender must belong to the tenant's verified Resend domain or sends would bounce
+    if (data.sender_email) {
+      try {
+        await assertSenderDomainAllowed(req.user!.tenantId, data.sender_email);
+      } catch (domainErr: any) {
+        res.status(400).json({ success: false, error: domainErr.message });
+        return;
+      }
+    }
 
     const existing = await query<any[]>(
       'SELECT id FROM users WHERE email = ? AND tenant_id = ?',
@@ -91,6 +121,16 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response): Pr
   try {
     const { id } = req.params;
     const data = updateUserSchema.parse(req.body);
+
+    // Sender must belong to the tenant's verified Resend domain (null = clear, allowed)
+    if (data.sender_email) {
+      try {
+        await assertSenderDomainAllowed(req.user!.tenantId, data.sender_email);
+      } catch (domainErr: any) {
+        res.status(400).json({ success: false, error: domainErr.message });
+        return;
+      }
+    }
 
     const existing = await query<any[]>(
       'SELECT id FROM users WHERE id = ? AND tenant_id = ?',

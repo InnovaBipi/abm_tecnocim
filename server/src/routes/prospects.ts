@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { query } from '../config/database';
 import { authenticate } from '../middleware/auth';
+import { checkCrossCampaignContact, formatBlocked } from '../services/contactGuard';
 
 const router = Router();
 
@@ -750,6 +751,7 @@ router.post('/bulk-add-campaign', async (req: Request, res: Response): Promise<v
     const schema = z.object({
       ids: z.array(z.string().uuid()).min(1, 'At least one prospect ID is required'),
       campaign_id: z.string().uuid('Valid campaign ID is required'),
+      force: z.boolean().optional(),
     });
 
     const validation = schema.safeParse(req.body);
@@ -762,7 +764,7 @@ router.post('/bulk-add-campaign', async (req: Request, res: Response): Promise<v
       return;
     }
 
-    const { ids, campaign_id } = validation.data;
+    const { ids, campaign_id, force } = validation.data;
 
     // Verify campaign exists in this tenant
     const campaign = await query<any[]>('SELECT id FROM campaigns WHERE id = ? AND tenant_id = ?', [campaign_id, req.user!.tenantId]);
@@ -771,10 +773,26 @@ router.post('/bulk-add-campaign', async (req: Request, res: Response): Promise<v
       return;
     }
 
+    // Only this tenant's prospects can be enrolled
+    const ph = ids.map(() => '?').join(',');
+    const ownRows = await query<any[]>(
+      `SELECT id FROM prospects WHERE id IN (${ph}) AND tenant_id = ?`,
+      [...ids, req.user!.tenantId]
+    );
+    const ownIds = new Set(ownRows.map((r) => r.id));
+    const invalidCount = ids.length - ownIds.size;
+
+    // Cross-campaign contact guard (layer A)
+    const guard = await checkCrossCampaignContact(req.user!.tenantId, campaign_id, [...ownIds], {
+      checkEnrollment: true, checkDomain: true,
+    });
+    const blockedSet = force ? new Set<string>() : new Set(guard.blockedIds);
+
     let addedCount = 0;
     let skippedCount = 0;
 
     for (const prospectId of ids) {
+      if (!ownIds.has(prospectId) || blockedSet.has(prospectId)) continue;
       try {
         const cpId = uuidv4();
         await query(
@@ -792,12 +810,17 @@ router.post('/bulk-add-campaign', async (req: Request, res: Response): Promise<v
       }
     }
 
+    const blocked = force ? [] : formatBlocked(guard);
     res.json({
       success: true,
       data: {
-        message: `Added ${addedCount} prospect(s) to campaign. ${skippedCount} already in campaign.`,
+        message: `Added ${addedCount} prospect(s) to campaign. ${skippedCount} already in campaign.${blocked.length > 0 ? ` ${blocked.length} blocked (already contacted by another campaign).` : ''}`,
         addedCount,
         skippedCount,
+        invalidCount,
+        blocked_cross_campaign: blocked,
+        domain_warnings: guard.domainWarnings,
+        forced: !!force,
       },
     });
   } catch (error: any) {

@@ -355,6 +355,10 @@ export const usersApi = {
   list: () =>
     api.get('/users'),
 
+  // Available campaign senders (any role): active users with a sender_email configured
+  senders: () =>
+    api.get('/users/senders'),
+
   create: (data: Record<string, unknown>) =>
     api.post('/users', data),
 

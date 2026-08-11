@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { campaignsApi } from '@/services/api';
+import { campaignsApi, usersApi } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -72,9 +72,26 @@ export default function Campaigns() {
     assetType: 'general',
     assetName: '',
     status: 'draft',
+    senderUserId: '',
   });
 
   const debouncedSearch = useDebouncedValue(search, 300);
+
+  // Available senders for the campaign (active users with sender_email)
+  const { data: sendersData } = useQuery({
+    queryKey: ['users', 'senders'],
+    queryFn: () => usersApi.senders(),
+    enabled: showCreateModal,
+    staleTime: 60_000,
+  });
+  const senders = sendersData?.data?.data?.senders || [];
+  const senderOptions = [
+    { value: '', label: 'Remitente del tenant (por defecto)' },
+    ...senders.map((s: { id: string; first_name?: string; last_name?: string; sender_name?: string; sender_email: string }) => ({
+      value: s.id,
+      label: `${s.sender_name || [s.first_name, s.last_name].filter(Boolean).join(' ')} <${s.sender_email}>`,
+    })),
+  ];
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['campaigns', { search: debouncedSearch, status: statusFilter }],
@@ -91,7 +108,7 @@ export default function Campaigns() {
       toast.success('Campaña creada exitosamente');
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
       setShowCreateModal(false);
-      setCreateForm({ name: '', description: '', assetType: 'general', assetName: '', status: 'draft' });
+      setCreateForm({ name: '', description: '', assetType: 'general', assetName: '', status: 'draft', senderUserId: '' });
     },
     onError: () => {
       toast.error('Error al crear la campaña');
@@ -123,6 +140,7 @@ export default function Campaigns() {
       asset_type: createForm.assetType,
       asset_location: createForm.assetName || undefined,
       status: createForm.status,
+      sender_user_id: createForm.senderUserId || undefined,
     });
   };
 
@@ -309,12 +327,20 @@ export default function Campaigns() {
               placeholder="Torre Palermo 500"
             />
           </div>
-          <Select
-            label="Estado"
-            options={statusOptions}
-            value={createForm.status}
-            onChange={(val) => setCreateForm((f) => ({ ...f, status: val }))}
-          />
+          <div className="grid grid-cols-2 gap-4">
+            <Select
+              label="Estado"
+              options={statusOptions}
+              value={createForm.status}
+              onChange={(val) => setCreateForm((f) => ({ ...f, status: val }))}
+            />
+            <Select
+              label="Remitente"
+              options={senderOptions}
+              value={createForm.senderUserId}
+              onChange={(val) => setCreateForm((f) => ({ ...f, senderUserId: val }))}
+            />
+          </div>
           <div>
             <label className="form-label">Descripción</label>
             <textarea

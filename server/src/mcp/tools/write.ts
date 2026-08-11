@@ -12,6 +12,8 @@ import { getTenantConfig, buildTenantAIContext, clearTenantCache } from '../../m
 import { sanitizeEmailHtml } from '../../utils/sanitizeHtml';
 import { McpAuth, textResult } from '../context';
 import { reg } from './readonly';
+import { checkCrossCampaignContact, formatBlocked, shouldSkipEmail } from '../../services/contactGuard';
+import { applyCampaignSenderToAIContext } from '../../services/sender';
 
 // Defensive caps (cost / DoS), mirroring the REST route limits.
 const MAX_GENERATE_PROSPECTS = 25;
@@ -53,7 +55,8 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
     if (search) { where += ' AND (cam.name LIKE ? OR cam.description LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
     const rows = await query<any[]>(
       `SELECT cam.id, cam.name, cam.status, cam.campaign_type, cam.asset_type, cam.asset_location,
-              cam.start_date, cam.created_at,
+              cam.start_date, cam.created_at, cam.sender_user_id,
+              (SELECT su.sender_email FROM users su WHERE su.id = cam.sender_user_id) AS sender_email,
               (SELECT COUNT(*) FROM campaign_prospects cp WHERE cp.campaign_id = cam.id AND cp.status = 'active') AS prospects,
               (SELECT COUNT(*) FROM generated_emails ge WHERE ge.campaign_id = cam.id AND ge.tenant_id = cam.tenant_id AND ge.status = 'sent') AS emails_sent,
               (SELECT COUNT(*) FROM generated_emails ge WHERE ge.campaign_id = cam.id AND ge.tenant_id = cam.tenant_id AND ge.status = 'scheduled') AS emails_scheduled,
@@ -72,9 +75,13 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
     inputSchema: { campaign_id: z.string().describe('Campaign UUID.') },
   }, async ({ campaign_id }: any) => {
     const rows = await query<any[]>(
-      `SELECT id, name, description, campaign_type, status, asset_type, asset_location, asset_price,
-              asset_details, start_date, end_date, created_at, updated_at
-       FROM campaigns WHERE id = ? AND tenant_id = ?`, [campaign_id, t]);
+      `SELECT cam.id, cam.name, cam.description, cam.campaign_type, cam.status, cam.asset_type,
+              cam.asset_location, cam.asset_price, cam.asset_details, cam.start_date, cam.end_date,
+              cam.created_at, cam.updated_at, cam.sender_user_id,
+              su.sender_email, su.sender_name
+       FROM campaigns cam
+       LEFT JOIN users su ON cam.sender_user_id = su.id
+       WHERE cam.id = ? AND cam.tenant_id = ?`, [campaign_id, t]);
     if (!rows.length) return textResult({ error: 'Campaign not found.' });
     const [pc] = await query<any[]>(
       "SELECT COUNT(*) AS c FROM campaign_prospects WHERE campaign_id = ? AND status = 'active'", [campaign_id]);
@@ -261,20 +268,31 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
   // --- prospects_add_to_campaign ---
   reg(server, 'prospects_add_to_campaign', {
     title: 'Add prospects to campaign',
-    description: 'Enroll one or more prospects into a campaign. Verifies both campaign and prospects belong to the tenant.',
+    description: 'Enroll one or more prospects into a campaign. Verifies both campaign and prospects belong to the tenant. Prospects already contacted/queued/reserved by ANOTHER campaign are blocked (cross-campaign contact guard) and returned in blocked_cross_campaign.',
     inputSchema: {
       campaign_id: z.string().describe('Campaign UUID.'),
       prospect_ids: z.array(z.string()).describe('Prospect UUIDs (max 500).'),
+      force: z.boolean().optional().describe('Override the cross-campaign guard. Use ONLY with explicit operator authorization.'),
     },
-  }, async ({ campaign_id, prospect_ids }: any) => {
+  }, async ({ campaign_id, prospect_ids, force }: any) => {
     if (!Array.isArray(prospect_ids) || !prospect_ids.length) return textResult({ error: 'prospect_ids required.' });
     if (prospect_ids.length > MAX_IDS) return textResult({ error: `prospect_ids cannot exceed ${MAX_IDS}.` });
     const cam = await query<any[]>('SELECT id FROM campaigns WHERE id = ? AND tenant_id = ?', [campaign_id, t]);
     if (!cam.length) return textResult({ error: 'Campaign not found.' });
-    let added = 0, skipped = 0, invalid = 0;
+    // Batch tenant check (was a per-prospect N+1)
+    const ph = prospect_ids.map(() => '?').join(',');
+    const ownRows = await query<any[]>(
+      `SELECT id FROM prospects WHERE id IN (${ph}) AND tenant_id = ?`, [...prospect_ids, t]);
+    const ownIds = new Set(ownRows.map((r) => r.id));
+    const invalid = prospect_ids.length - ownIds.size;
+    // Cross-campaign contact guard (layer A)
+    const guard = await checkCrossCampaignContact(t, campaign_id, [...ownIds], {
+      checkEnrollment: true, checkDomain: true,
+    });
+    const blockedSet = force ? new Set<string>() : new Set(guard.blockedIds);
+    let added = 0, skipped = 0;
     for (const pid of prospect_ids) {
-      const own = await query<any[]>('SELECT id FROM prospects WHERE id = ? AND tenant_id = ?', [pid, t]);
-      if (!own.length) { invalid++; continue; }
+      if (!ownIds.has(pid) || blockedSet.has(pid)) continue;
       try {
         await query(
           'INSERT INTO campaign_prospects (id, campaign_id, prospect_id, status) VALUES (?, ?, ?, ?)',
@@ -284,7 +302,15 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
         if (e.code === 'ER_DUP_ENTRY') skipped++; else throw e;
       }
     }
-    return textResult({ added, skipped, invalid });
+    const blocked = force ? [] : formatBlocked(guard);
+    return textResult({
+      added, skipped, invalid,
+      blocked_cross_campaign: blocked,
+      domain_warnings: guard.domainWarnings,
+      note: blocked.length > 0
+        ? 'Some prospects are already contacted/queued by another campaign. Retry with force:true ONLY if the operator explicitly authorizes double contact.'
+        : undefined,
+    });
   });
 
   // --- campaign_create ---
@@ -300,17 +326,24 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
       campaign_type: z.string().optional().describe('outbound | nurture | reactivation (default outbound).'),
       start_date: z.string().optional().describe('YYYY-MM-DD.'),
       end_date: z.string().optional().describe('YYYY-MM-DD.'),
+      sender_user_id: z.string().optional().describe('User UUID whose sender_email/sender_name become the From/Reply-To and signature of this campaign. Omit for the tenant default sender.'),
     },
   }, async (a: any) => {
     if (!a?.name) return textResult({ error: 'name is required.' });
+    if (a.sender_user_id) {
+      const su = await query<any[]>(
+        'SELECT id FROM users WHERE id = ? AND tenant_id = ? AND is_active = TRUE', [a.sender_user_id, t]);
+      if (!su.length) return textResult({ error: 'sender_user_id: user not found in this tenant (or inactive).' });
+    }
     const id = uuidv4();
     const price = a.asset_price ? parseFloat(a.asset_price) : null;
     await query(
-      `INSERT INTO campaigns (id, tenant_id, name, description, asset_type, asset_location, asset_price, campaign_type, status, start_date, end_date, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)`,
+      `INSERT INTO campaigns (id, tenant_id, name, description, asset_type, asset_location, asset_price, campaign_type, status, start_date, end_date, created_by, sender_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
       [id, t, a.name, a.description || null, a.asset_type || null, a.asset_location || null,
-       price, a.campaign_type || 'outbound', a.start_date || null, a.end_date || null, auth.userId]);
-    return textResult({ id, status: 'draft', created: true });
+       price, a.campaign_type || 'outbound', a.start_date || null, a.end_date || null, auth.userId,
+       a.sender_user_id || null]);
+    return textResult({ id, status: 'draft', created: true, sender_user_id: a.sender_user_id || null });
   });
 
   // --- campaign_set_status ---
@@ -344,7 +377,7 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
     if (prospect_ids.length > MAX_GENERATE_PROSPECTS) return textResult({ error: `prospect_ids cannot exceed ${MAX_GENERATE_PROSPECTS} per call.` });
     const steps = Math.min(MAX_NUM_STEPS, Math.max(1, parseInt(num_steps || '', 10) || 4));
     const cams = await query<any[]>(
-      `SELECT id, name, description, asset_type, asset_location, asset_price, asset_details
+      `SELECT id, name, description, asset_type, asset_location, asset_price, asset_details, sender_user_id
        FROM campaigns WHERE id = ? AND tenant_id = ?`, [campaign_id, t]);
     if (!cams.length) return textResult({ error: 'Campaign not found.' });
     const campaign = cams[0];
@@ -357,9 +390,20 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
        WHERE es.campaign_id = ? AND es.tenant_id = ? ORDER BY ss.step_number ASC`, [campaign_id, t]);
     const { generatePersonalizedSequence } = await import('../../services/ai');
     const tenant = await getTenantConfig(t);
-    const aiCtx = tenant ? buildTenantAIContext(tenant) : undefined;
+    let aiCtx = tenant ? buildTenantAIContext(tenant) : undefined;
+    // Campaign sender -> AI signs with that person (keeps body signature coherent with From)
+    if (aiCtx) aiCtx = await applyCampaignSenderToAIContext(aiCtx, t, campaign.sender_user_id);
+    // Cross-campaign guard BEFORE burning AI tokens on already-impacted prospects
+    const guard = await checkCrossCampaignContact(t, campaign_id, prospect_ids, {
+      checkEnrollment: false, checkDomain: false,
+    });
     const results: any[] = [];
     for (const pid of prospect_ids) {
+      const gv = guard.verdicts.get(pid);
+      if (gv?.blocked) {
+        results.push({ prospect_id: pid, status: 'blocked_cross_campaign', other_campaign_name: gv.other_campaign_name });
+        continue;
+      }
       const ps = await query<any[]>(
         `SELECT p.id, p.email, p.first_name, p.last_name, p.title, p.city, p.region, p.country, p.linkedin_url,
                 p.enrichment_data, c.name AS company_name, c.industry AS company_industry
@@ -393,7 +437,12 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
         results.push({ prospect_id: pid, status: 'error', error: e.message });
       }
     }
-    return textResult({ generated: results.filter(r => r.status === 'success').length, errors: results.filter(r => r.status === 'error').length, results });
+    return textResult({
+      generated: results.filter(r => r.status === 'success').length,
+      errors: results.filter(r => r.status === 'error').length,
+      blocked_cross_campaign: results.filter(r => r.status === 'blocked_cross_campaign').length,
+      results,
+    });
   });
 
   // --- campaign_schedule_drafts ---
@@ -413,14 +462,24 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
     const cam = await query<any[]>('SELECT id FROM campaigns WHERE id = ? AND tenant_id = ?', [campaign_id, t]);
     if (!cam.length) return textResult({ error: 'Campaign not found.' });
     const emails = await query<any[]>(
-      `SELECT ge.id, ge.delay_days, p.timezone, p.country, p.city
+      `SELECT ge.id, ge.delay_days, ge.prospect_id, ge.metadata, p.timezone, p.country, p.city
        FROM generated_emails ge JOIN prospects p ON ge.prospect_id = p.id AND p.tenant_id = ge.tenant_id
        WHERE ge.campaign_id = ? AND ge.tenant_id = ? AND ge.status = 'draft'`, [campaign_id, t]);
     if (!emails.length) return textResult({ count: 0, message: 'No drafts to schedule.' });
-    const forDist = emails.map(e => ({ id: e.id, prospectTimezone: resolveProspectTimezone(e), delayDays: e.delay_days || 0 }));
+    // Cross-campaign guard (cheap variant): don't queue drafts for prospects already
+    // impacted/queued by another campaign, unless the draft carries an audited override.
+    const guard = await checkCrossCampaignContact(t, campaign_id, emails.map(e => e.prospect_id), {
+      checkEnrollment: false, checkDomain: false,
+    });
+    const eligible = emails.filter(e => !shouldSkipEmail(guard.verdicts.get(e.prospect_id), e.metadata));
+    const skippedCross = emails.length - eligible.length;
+    if (!eligible.length) {
+      return textResult({ count: 0, skipped_cross_campaign: skippedCross, message: 'All drafts blocked by cross-campaign contact guard.' });
+    }
+    const forDist = eligible.map(e => ({ id: e.id, prospectTimezone: resolveProspectTimezone(e), delayDays: e.delay_days || 0 }));
     const { schedule, distribution, dailyLimit } = await distributeEmailsAcrossBusinessDays(forDist, t, undefined, startDate);
     let scheduled = 0;
-    for (const e of emails) {
+    for (const e of eligible) {
       const when = schedule.get(e.id);
       if (!when) continue;
       await query(
@@ -428,7 +487,7 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
          WHERE id = ? AND tenant_id = ? AND status = 'draft'`, [auth.userId, toMysqlDate(when), e.id, t]);
       scheduled++;
     }
-    return textResult({ count: scheduled, daily_limit: dailyLimit, distribution, start_date: start_date || 'today', note: 'Campaign NOT activated.' });
+    return textResult({ count: scheduled, skipped_cross_campaign: skippedCross, daily_limit: dailyLimit, distribution, start_date: start_date || 'today', note: 'Campaign NOT activated.' });
   });
 
   // --- outbox_redistribute ---
@@ -533,8 +592,9 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
         body_html: z.string().describe('Email body (HTML, will be sanitized).'),
         delay_days: z.number().optional().describe('Days after previous step (default 0).'),
       })).describe('Emails to insert (max 500).'),
+      force: z.boolean().optional().describe('Override the cross-campaign contact guard (audited in email metadata). Use ONLY with explicit operator authorization.'),
     },
-  }, async ({ campaign_id, emails }: any) => {
+  }, async ({ campaign_id, emails, force }: any) => {
     if (!Array.isArray(emails) || !emails.length) return textResult({ error: 'emails array is required.' });
     if (emails.length > MAX_IDS) return textResult({ error: `emails cannot exceed ${MAX_IDS} per call.` });
     const cam = await query<any[]>('SELECT id FROM campaigns WHERE id = ? AND tenant_id = ?', [campaign_id, t]);
@@ -587,16 +647,36 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
       [campaign_id, t, ...uniqueIds]);
     const protectedMap = new Map(protectedRows.map((r) => [`${r.prospect_id}:${r.step_number}`, r.status]));
 
+    // Cross-campaign contact guard (layer B): prospects impacted/queued by another
+    // campaign are skipped (not fail-fast — it's CRM state, not a batch error).
+    // With force:true they insert WITH an audited metadata override that the
+    // send-time guard (layer C) respects.
+    const guard = await checkCrossCampaignContact(t, campaign_id, uniqueIds, {
+      checkEnrollment: false, checkDomain: true,
+    });
+    const blockedSet = new Set(force ? [] : guard.blockedIds);
+    const overrideMeta = force
+      ? JSON.stringify({ contact_guard_override: { by: auth.userId, at: new Date().toISOString() } })
+      : null;
+
     let inserted = 0;
     const failed: string[] = [];
     const skippedProtected: Array<{ prospect_id: string; step_number: number; status: string }> = [];
+    const blockedCross = new Set<string>();
+    let blockedEmailCount = 0;
     for (const email of emails) {
       const step = email.step_number || 1;
+      if (blockedSet.has(email.prospect_id)) {
+        blockedCross.add(email.prospect_id);
+        blockedEmailCount++;
+        continue;
+      }
       const existingStatus = protectedMap.get(stepKey(email));
       if (existingStatus) {
         skippedProtected.push({ prospect_id: email.prospect_id, step_number: step, status: existingStatus });
         continue;
       }
+      const needsOverride = force && guard.verdicts.get(email.prospect_id)?.blocked;
       const conn = await getConnection();
       try {
         await conn.beginTransaction();
@@ -605,10 +685,11 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
              AND status IN ('draft', 'rejected')`,
           [email.prospect_id, campaign_id, step, t]);
         await conn.query(
-          `INSERT INTO generated_emails (id, tenant_id, campaign_id, prospect_id, step_number, subject, body_html, delay_days, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
+          `INSERT INTO generated_emails (id, tenant_id, campaign_id, prospect_id, step_number, subject, body_html, delay_days, status, metadata)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
           [uuidv4(), t, campaign_id, email.prospect_id, step, email.subject,
-           sanitizeEmailHtml(email.body_html), email.delay_days || 0]);
+           sanitizeEmailHtml(email.body_html), email.delay_days || 0,
+           needsOverride ? overrideMeta : null]);
         await conn.commit();
         inserted++;
       } catch (txError: any) {
@@ -619,14 +700,17 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
         conn.release();
       }
     }
+    const blocked = formatBlocked(guard).filter((b) => blockedCross.has(b.prospect_id));
     return textResult({
       inserted,
       expected: emails.length,
-      mismatch: inserted + skippedProtected.length !== emails.length,
+      mismatch: inserted + skippedProtected.length + blockedEmailCount !== emails.length,
       skipped_protected: skippedProtected,
       failed_prospect_ids: failed,
       not_enrolled_prospect_ids: notEnrolled,
       do_not_contact_prospect_ids: doNotContact,
+      blocked_cross_campaign: blocked,
+      domain_warnings: guard.domainWarnings,
       note: [
         notEnrolled.length
           ? 'Some prospects are not enrolled in this campaign — enroll them with prospects_add_to_campaign or their emails will not appear in campaign views.'
@@ -637,7 +721,71 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
         skippedProtected.length
           ? 'Some prospect+step emails already progressed beyond draft and were NOT replaced — use email_update if you really need to change them.'
           : null,
+        blocked.length
+          ? 'Some prospects are already contacted/queued by another campaign and were skipped. Retry with force:true ONLY with explicit operator authorization.'
+          : null,
       ].filter(Boolean).join(' ') || undefined,
+    });
+  });
+
+  // --- reply_record ---
+  reg(server, 'reply_record', {
+    title: 'Record a reply (manual sweep)',
+    description: 'Registra una respuesta detectada en un barrido manual del buzón (p.ej. Microsoft 365, donde el IMAP no funciona). Inserta el evento replied y ejecuta el pipeline completo: actualiza el estado del prospect y cancela follow-ups pendientes según la clasificación (negative/unsubscribe => rejected + do_not_contact).',
+    inputSchema: {
+      prospect_id: z.string().optional().describe('Prospect UUID (o usa prospect_email).'),
+      prospect_email: z.string().optional().describe('Email del prospect (alternativa a prospect_id).'),
+      classification: z.string().describe('positive | negative | unsubscribe | out_of_office | other'),
+      subject: z.string().optional().describe('Asunto de la respuesta.'),
+      snippet: z.string().optional().describe('Extracto del cuerpo (max 2000 chars).'),
+      received_by: z.string().optional().describe('Buzón que recibió la respuesta (p.ej. robert.belmonte@tecnocim.com).'),
+      force: z.boolean().optional().describe('Permite registrar aunque ya exista una reply en las últimas 24h.'),
+    },
+  }, async (a: any) => {
+    const CLASSES = ['positive', 'negative', 'unsubscribe', 'out_of_office', 'other'];
+    if (!CLASSES.includes(a?.classification)) return textResult({ error: `classification must be one of ${CLASSES.join(', ')}.` });
+    if (!a.prospect_id && !a.prospect_email) return textResult({ error: 'prospect_id or prospect_email is required.' });
+    let rows: any[];
+    if (a.prospect_id) {
+      rows = await query<any[]>('SELECT id, email FROM prospects WHERE id = ? AND tenant_id = ?', [a.prospect_id, t]);
+    } else {
+      rows = await query<any[]>('SELECT id, email FROM prospects WHERE LOWER(email) = ? AND tenant_id = ? LIMIT 1', [String(a.prospect_email).toLowerCase(), t]);
+    }
+    if (!rows.length) return textResult({ error: 'Prospect not found.' });
+    const prospect = rows[0];
+    if (!a.force) {
+      const existing = await query<any[]>(
+        `SELECT id FROM email_events
+         WHERE prospect_id = ? AND tenant_id = ? AND event_type = 'replied'
+           AND occurred_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR) LIMIT 1`,
+        [prospect.id, t]);
+      if (existing.length) {
+        return textResult({ error: 'A reply was already recorded for this prospect in the last 24h. Retry with force:true to record another.', existing_event_id: existing[0].id });
+      }
+    }
+    const { recordReply } = await import('../../services/replies');
+    const result = await recordReply({
+      tenantId: t,
+      prospectId: prospect.id,
+      classification: a.classification,
+      subject: a.subject || null,
+      snippet: a.snippet || null,
+      source: 'manual',
+      from: prospect.email,
+      receivedBy: a.received_by || null,
+      recordedBy: auth.userId,
+    });
+    return textResult({
+      event_id: result.eventId,
+      prospect_id: prospect.id,
+      classification: a.classification,
+      prospect_status: result.prospectStatus,
+      do_not_contact: result.doNotContact,
+      enrollments_stopped: result.enrollmentsStopped,
+      scheduled_emails_cancelled: result.scheduledCancelled,
+      note: result.doNotContact
+        ? 'Prospect marcado do_not_contact. Completa el cierre en la plataforma si procede (suppression list).'
+        : undefined,
     });
   });
 

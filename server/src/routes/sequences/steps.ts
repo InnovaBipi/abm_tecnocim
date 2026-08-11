@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { query, getConnection } from '../../config/database';
 import { getTenantConfig, buildTenantAIContext } from '../../middleware/tenant';
 import { sanitizeEmailHtml } from '../../utils/sanitizeHtml';
+import { applyCampaignSenderToAIContext } from '../../services/sender';
 
 const router = Router();
 
@@ -145,7 +146,8 @@ router.post('/:id/generate-personalized', async (req: Request, res: Response): P
     // Load sequence with campaign
     const sequences = await query<any[]>(
       `SELECT es.*, c.name as campaign_name, c.asset_type, c.asset_location,
-              c.asset_price, c.description as campaign_description, c.asset_details
+              c.asset_price, c.description as campaign_description, c.asset_details,
+              c.sender_user_id as campaign_sender_user_id
        FROM email_sequences es
        LEFT JOIN campaigns c ON es.campaign_id = c.id
        WHERE es.id = ? AND es.tenant_id = ?`,
@@ -201,9 +203,12 @@ router.post('/:id/generate-personalized', async (req: Request, res: Response): P
 
     const { generatePersonalizedSequence } = await import('../../services/ai');
 
-    // Build tenant AI context
+    // Build tenant AI context; campaign sender overrides the signature identity
     const tenant = await getTenantConfig(req.user!.tenantId);
-    const tenantAIContext = tenant ? buildTenantAIContext(tenant) : undefined;
+    let tenantAIContext = tenant ? buildTenantAIContext(tenant) : undefined;
+    if (tenantAIContext) {
+      tenantAIContext = await applyCampaignSenderToAIContext(tenantAIContext, req.user!.tenantId, sequence.campaign_sender_user_id);
+    }
 
     const generatedSteps = await generatePersonalizedSequence(
       {
@@ -267,7 +272,8 @@ router.post('/:id/generate-step', async (req: Request, res: Response): Promise<v
     // Load the sequence with campaign
     const sequences = await query<any[]>(
       `SELECT es.*, c.name as campaign_name, c.asset_type, c.asset_location,
-              c.asset_price, c.description as campaign_description
+              c.asset_price, c.description as campaign_description,
+              c.sender_user_id as campaign_sender_user_id
        FROM email_sequences es
        LEFT JOIN campaigns c ON es.campaign_id = c.id
        WHERE es.id = ? AND es.tenant_id = ?`,
@@ -303,9 +309,12 @@ router.post('/:id/generate-step', async (req: Request, res: Response): Promise<v
 
     const { generateEmail } = await import('../../services/ai');
 
-    // Build tenant AI context
+    // Build tenant AI context; campaign sender overrides the signature identity
     const tenantForAI = await getTenantConfig(req.user!.tenantId);
-    const tenantAICtx = tenantForAI ? buildTenantAIContext(tenantForAI) : undefined;
+    let tenantAICtx = tenantForAI ? buildTenantAIContext(tenantForAI) : undefined;
+    if (tenantAICtx) {
+      tenantAICtx = await applyCampaignSenderToAIContext(tenantAICtx, req.user!.tenantId, sequence.campaign_sender_user_id);
+    }
 
     const result = await generateEmail(
       {
@@ -360,7 +369,8 @@ router.post('/:id/generate-branched', async (req: Request, res: Response): Promi
     // Load sequence with campaign
     const sequences = await query<any[]>(
       `SELECT es.*, c.name as campaign_name, c.asset_type, c.asset_location,
-              c.asset_price, c.description as campaign_description, c.asset_details
+              c.asset_price, c.description as campaign_description, c.asset_details,
+              c.sender_user_id as campaign_sender_user_id
        FROM email_sequences es
        LEFT JOIN campaigns c ON es.campaign_id = c.id
        WHERE es.id = ? AND es.tenant_id = ?`,
@@ -407,7 +417,10 @@ router.post('/:id/generate-branched', async (req: Request, res: Response): Promi
     const { generateBranchedSequence } = await import('../../services/ai');
 
     const tenant = await getTenantConfig(req.user!.tenantId);
-    const tenantAIContext = tenant ? buildTenantAIContext(tenant) : undefined;
+    let tenantAIContext = tenant ? buildTenantAIContext(tenant) : undefined;
+    if (tenantAIContext) {
+      tenantAIContext = await applyCampaignSenderToAIContext(tenantAIContext, req.user!.tenantId, sequence.campaign_sender_user_id);
+    }
 
     const branchedSteps = await generateBranchedSequence(
       {

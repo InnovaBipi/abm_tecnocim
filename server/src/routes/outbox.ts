@@ -5,6 +5,8 @@ import { query } from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { getTenantConfig } from '../middleware/tenant';
 import { calculateOptimalSendTime, resolveProspectTimezone, distributeEmailsAcrossBusinessDays, getWarmupDailyLimit, isBusinessDay } from '../services/scheduling';
+import { resolveSender, type ResolvedSender } from '../services/sender';
+import { checkCrossCampaignContact, shouldSkipEmail, type GuardVerdict } from '../services/contactGuard';
 
 const router = Router();
 
@@ -59,10 +61,12 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
               ge.metadata, ge.created_at, ge.updated_at,
               p.first_name, p.last_name, p.full_name, p.email as prospect_email,
               p.title as prospect_title, cam.name as campaign_name,
-              cam.asset_type, cam.asset_location
+              cam.asset_type, cam.asset_location,
+              cam.sender_user_id, su.sender_name, su.sender_email
        FROM generated_emails ge
-       JOIN prospects p ON ge.prospect_id = p.id
-       JOIN campaigns cam ON ge.campaign_id = cam.id
+       JOIN prospects p ON ge.prospect_id = p.id AND p.tenant_id = ge.tenant_id
+       JOIN campaigns cam ON ge.campaign_id = cam.id AND cam.tenant_id = ge.tenant_id
+       LEFT JOIN users su ON cam.sender_user_id = su.id AND su.tenant_id = ge.tenant_id
        ${whereSQL}
        ORDER BY ge.created_at DESC
        LIMIT ? OFFSET ?`,
@@ -291,7 +295,7 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
                 ge.metadata, ge.created_at, ge.updated_at,
                 p.email as prospect_email, p.first_name, p.last_name, p.full_name,
                 p.title as prospect_title, p.do_not_contact,
-                cam.name as campaign_name,
+                cam.name as campaign_name, cam.sender_user_id,
                 u.first_name as approver_first_name, u.last_name as approver_last_name
          FROM generated_emails ge
          JOIN prospects p ON ge.prospect_id = p.id
@@ -308,7 +312,7 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
                 ge.metadata, ge.created_at, ge.updated_at,
                 p.email as prospect_email, p.first_name, p.last_name, p.full_name,
                 p.title as prospect_title, p.do_not_contact,
-                cam.name as campaign_name,
+                cam.name as campaign_name, cam.sender_user_id,
                 u.first_name as approver_first_name, u.last_name as approver_last_name
          FROM generated_emails ge
          JOIN prospects p ON ge.prospect_id = p.id
@@ -330,12 +334,27 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
     let sent = 0;
     let failed = 0;
     const results: any[] = [];
-    // Build sender fallback from tenant config
-    const tenant = await getTenantConfig(req.user!.tenantId);
-    const tenantEmail = tenant?.config?.email;
-    const tenantFromEmail = tenantEmail?.from_email || 'noreply@example.com';
-    const tenantFromName = tenantEmail?.from_name || 'Tecnocim Innova';
-    const tenantReplyTo = tenantEmail?.reply_to || undefined;
+    // Resolved sender cache: `${senderUserId}` -> ResolvedSender (tenant is fixed here)
+    const senderCache = new Map<string, ResolvedSender>();
+
+    // Cross-campaign guard (final safety net, same policy as the scheduler):
+    // only real sends in OTHER campaigns block; audited overrides pass.
+    const guardVerdicts = new Map<string, GuardVerdict>(); // `${campaignId}:${prospectId}`
+    {
+      const groups = new Map<string, string[]>(); // campaignId -> prospectIds
+      for (const email of emailsToSend) {
+        if (!groups.has(email.campaign_id)) groups.set(email.campaign_id, []);
+        groups.get(email.campaign_id)!.push(email.prospect_id);
+      }
+      for (const [campaignId, prospectIds] of groups) {
+        const res2 = await checkCrossCampaignContact(req.user!.tenantId, campaignId, prospectIds, {
+          queuedBlocks: false, checkEnrollment: false, checkDomain: false,
+        });
+        for (const [pid, verdict] of res2.verdicts) {
+          guardVerdicts.set(`${campaignId}:${pid}`, verdict);
+        }
+      }
+    }
 
     for (let idx = 0; idx < emailsToSend.length; idx++) {
       const email = emailsToSend[idx];
@@ -361,14 +380,28 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
         continue;
       }
 
+      // Cross-campaign guard: already contacted by another campaign -> reject + skip
+      const guardVerdict = guardVerdicts.get(`${email.campaign_id}:${email.prospect_id}`);
+      if (shouldSkipEmail(guardVerdict, email.metadata)) {
+        await query(
+          `UPDATE generated_emails SET status = 'rejected',
+           metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'cross_campaign_contact')
+           WHERE id = ? AND tenant_id = ?`,
+          [email.id, req.user!.tenantId]
+        );
+        results.push({ id: email.id, status: 'skipped', reason: 'cross_campaign_contact', other_campaign: guardVerdict?.other_campaign_name });
+        continue;
+      }
+
       try {
-        // Per-user sender priority: approver > tenant config > global
-        // Per-user sender: approver fields fallback to tenant config
-        // Note: sender_email/sender_name available after migration-004
-        const fromEmail = tenantFromEmail;
-        const fromName = tenantFromName;
-        const fromAddress = `${fromName} <${fromEmail}>`;
-        const replyTo = tenantReplyTo;
+        // Sender cascade: campaign.sender_user_id -> users.sender_email/name -> tenant config
+        const senderKey = email.sender_user_id || '';
+        if (!senderCache.has(senderKey)) {
+          senderCache.set(senderKey, await resolveSender(req.user!.tenantId, email.sender_user_id));
+        }
+        const resolved = senderCache.get(senderKey)!;
+        const fromAddress = resolved.fromAddress;
+        const replyTo = resolved.replyTo;
 
         // Optional per-campaign attachment (e.g. blind-teaser PDF); [] when none → unchanged behaviour.
         const attachments = await getCampaignAttachments(email.campaign_id, req.user!.tenantId);
@@ -392,6 +425,14 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
              metadata = JSON_SET(COALESCE(metadata, '{}'), '$.resend_id', ?)
              WHERE id = ? AND tenant_id = ?`,
             [result.id, email.id, req.user!.tenantId]
+          );
+
+          // Record email_event 'sent' (parity with the scheduler path): links webhook
+          // follow-ups by resend_email_id and records from_email for per-sender audit
+          await query(
+            `INSERT INTO email_events (id, tenant_id, prospect_id, event_type, resend_email_id, subject, from_email)
+             VALUES (?, ?, ?, 'sent', ?, ?, ?)`,
+            [uuidv4(), req.user!.tenantId, email.prospect_id, result.id, email.subject, fromAddress]
           );
 
           // Update prospect last_contacted

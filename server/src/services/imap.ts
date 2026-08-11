@@ -5,6 +5,7 @@ import { query } from '../config/database';
 import { getAllActiveTenants } from '../middleware/tenant';
 import { classifyReply } from './ai';
 import { decryptSecret } from '../utils/crypto';
+import { recordReply, type ReplyClassification } from './replies';
 
 /**
  * Poll IMAP inbox for a single tenant.
@@ -171,129 +172,32 @@ export async function pollImapForTenant(
           console.warn(`IMAP [${tenantId}]: Body fetch failed for seq ${msg.seqNo} (classifying without body): ${bodyErr.message}`);
         }
 
-        // Match to sequence via In-Reply-To
-        const inReplyTo = msg.envelope?.inReplyTo || null;
-        let sequenceId: string | null = null;
-        let enrollmentId: string | null = null;
-        let stepId: string | null = null;
-
-        if (inReplyTo) {
-          const matchedEvents = await query<any[]>(
-            `SELECT sequence_id, enrollment_id, step_id FROM email_events
-             WHERE (resend_email_id = ? OR message_id = ?)
-             AND prospect_id = ?
-             LIMIT 1`,
-            [inReplyTo, inReplyTo, prospect.id]
-          );
-          if (matchedEvents.length > 0) {
-            sequenceId = matchedEvents[0].sequence_id;
-            enrollmentId = matchedEvents[0].enrollment_id;
-            stepId = matchedEvents[0].step_id;
-          }
-        }
-
-        // Fallback: most recent active enrollment
-        if (!enrollmentId) {
-          const activeEnrollments = await query<any[]>(
-            `SELECT se.id as enrollment_id, se.sequence_id,
-                    (SELECT ss.id FROM sequence_steps ss
-                     WHERE ss.sequence_id = se.sequence_id AND ss.step_number = se.current_step
-                     LIMIT 1) as step_id
-             FROM sequence_enrollments se
-             WHERE se.prospect_id = ? AND se.status = 'active'
-             ORDER BY se.enrolled_at DESC
-             LIMIT 1`,
-            [prospect.id]
-          );
-          if (activeEnrollments.length > 0) {
-            enrollmentId = activeEnrollments[0].enrollment_id;
-            sequenceId = activeEnrollments[0].sequence_id;
-            stepId = activeEnrollments[0].step_id;
-          }
-        }
-
         // Classify the reply using AI
-        let replyClassification = 'other';
+        let replyClassification: ReplyClassification = 'other';
         if (replyBodyText.trim().length > 0) {
           try {
-            replyClassification = await classifyReply(replyBodyText, msg.envelope?.subject || '');
+            replyClassification = await classifyReply(replyBodyText, msg.envelope?.subject || '') as ReplyClassification;
             console.log(`IMAP [${tenantId}]: Reply from ${senderAddress} classified as: ${replyClassification}`);
           } catch (classifyErr: any) {
             console.warn(`IMAP [${tenantId}]: Classification failed for UID ${msg.uid}, defaulting to 'other': ${classifyErr.message}`);
           }
         }
 
-        // Insert reply event
-        await query(
-          `INSERT INTO email_events (id, tenant_id, enrollment_id, prospect_id, sequence_id, step_id,
-           event_type, subject, metadata)
-           VALUES (?, ?, ?, ?, ?, ?, 'replied', ?, ?)`,
-          [
-            uuidv4(), tenantId, enrollmentId, prospect.id, sequenceId, stepId,
-            msg.envelope?.subject || null,
-            JSON.stringify({
-              source: 'imap',
-              from: senderAddress,
-              uid: msg.uid,
-              match_type: matchType,
-              reply_classification: replyClassification,
-              reply_snippet: replyBodyText.substring(0, 2000),
-            }),
-          ]
-        );
-
-        // Update prospect status based on classification
-        if (replyClassification === 'negative' || replyClassification === 'unsubscribe') {
-          await query(
-            `UPDATE prospects SET status = 'rejected', do_not_contact = TRUE, last_replied = NOW() WHERE id = ?`,
-            [prospect.id]
-          );
-          await query(
-            `UPDATE sequence_enrollments SET status = 'replied', completed_at = NOW()
-             WHERE prospect_id = ? AND status = 'active'`,
-            [prospect.id]
-          );
-          // Also cancel all scheduled outbox emails
-          await query(
-            `UPDATE generated_emails SET status = 'rejected',
-             metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'prospect_rejected')
-             WHERE prospect_id = ? AND status = 'scheduled'`,
-            [prospect.id]
-          );
-          console.log(`IMAP [${tenantId}]: Stopped ALL sequences for ${senderAddress} (rejection: ${replyClassification})`);
-        } else if (replyClassification === 'out_of_office') {
-          await query(
-            `UPDATE prospects SET last_replied = NOW() WHERE id = ?`,
-            [prospect.id]
-          );
-        } else {
-          // Positive or other: mark as replied, stop sequences
-          await query(
-            `UPDATE prospects SET status = 'replied', last_replied = NOW() WHERE id = ?`,
-            [prospect.id]
-          );
-          await query(
-            `UPDATE sequence_enrollments SET status = 'replied', completed_at = NOW()
-             WHERE prospect_id = ? AND status = 'active'`,
-            [prospect.id]
-          );
-          await query(
-            `UPDATE generated_emails SET status = 'rejected',
-             metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'prospect_replied')
-             WHERE prospect_id = ? AND status = 'scheduled'`,
-            [prospect.id]
-          );
-        }
-
-        // Log activity
-        await query(
-          `INSERT INTO prospect_activities (id, tenant_id, prospect_id, activity_type, title, description)
-           VALUES (?, ?, ?, 'email_replied', 'Respuesta recibida (IMAP)', ?)`,
-          [
-            uuidv4(), tenantId, prospect.id,
-            `Clasificación: ${replyClassification} | Asunto: ${msg.envelope?.subject || '(sin asunto)'}`,
-          ]
-        );
+        // Record the reply + all downstream effects (event insert, prospect status,
+        // enrollment stop, scheduled-email cancellation, activity log).
+        // recordReply scopes every statement by tenant_id (the old inline block didn't).
+        await recordReply({
+          tenantId,
+          prospectId: prospect.id,
+          classification: replyClassification,
+          subject: msg.envelope?.subject || null,
+          snippet: replyBodyText,
+          source: 'imap',
+          from: senderAddress,
+          receivedBy: imapConfig.user,
+          inReplyTo: msg.envelope?.inReplyTo || null,
+          extraMetadata: { uid: msg.uid, match_type: matchType },
+        });
 
         console.log(`IMAP [${tenantId}]: Reply detected from ${senderAddress} [${replyClassification}]`);
       }
