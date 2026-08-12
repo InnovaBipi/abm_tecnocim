@@ -417,3 +417,101 @@ describe('distributeEmailsAcrossBusinessDays with startDate', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------------
+// distributeEmailsAcrossBusinessDays — warmup limit across sibling campaigns
+// Regression: days appended after the initial horizon used to start at capacity 0,
+// ignoring what other campaigns already had scheduled, so a second campaign could
+// stack past the daily limit (observed: 160 emails on a 80/day tenant).
+// ---------------------------------------------------------------------------------
+
+describe('distributeEmailsAcrossBusinessDays respects the tenant-wide daily limit', () => {
+  const mockedQuery = vi.mocked(query);
+  const mockedGetTenantConfig = vi.mocked(getTenantConfig);
+
+  /** Mock a tenant whose queue already holds `existing` emails on each given day. */
+  const mockQueueOn = (occupied: Record<string, number>) => {
+    mockedQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('MIN(occurred_at)')) return [{ first_sent: '2026-01-01 09:00:00' }] as any;
+      if (sql.includes('GROUP BY DATE(scheduled_for)')) {
+        return Object.entries(occupied).map(([dt, cnt]) => ({ dt: `${dt}T00:00:00.000Z`, cnt })) as any;
+      }
+      if (sql.includes('COUNT(*)')) return [{ count: 0 }] as any;
+      return [] as any;
+    });
+    mockedGetTenantConfig.mockResolvedValue({
+      config: { warmup: { daily_limit_base: 10, daily_limit_max: 10, ramp_up_days: 1 } },
+    } as any);
+  };
+
+  const emails = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: `e-${i}`, prospectTimezone: 'Europe/Madrid', delayDays: 0 }));
+
+  const futureWeekday = (minDaysAhead: number): Date => {
+    const d = new Date();
+    d.setDate(d.getDate() + minDaysAhead);
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+
+  const businessDaysFrom = (start: Date, n: number): string[] => {
+    const out: string[] = [];
+    const d = new Date(start);
+    while (out.length < n) {
+      if (d.getDay() !== 0 && d.getDay() !== 6) out.push(getMadridDateString(d));
+      d.setDate(d.getDate() + 1);
+    }
+    return out;
+  };
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('never exceeds the daily limit on days beyond the initial horizon (the 160/80 bug)', async () => {
+    const start = futureWeekday(10);
+    const days = businessDaysFrom(start, 14);
+    // A sibling campaign already filled the first TEN business days to the limit.
+    // 25 emails give an initial horizon of ceil(25/10)+5 = 8 days, so days 9-10 are
+    // only reached after the horizon is extended mid-loop — precisely where capacity
+    // used to be re-initialised to zero and got double-booked.
+    const occupied: Record<string, number> = {};
+    for (const d of days.slice(0, 10)) occupied[d] = 10;
+    mockQueueOn(occupied);
+
+    const { schedule, dayTotals, dailyLimit } = await distributeEmailsAcrossBusinessDays(
+      emails(25), 'tenant-x', undefined, start
+    );
+
+    expect(dailyLimit).toBe(10);
+    expect(schedule.size).toBe(25);
+    for (const [day, total] of Object.entries(dayTotals)) {
+      expect(total, `day ${day} over limit`).toBeLessThanOrEqual(10);
+    }
+    // The ten full days must stay untouched; everything lands on day 11 onwards.
+    const scheduledDays = [...schedule.values()].map(getMadridDateString);
+    for (const full of days.slice(0, 10)) expect(scheduledDays).not.toContain(full);
+    for (const d of scheduledDays) expect(d >= days[10]).toBe(true);
+  });
+
+  it('reports dayTotals including other campaigns, not just this call', async () => {
+    const start = futureWeekday(10);
+    const [d0] = businessDaysFrom(start, 1);
+    mockQueueOn({ [d0]: 7 }); // 3 slots left on day 0
+
+    const { distribution, dayTotals } = await distributeEmailsAcrossBusinessDays(
+      emails(3), 'tenant-x', undefined, start
+    );
+    expect(distribution[d0]).toBe(3);   // what this call added
+    expect(dayTotals[d0]).toBe(10);     // real occupancy (7 existing + 3)
+  });
+
+  it('leaves nothing silently unscheduled: every email is either scheduled or reported', async () => {
+    const start = futureWeekday(10);
+    mockQueueOn({});
+    const { schedule, unassigned } = await distributeEmailsAcrossBusinessDays(
+      emails(45), 'tenant-x', undefined, start
+    );
+    expect(schedule.size + unassigned.length).toBe(45);
+    expect(unassigned).toEqual([]); // 45 emails at 10/day fit well inside the horizon
+  });
+});

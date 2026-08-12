@@ -263,7 +263,7 @@ describe('emails_bulk_insert', () => {
     const out = parse(await tool({ campaign_id: 'cam-1', emails: [email('p1')], force: true }));
     expect(out.inserted).toBe(1);
     expect(out.blocked_cross_campaign).toEqual([]);
-    const insert = conn.query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT'))!;
+    const insert = conn.query.mock.calls.find((c: any[]) => String(c[0]).includes('INSERT'))!;
     const metadataParam = insert[1][insert[1].length - 1];
     expect(JSON.parse(metadataParam).contact_guard_override.by).toBe('test-user');
   });

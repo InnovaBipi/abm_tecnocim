@@ -477,7 +477,7 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
       return textResult({ count: 0, skipped_cross_campaign: skippedCross, message: 'All drafts blocked by cross-campaign contact guard.' });
     }
     const forDist = eligible.map(e => ({ id: e.id, prospectTimezone: resolveProspectTimezone(e), delayDays: e.delay_days || 0 }));
-    const { schedule, distribution, dailyLimit } = await distributeEmailsAcrossBusinessDays(forDist, t, undefined, startDate);
+    const { schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(forDist, t, undefined, startDate);
     let scheduled = 0;
     for (const e of eligible) {
       const when = schedule.get(e.id);
@@ -487,7 +487,7 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
          WHERE id = ? AND tenant_id = ? AND status = 'draft'`, [auth.userId, toMysqlDate(when), e.id, t]);
       scheduled++;
     }
-    return textResult({ count: scheduled, skipped_cross_campaign: skippedCross, daily_limit: dailyLimit, distribution, start_date: start_date || 'today', note: 'Campaign NOT activated.' });
+    return textResult({ count: scheduled, skipped_cross_campaign: skippedCross, daily_limit: dailyLimit, distribution, day_totals: dayTotals, unscheduled_no_capacity: unassigned, start_date: start_date || 'today', note: 'Campaign NOT activated.' });
   });
 
   // --- outbox_redistribute ---
@@ -522,13 +522,13 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
       delayDays: (e.step_number <= 1 || e.prev_step_status === 'sent') ? 0 : (e.delay_days || 0),
     }));
     const excludeIds = emails.map((e: any) => e.id);
-    const { schedule, distribution, dailyLimit } = await distributeEmailsAcrossBusinessDays(forDist, t, excludeIds, startDate);
+    const { schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(forDist, t, excludeIds, startDate);
     let updated = 0;
     for (const [id, when] of schedule) {
       await query('UPDATE generated_emails SET scheduled_for = ? WHERE id = ? AND tenant_id = ?', [toMysqlDate(when), id, t]);
       updated++;
     }
-    return textResult({ count: updated, daily_limit: dailyLimit, distribution });
+    return textResult({ count: updated, daily_limit: dailyLimit, distribution, day_totals: dayTotals, unscheduled_no_capacity: unassigned });
   });
 
   // --- email_update ---

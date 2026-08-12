@@ -226,7 +226,7 @@ router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> 
       delayDays: e.delay_days || 0,
     }));
 
-    const { schedule, distribution, dailyLimit } = await distributeEmailsAcrossBusinessDays(
+    const { schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(
       emailsForDistribution,
       tenantId
     );
@@ -564,7 +564,7 @@ router.post('/redistribute', async (req: Request, res: Response): Promise<void> 
     // Pass emailIds to exclude from capacity counts — prevents double-counting
     // the emails being redistributed as already-scheduled capacity
     const emailIds = emails.map((e: any) => e.id);
-    const { schedule, distribution, dailyLimit } = await distributeEmailsAcrossBusinessDays(
+    const { schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(
       emailsForDistribution,
       tenantId,
       emailIds,
@@ -587,6 +587,8 @@ router.post('/redistribute', async (req: Request, res: Response): Promise<void> 
         message: `Redistribuidos ${updated} email(s) en días laborables.`,
         count: updated,
         distribution,
+        day_totals: dayTotals,
+        unscheduled_no_capacity: unassigned,
         daily_limit: dailyLimit,
       },
     });

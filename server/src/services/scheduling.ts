@@ -372,6 +372,7 @@ export function resolveProspectLanguage(prospect: {
 
 import { query } from '../config/database';
 import { getTenantConfig } from '../middleware/tenant';
+import { logger } from '../config/logger';
 
 /**
  * Get a YYYY-MM-DD date string in Europe/Madrid timezone.
@@ -504,7 +505,15 @@ export async function distributeEmailsAcrossBusinessDays(
   tenantId: string,
   excludeIds?: string[],
   startDate?: Date
-): Promise<{ schedule: Map<string, Date>; distribution: Record<string, number>; dailyLimit: number }> {
+): Promise<{
+  schedule: Map<string, Date>;
+  distribution: Record<string, number>;
+  /** Per-day occupancy after this call (includes other campaigns' emails). */
+  dayTotals: Record<string, number>;
+  /** Emails that found no slot within the horizon — callers must surface these. */
+  unassigned: string[];
+  dailyLimit: number;
+}> {
   const dailyLimit = await getWarmupDailyLimit(tenantId);
   const scheduledCounts = await getScheduledCountByDate(tenantId, excludeIds);
 
@@ -525,19 +534,29 @@ export async function distributeEmailsAcrossBusinessDays(
   const sentToday = await getSentCountForDate(tenantId, todayStr);
   scheduledCounts.set(todayStr, (scheduledCounts.get(todayStr) || 0) + sentToday);
 
-  // Generate enough business days (worst case: all emails on separate days)
+  // Generate enough business days (worst case: all emails on separate days).
+  // The horizon grows on demand below, so an underestimate here is harmless.
   const daysNeeded = Math.ceil(emails.length / Math.max(dailyLimit, 1)) + 5;
   const businessDays = getNextBusinessDays(effectiveStart, daysNeeded);
 
   const schedule = new Map<string, Date>();
   const distribution: Record<string, number> = {};
+  const unassigned: string[] = [];
 
-  // Track capacity per day (start with existing scheduled/sent counts)
+  // Remaining capacity per day, ALWAYS seeded from what the tenant already has
+  // scheduled that day (other campaigns included). Reading it lazily is what keeps
+  // days appended later in the loop from starting at a phantom zero — the bug that
+  // let sibling campaigns stack past the warmup limit on the same day.
   const dayCapacity = new Map<string, number>();
-  for (const day of businessDays) {
-    const dateStr = getMadridDateString(day);
-    dayCapacity.set(dateStr, scheduledCounts.get(dateStr) || 0);
-  }
+  const capacityOf = (dateStr: string): number => {
+    if (!dayCapacity.has(dateStr)) dayCapacity.set(dateStr, scheduledCounts.get(dateStr) || 0);
+    return dayCapacity.get(dateStr)!;
+  };
+
+  // Safety stop: ~1 business year. Beyond this the queue is pathological and we
+  // report the leftovers instead of scheduling them years out.
+  const MAX_BUSINESS_DAYS = 260;
+  const HORIZON_CHUNK = 20;
 
   for (const email of emails) {
     // Determine earliest allowed date based on delay_days
@@ -547,43 +566,33 @@ export async function distributeEmailsAcrossBusinessDays(
     }
     const earliestStr = getMadridDateString(earliestDate);
 
-    // Find the first business day with available capacity
+    // Find the first business day at or after earliestStr with free capacity,
+    // extending the horizon as needed.
     let assignedDay: Date | null = null;
-    for (const day of businessDays) {
+    for (let i = 0; assignedDay === null; i++) {
+      if (i >= businessDays.length) {
+        if (businessDays.length >= MAX_BUSINESS_DAYS) break;
+        const lastDay = businessDays[businessDays.length - 1];
+        businessDays.push(
+          ...getNextBusinessDays(new Date(lastDay.getTime() + 24 * 60 * 60 * 1000), HORIZON_CHUNK)
+        );
+      }
+      const day = businessDays[i];
       const dateStr = getMadridDateString(day);
       if (dateStr < earliestStr) continue;
 
-      const currentCount = dayCapacity.get(dateStr) || 0;
-      if (currentCount < dailyLimit) {
+      if (capacityOf(dateStr) < dailyLimit) {
         assignedDay = day;
-        dayCapacity.set(dateStr, currentCount + 1);
+        dayCapacity.set(dateStr, capacityOf(dateStr) + 1);
         distribution[dateStr] = (distribution[dateStr] || 0) + 1;
-        break;
       }
     }
 
     if (!assignedDay) {
-      // Fallback: add more days if we ran out
-      const lastDay = businessDays[businessDays.length - 1];
-      const extraDays = getNextBusinessDays(
-        new Date(lastDay.getTime() + 24 * 60 * 60 * 1000),
-        5
-      );
-      businessDays.push(...extraDays);
-      for (const d of extraDays) {
-        dayCapacity.set(getMadridDateString(d), 0);
-      }
-      // Retry with the extra days
-      for (const day of extraDays) {
-        const dateStr = getMadridDateString(day);
-        const currentCount = dayCapacity.get(dateStr) || 0;
-        if (currentCount < dailyLimit) {
-          assignedDay = day;
-          dayCapacity.set(dateStr, currentCount + 1);
-          distribution[dateStr] = (distribution[dateStr] || 0) + 1;
-          break;
-        }
-      }
+      unassigned.push(email.id);
+      logger.warn('No capacity within horizon, email left unscheduled', {
+        tenantId, emailId: email.id, horizonDays: MAX_BUSINESS_DAYS, dailyLimit,
+      });
     }
 
     if (assignedDay) {
@@ -599,5 +608,12 @@ export async function distributeEmailsAcrossBusinessDays(
     }
   }
 
-  return { schedule, distribution, dailyLimit };
+  // dayTotals = distribution of THIS call + what the tenant already had that day,
+  // so callers can show/log real per-day occupancy instead of just their own slice.
+  const dayTotals: Record<string, number> = {};
+  for (const dateStr of Object.keys(distribution)) {
+    dayTotals[dateStr] = dayCapacity.get(dateStr) ?? distribution[dateStr];
+  }
+
+  return { schedule, distribution, dayTotals, unassigned, dailyLimit };
 }

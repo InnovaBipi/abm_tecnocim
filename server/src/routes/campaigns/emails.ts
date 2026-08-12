@@ -408,7 +408,7 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
       delayDays: e.delay_days || 0,
     }));
 
-    const { schedule, distribution, dailyLimit } = await distributeEmailsAcrossBusinessDays(
+    const { schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(
       emailsForDistribution,
       tenantId
     );
@@ -441,6 +441,8 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
         count: scheduled,
         skipped_cross_campaign: skippedCrossCampaign,
         distribution,
+        day_totals: dayTotals,
+        unscheduled_no_capacity: unassigned,
         daily_limit: dailyLimit,
       },
     });
@@ -511,7 +513,7 @@ router.post('/:id/schedule-drafts', async (req: Request, res: Response): Promise
       delayDays: e.delay_days || 0,
     }));
 
-    const { schedule, distribution, dailyLimit } = await distributeEmailsAcrossBusinessDays(
+    const { schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(
       emailsForDistribution,
       tenantId,
       undefined,
@@ -538,6 +540,8 @@ router.post('/:id/schedule-drafts', async (req: Request, res: Response): Promise
         count: scheduled,
         skipped_cross_campaign: skippedCrossCampaign,
         distribution,
+        day_totals: dayTotals,
+        unscheduled_no_capacity: unassigned,
         daily_limit: dailyLimit,
       },
     });
