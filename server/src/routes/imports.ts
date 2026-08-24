@@ -488,7 +488,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
               imported_rows, skipped_rows, error_rows, started_at, completed_at, created_at
        FROM imports
        WHERE tenant_id = ?
-       ORDER BY created_at DESC
+       ORDER BY created_at DESC, id DESC
        LIMIT ? OFFSET ?`,
       [req.user!.tenantId, limit, offset]
     );

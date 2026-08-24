@@ -68,7 +68,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
        JOIN campaigns cam ON ge.campaign_id = cam.id AND cam.tenant_id = ge.tenant_id
        LEFT JOIN users su ON cam.sender_user_id = su.id AND su.tenant_id = ge.tenant_id
        ${whereSQL}
-       ORDER BY ge.created_at DESC
+       ORDER BY ge.created_at DESC, ge.id DESC
        LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );
@@ -138,7 +138,9 @@ router.put('/:emailId/approve', async (req: Request, res: Response): Promise<voi
     const prospect = emails[0];
     const prospectTz = resolveProspectTimezone(prospect);
 
-    // Use warmup-aware distribution (even for single email, checks day capacity)
+    // Use warmup-aware distribution (even for single email, checks day capacity).
+    // No sequence identity passed on purpose: this approves one email, and a lone email is a
+    // singleton group either way. It cannot be ordered against siblings that aren't in the call.
     const { schedule } = await distributeEmailsAcrossBusinessDays(
       [{ id: prospect.id, prospectTimezone: prospectTz, delayDays: prospect.delay_days || 0 }],
       tenantId
@@ -212,18 +214,24 @@ router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> 
     // Get emails with prospect timezone data and delay_days
     const placeholders = email_ids.map(() => '?').join(',');
     const emails = await query<any[]>(
-      `SELECT ge.id, ge.delay_days, ge.step_number, p.timezone, p.country, p.city
+      `SELECT ge.id, ge.delay_days, ge.step_number, ge.prospect_id, ge.campaign_id, p.timezone, p.country, p.city
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id
-       WHERE ge.id IN (${placeholders}) AND ge.tenant_id = ? AND ge.status IN ('draft', 'rejected')`,
+       WHERE ge.id IN (${placeholders}) AND ge.tenant_id = ? AND ge.status IN ('draft', 'rejected')
+       ORDER BY ge.campaign_id, ge.prospect_id, ge.step_number`,
       [...email_ids, tenantId]
     );
 
     // Distribute across business days respecting warmup limits
+    // Sequence identity keeps a prospect's steps in order; without it each step competes
+    // for daily capacity on its own and step 1 can end up after step 3.
     const emailsForDistribution = emails.map(e => ({
       id: e.id,
       prospectTimezone: resolveProspectTimezone(e),
       delayDays: e.delay_days || 0,
+      campaignId: e.campaign_id,
+      prospectId: e.prospect_id,
+      stepNumber: e.step_number,
     }));
 
     const { schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(
@@ -247,9 +255,14 @@ router.post('/bulk-approve', async (req: Request, res: Response): Promise<void> 
     res.json({
       success: true,
       data: {
-        message: `Programados ${scheduled} email(s) para envío.`,
+        // unscheduled_no_capacity was missing here while every sibling endpoint reported it.
+        // It matters more now: the scheduler drops a saturated sequence whole, so without
+        // this the UI says "Programados N" while entire prospects stay silently in draft.
+        message: `Programados ${scheduled} email(s) para envío.${unassigned.length ? ` ${unassigned.length} sin hueco.` : ''}`,
         count: scheduled,
         distribution,
+        day_totals: dayTotals,
+        unscheduled_no_capacity: unassigned,
         daily_limit: dailyLimit,
       },
     });
@@ -535,7 +548,8 @@ router.post('/redistribute', async (req: Request, res: Response): Promise<void> 
     }
 
     const emails = await query<any[]>(
-      `SELECT ge.id, ge.delay_days, ge.step_number, p.timezone, p.country, p.city,
+      `SELECT ge.id, ge.delay_days, ge.step_number, ge.prospect_id, ge.campaign_id,
+              p.timezone, p.country, p.city,
               prev.status as prev_step_status
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id AND p.tenant_id = ge.tenant_id
@@ -544,7 +558,8 @@ router.post('/redistribute', async (req: Request, res: Response): Promise<void> 
          AND prev.campaign_id = ge.campaign_id
          AND prev.tenant_id = ge.tenant_id
          AND prev.step_number = ge.step_number - 1
-       WHERE ${whereClause}`,
+       WHERE ${whereClause}
+       ORDER BY ge.campaign_id, ge.prospect_id, ge.step_number`,
       params
     );
 
@@ -559,17 +574,36 @@ router.post('/redistribute', async (req: Request, res: Response): Promise<void> 
       // If previous step already sent (or it's step 1), delay is no longer needed —
       // the gap was already enforced in the original scheduling
       delayDays: (e.step_number <= 1 || e.prev_step_status === 'sent') ? 0 : (e.delay_days || 0),
+      campaignId: e.campaign_id,
+      prospectId: e.prospect_id,
+      stepNumber: e.step_number,
     }));
 
     // Pass emailIds to exclude from capacity counts — prevents double-counting
     // the emails being redistributed as already-scheduled capacity
     const emailIds = emails.map((e: any) => e.id);
-    const { schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(
+    let { schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(
       emailsForDistribution,
       tenantId,
       emailIds,
       startDate
     );
+
+    // An email that found no slot is NOT moved: it keeps its current scheduled_for, and so
+    // keeps occupying that day. But it was excluded from the capacity counts, so this run may
+    // have handed its day to someone else and pushed that day over the warmup limit. Rerun
+    // counting the ones that stay put. Rare (only when the 260-day horizon is exhausted), so
+    // the extra pass costs nothing in the normal case.
+    if (unassigned.length > 0) {
+      const staying = new Set(unassigned);
+      ({ schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(
+        emailsForDistribution.filter((e) => !staying.has(e.id)),
+        tenantId,
+        emailIds.filter((id: string) => !staying.has(id)),
+        startDate
+      ));
+      unassigned = [...unassigned, ...staying];
+    }
 
     let updated = 0;
     for (const [emailId, scheduledFor] of schedule) {

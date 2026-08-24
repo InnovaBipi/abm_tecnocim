@@ -75,7 +75,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
        JOIN prospects p ON ee.prospect_id = p.id AND p.tenant_id = ee.tenant_id
        LEFT JOIN companies c ON p.company_id = c.id AND c.tenant_id = ee.tenant_id
        WHERE ${whereClause}
-       ORDER BY ee.occurred_at DESC
+       ORDER BY ee.occurred_at DESC, ee.id DESC
        LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );

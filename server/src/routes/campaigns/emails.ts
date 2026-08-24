@@ -3,12 +3,45 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, getConnection } from '../../config/database';
 import { getTenantConfig, buildTenantAIContext } from '../../middleware/tenant';
 import { enrichProspect } from '../../services/enrichment';
-import { resolveProspectTimezone, distributeEmailsAcrossBusinessDays, isBusinessDay, getNextBusinessDay } from '../../services/scheduling';
+import { resolveProspectTimezone, distributeEmailsAcrossBusinessDays, isBusinessDay, nextBusinessDayKeepingTime, resolveHolidays, getMadridDateString } from '../../services/scheduling';
 import { sanitizeEmailHtml } from '../../utils/sanitizeHtml';
 import { checkCrossCampaignContact, formatBlocked, shouldSkipEmail } from '../../services/contactGuard';
 import { applyCampaignSenderToAIContext } from '../../services/sender';
 
 const router = Router();
+
+/**
+ * Steps of the same sequences that are already scheduled or sent and are NOT in this call.
+ *
+ * The scheduler can only order steps it can see. Approving one regenerated step on its own —
+ * routine after email QA rejects it — would otherwise group it alone, measure its floor from
+ * today, and drop it before its own earlier step.
+ */
+async function fetchSequenceSiblings(
+  tenantId: string, campaignId: string, excludeEmailIds: string[], prospectIds: string[]
+): Promise<Map<string, Array<{ stepNumber: number; scheduledFor: Date }>>> {
+  const map = new Map<string, Array<{ stepNumber: number; scheduledFor: Date }>>();
+  const uniqueProspects = [...new Set(prospectIds.filter(Boolean))];
+  if (uniqueProspects.length === 0) return map;
+
+  const pPlaceholders = uniqueProspects.map(() => '?').join(',');
+  const excludeClause = excludeEmailIds.length
+    ? ` AND ge.id NOT IN (${excludeEmailIds.map(() => '?').join(',')})` : '';
+  const rows = await query<any[]>(
+    `SELECT ge.prospect_id, ge.step_number, ge.scheduled_for
+     FROM generated_emails ge
+     WHERE ge.tenant_id = ? AND ge.campaign_id = ? AND ge.prospect_id IN (${pPlaceholders})
+       AND ge.status IN ('scheduled', 'sent') AND ge.scheduled_for IS NOT NULL${excludeClause}`,
+    [tenantId, campaignId, ...uniqueProspects, ...excludeEmailIds]
+  );
+
+  for (const r of rows) {
+    const key = `${campaignId}::${r.prospect_id}`;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push({ stepNumber: r.step_number, scheduledFor: new Date(r.scheduled_for) });
+  }
+  return map;
+}
 
 // Defensive caps to bound cost / DoS on unbounded loops.
 const MAX_NUM_STEPS = 7;
@@ -324,12 +357,19 @@ router.put('/:id/generated-emails/:emailId', async (req: Request, res: Response)
         res.status(400).json({ success: false, error: 'Invalid scheduled_for date format.' });
         return;
       }
-      // Auto-adjust weekend dates to next Monday
-      let finalDate = scheduledDate;
-      if (!isBusinessDay(scheduledDate)) {
-        finalDate = getNextBusinessDay(scheduledDate);
-        finalDate.setUTCHours(scheduledDate.getUTCHours(), scheduledDate.getUTCMinutes(), 0, 0);
-      }
+      // Auto-adjust weekends and holidays to the next business day. The tenant's resolved
+      // calendar, not the national default: otherwise a tenant that opted out of holidays
+      // still gets bounced off 12-oct here, and a tenant-added regional holiday is ignored.
+      // Madrid year, not the UTC one: 2026-12-31T23:30Z is already 2027-01-01 in Madrid, and
+      // resolving 2026 would wave Año Nuevo straight through. Next year too, since the
+      // adjustment can walk across the boundary.
+      const holidayYear = Number(getMadridDateString(scheduledDate).slice(0, 4));
+      const tenantHolidays = await resolveHolidays(
+        req.user!.tenantId, [holidayYear, holidayYear + 1]
+      );
+      const finalDate = isBusinessDay(scheduledDate, tenantHolidays)
+        ? scheduledDate
+        : nextBusinessDayKeepingTime(scheduledDate, tenantHolidays);
       setClauses.push('scheduled_for = ?');
       params.push(finalDate.toISOString().replace('T', ' ').substring(0, 19));
     }
@@ -389,7 +429,8 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
       `SELECT ge.id, ge.delay_days, ge.step_number, ge.prospect_id, ge.metadata, p.timezone, p.country, p.city
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id
-       WHERE ge.id IN (${placeholders}) AND ge.campaign_id = ? AND ge.tenant_id = ? AND ge.status IN ('draft', 'rejected', 'bounced')`,
+       WHERE ge.id IN (${placeholders}) AND ge.campaign_id = ? AND ge.tenant_id = ? AND ge.status IN ('draft', 'rejected', 'bounced')
+       ORDER BY ge.prospect_id, ge.step_number`,
       [...email_ids, id, tenantId]
     );
 
@@ -402,15 +443,27 @@ router.post('/:id/approve-emails', async (req: Request, res: Response): Promise<
     const skippedCrossCampaign = allEmails.length - emails.length;
 
     // Distribute across business days respecting warmup limits
+    // campaignId/prospectId/stepNumber let the scheduler keep a sequence in order: without
+    // them each step competes for capacity alone and step 1 can land after step 3.
     const emailsForDistribution = emails.map(e => ({
       id: e.id,
       prospectTimezone: resolveProspectTimezone(e),
       delayDays: e.delay_days || 0,
+      campaignId: String(id),
+      prospectId: e.prospect_id,
+      stepNumber: e.step_number,
     }));
+
+    const existingSteps = await fetchSequenceSiblings(
+      tenantId, String(id), emails.map(e => e.id), emails.map(e => e.prospect_id)
+    );
 
     const { schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(
       emailsForDistribution,
-      tenantId
+      tenantId,
+      undefined,
+      undefined,
+      existingSteps
     );
 
     let scheduled = 0;
@@ -482,10 +535,11 @@ router.post('/:id/schedule-drafts', async (req: Request, res: Response): Promise
     }
 
     const allDrafts = await query<any[]>(
-      `SELECT ge.id, ge.delay_days, ge.prospect_id, ge.metadata, p.timezone, p.country, p.city
+      `SELECT ge.id, ge.delay_days, ge.step_number, ge.prospect_id, ge.metadata, p.timezone, p.country, p.city
        FROM generated_emails ge
        JOIN prospects p ON ge.prospect_id = p.id AND p.tenant_id = ge.tenant_id
-       WHERE ge.campaign_id = ? AND ge.tenant_id = ? AND ge.status = 'draft'`,
+       WHERE ge.campaign_id = ? AND ge.tenant_id = ? AND ge.status = 'draft'
+       ORDER BY ge.prospect_id, ge.step_number`,
       [id, tenantId]
     );
 
@@ -507,17 +561,27 @@ router.post('/:id/schedule-drafts', async (req: Request, res: Response): Promise
       return;
     }
 
+    // campaignId/prospectId/stepNumber let the scheduler keep a sequence in order: without
+    // them each step competes for capacity alone and step 1 can land after step 3.
     const emailsForDistribution = emails.map(e => ({
       id: e.id,
       prospectTimezone: resolveProspectTimezone(e),
       delayDays: e.delay_days || 0,
+      campaignId: String(id),
+      prospectId: e.prospect_id,
+      stepNumber: e.step_number,
     }));
+
+    const existingSteps = await fetchSequenceSiblings(
+      tenantId, String(id), emails.map(e => e.id), emails.map(e => e.prospect_id)
+    );
 
     const { schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(
       emailsForDistribution,
       tenantId,
       undefined,
-      startDate
+      startDate,
+      existingSteps
     );
 
     let scheduled = 0;

@@ -69,7 +69,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
        FROM email_sequences es
        LEFT JOIN campaigns c ON es.campaign_id = c.id
        ${whereSQL}
-       ORDER BY es.created_at DESC
+       ORDER BY es.created_at DESC, es.id DESC
        LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );

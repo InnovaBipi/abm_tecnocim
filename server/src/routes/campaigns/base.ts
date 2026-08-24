@@ -89,7 +89,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
        FROM campaigns cam
        LEFT JOIN users su ON cam.sender_user_id = su.id
        ${whereSQL}
-       ORDER BY cam.created_at DESC
+       ORDER BY cam.created_at DESC, cam.id DESC
        LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );

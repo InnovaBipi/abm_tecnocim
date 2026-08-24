@@ -28,7 +28,12 @@ import {
   calculateOptimalSendTime,
   isBusinessDay,
   getNextBusinessDay,
+  nextBusinessDayKeepingTime,
 } from './scheduling';
+
+const MADRID_HHMM = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hour12: false,
+});
 
 // ---------------------------------------------------------------------------------
 // resolveProspectTimezone
@@ -322,7 +327,13 @@ describe('getNextBusinessDay', () => {
 // distributeEmailsAcrossBusinessDays — startDate (future launch date)
 // ---------------------------------------------------------------------------------
 
-import { distributeEmailsAcrossBusinessDays, getMadridDateString } from './scheduling';
+import {
+  distributeEmailsAcrossBusinessDays,
+  getMadridDateString,
+  getNextBusinessDays,
+  nationalHolidays,
+  resolveHolidays,
+} from './scheduling';
 import { query } from '../config/database';
 import { getTenantConfig } from '../middleware/tenant';
 
@@ -513,5 +524,461 @@ describe('distributeEmailsAcrossBusinessDays respects the tenant-wide daily limi
     );
     expect(schedule.size + unassigned.length).toBe(45);
     expect(unassigned).toEqual([]); // 45 emails at 10/day fit well inside the horizon
+  });
+});
+
+// ---------------------------------------------------------------------------
+// distributeEmailsAcrossBusinessDays — sequence ordering
+//
+// Regression: delayDays is a floor measured from the global start, so step 1 (delay 0) has
+// the lowest floor and step 3 (delay 7) the highest. Once daily capacity saturates, a step 1
+// processed late gets pushed past its own step 3, which settled early on an emptier day.
+// Observed in production (PINTURAS EUROSOL): s1=2026-10-05 s2=2026-10-01 s3=2026-09-30 —
+// the prospect would have received the sign-off five days before the introduction.
+// ---------------------------------------------------------------------------
+describe('distributeEmailsAcrossBusinessDays preserves sequence order', () => {
+  const mockedQuery = vi.mocked(query);
+  const mockedGetTenantConfig = vi.mocked(getTenantConfig);
+
+  const mockQueueOn = (occupied: Record<string, number>, limit = 10) => {
+    mockedQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('MIN(occurred_at)')) return [{ first_sent: '2026-01-01 09:00:00' }] as any;
+      if (sql.includes('GROUP BY DATE(scheduled_for)')) {
+        return Object.entries(occupied).map(([dt, cnt]) => ({ dt: `${dt}T00:00:00.000Z`, cnt })) as any;
+      }
+      if (sql.includes('COUNT(*)')) return [{ count: 0 }] as any;
+      return [] as any;
+    });
+    mockedGetTenantConfig.mockResolvedValue({
+      config: { warmup: { daily_limit_base: limit, daily_limit_max: limit, ramp_up_days: 1 } },
+    } as any);
+  };
+
+  const futureWeekday = (minDaysAhead: number): Date => {
+    const d = new Date();
+    d.setDate(d.getDate() + minDaysAhead);
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+
+  /** A 3-step sequence with the pipeline's real cadence (0 / +3 / +7). */
+  const sequence = (prospectId: string, campaignId = 'camp-1') =>
+    [0, 3, 7].map((delayDays, i) => ({
+      id: `${campaignId}-${prospectId}-s${i + 1}`,
+      prospectTimezone: 'Europe/Madrid',
+      delayDays,
+      campaignId,
+      prospectId,
+      stepNumber: i + 1,
+    }));
+
+  const dayOf = (schedule: Map<string, Date>, id: string) => getMadridDateString(schedule.get(id)!);
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('keeps step1 < step2 < step3 when capacity is saturated (the PINTURAS EUROSOL bug)', async () => {
+    const start = futureWeekday(10);
+    // 20 sequences at 2/day is what actually reproduces the inversion. With only a handful of
+    // sequences the queue never gets tight enough to push a step 1 past day 7, and the test
+    // passes even against the broken code — which is worse than no test.
+    //
+    // The input must be grouped by step, not by prospect: interleaved per-prospect order
+    // (s3,s2,s1 for p9, then for p8…) lets every step 1 find an early slot and the order
+    // survives by luck. Feeding all the step 3s first is what the unordered SQL can produce,
+    // and it is what breaks: the step 3s settle on days 7-16, the step 2s fill 3-6 and 17-22,
+    // and the step 1s have nothing left until day 23 — weeks after their own sign-off.
+    mockQueueOn({}, 2);
+    const shuffled = Array.from({ length: 20 }, (_, i) => sequence(`p${i}`))
+      .flat()
+      .sort((a, b) => b.stepNumber - a.stepNumber);
+
+    const { schedule, unassigned } = await distributeEmailsAcrossBusinessDays(
+      shuffled, 'tenant-x', undefined, start
+    );
+
+    expect(unassigned).toEqual([]);
+    for (let i = 0; i < 20; i++) {
+      const s1 = dayOf(schedule, `camp-1-p${i}-s1`);
+      const s2 = dayOf(schedule, `camp-1-p${i}-s2`);
+      const s3 = dayOf(schedule, `camp-1-p${i}-s3`);
+      expect(s1 < s2).toBe(true);
+      expect(s2 < s3).toBe(true);
+    }
+  });
+
+  it('holds the order across 50 sequences on a tight daily limit', async () => {
+    const start = futureWeekday(10);
+    mockQueueOn({}, 5);
+    const all = Array.from({ length: 50 }, (_, i) => sequence(`p${i}`)).flat();
+
+    const { schedule } = await distributeEmailsAcrossBusinessDays(all, 'tenant-x', undefined, start);
+
+    for (let i = 0; i < 50; i++) {
+      const s = [1, 2, 3].map((k) => dayOf(schedule, `camp-1-p${i}-s${k}`));
+      expect(s[0] < s[1]).toBe(true);
+      expect(s[1] < s[2]).toBe(true);
+    }
+  });
+
+  it('is independent of input order', async () => {
+    const start = futureWeekday(10);
+    const base = Array.from({ length: 8 }, (_, i) => sequence(`p${i}`)).flat();
+    const results: string[] = [];
+
+    for (let run = 0; run < 5; run++) {
+      mockQueueOn({}, 3);
+      const shuffled = base.slice().sort(() => (run % 2 === 0 ? 1 : -1));
+      const { schedule } = await distributeEmailsAcrossBusinessDays(shuffled, 'tenant-x', undefined, start);
+      results.push([...schedule.keys()].sort().map((k) => `${k}=${dayOf(schedule, k)}`).join('|'));
+    }
+    expect(new Set(results).size).toBe(1);
+  });
+
+  it('treats the same prospect in two campaigns as two independent sequences', async () => {
+    const start = futureWeekday(10);
+    mockQueueOn({}, 10);
+    const both = [...sequence('shared', 'camp-A'), ...sequence('shared', 'camp-B')];
+
+    const { schedule, unassigned } = await distributeEmailsAcrossBusinessDays(both, 'tenant-x', undefined, start);
+
+    expect(unassigned).toEqual([]);
+    expect(schedule.size).toBe(6);
+    for (const c of ['camp-A', 'camp-B']) {
+      expect(dayOf(schedule, `${c}-shared-s1`) < dayOf(schedule, `${c}-shared-s2`)).toBe(true);
+      expect(dayOf(schedule, `${c}-shared-s2`) < dayOf(schedule, `${c}-shared-s3`)).toBe(true);
+    }
+  });
+
+  it('never exceeds the daily limit while enforcing order', async () => {
+    const start = futureWeekday(10);
+    mockQueueOn({}, 4);
+    const all = Array.from({ length: 20 }, (_, i) => sequence(`p${i}`)).flat();
+
+    const { schedule, dayTotals } = await distributeEmailsAcrossBusinessDays(all, 'tenant-x', undefined, start);
+
+    expect(schedule.size).toBe(60);
+    for (const n of Object.values(dayTotals)) expect(n).toBeLessThanOrEqual(4);
+  });
+
+  it('drops a whole sequence rather than scheduling half of it', async () => {
+    const start = futureWeekday(10);
+    // The initial horizon is sized from the email count (`ceil(n/limit) + 5`), so a lot of
+    // emails alone never exhausts it. What does is a queue that is already full: the run has
+    // to extend past MAX_BUSINESS_DAYS to find room, and extension is where it gives up.
+    const full: Record<string, number> = {};
+    const d = new Date(start);
+    while (Object.keys(full).length < 300) {
+      if (d.getDay() !== 0 && d.getDay() !== 6) full[getMadridDateString(d)] = 1;
+      d.setDate(d.getDate() + 1);
+    }
+    mockQueueOn(full, 1);
+    const all = Array.from({ length: 100 }, (_, i) => sequence(`p${i}`)).flat();
+
+    const { schedule, unassigned } = await distributeEmailsAcrossBusinessDays(all, 'tenant-x', undefined, start);
+
+    expect(unassigned.length).toBeGreaterThan(0);
+    expect(schedule.size + unassigned.length).toBe(300);
+    // Every dropped sequence must be dropped whole: no prospect half-scheduled.
+    for (let i = 0; i < 100; i++) {
+      const ids = [1, 2, 3].map((k) => `camp-1-p${i}-s${k}`);
+      const placed = ids.filter((id) => schedule.has(id)).length;
+      expect(placed === 0 || placed === 3).toBe(true);
+    }
+  });
+
+  it('falls back to the previous per-email behavior without sequence fields', async () => {
+    const start = futureWeekday(10);
+    mockQueueOn({}, 3);
+    const legacy = Array.from({ length: 9 }, (_, i) => ({
+      id: `e-${i}`, prospectTimezone: 'Europe/Madrid', delayDays: 0,
+    }));
+
+    const { schedule, unassigned, dayTotals } = await distributeEmailsAcrossBusinessDays(
+      legacy, 'tenant-x', undefined, start
+    );
+    expect(unassigned).toEqual([]);
+    expect(schedule.size).toBe(9);
+    for (const n of Object.values(dayTotals)) expect(n).toBeLessThanOrEqual(3);
+  });
+
+  it('keeps a partial sequence ordered when the first step was already sent', async () => {
+    const start = futureWeekday(10);
+    mockQueueOn({}, 2);
+    // Callers set delayDays: 0 for the anchor when the previous step already went out.
+    const partial = [
+      { id: 'x-s2', prospectTimezone: 'Europe/Madrid', delayDays: 0, campaignId: 'c', prospectId: 'x', stepNumber: 2 },
+      { id: 'x-s3', prospectTimezone: 'Europe/Madrid', delayDays: 4, campaignId: 'c', prospectId: 'x', stepNumber: 3 },
+    ];
+
+    const { schedule } = await distributeEmailsAcrossBusinessDays(partial, 'tenant-x', undefined, start);
+    expect(dayOf(schedule, 'x-s2') < dayOf(schedule, 'x-s3')).toBe(true);
+  });
+
+  // The scheduler can only order steps it can see. Approving one regenerated step on its own —
+  // routine after email QA rejects it — used to group it alone with its floor measured from
+  // today, which put it before its own earlier step already sitting in the queue.
+  it('respects an already-scheduled earlier step as a floor', async () => {
+    mockQueueOn({}, 10);
+    const existing = new Map([['c::x', [{ stepNumber: 1, scheduledFor: new Date('2026-09-15T07:30:00Z') }]]]);
+    const lone = [{ id: 'x-s2', prospectTimezone: 'Europe/Madrid', delayDays: 3, campaignId: 'c', prospectId: 'x', stepNumber: 2 }];
+
+    const { schedule, unassigned } = await distributeEmailsAcrossBusinessDays(
+      lone, 'tenant-x', undefined, new Date('2026-08-24T12:00:00Z'), existing
+    );
+
+    expect(unassigned).toEqual([]);
+    expect(dayOf(schedule, 'x-s2') > '2026-09-15').toBe(true);
+  });
+
+  it('respects an already-scheduled later step as a ceiling', async () => {
+    mockQueueOn({}, 10);
+    const existing = new Map([['c::x', [{ stepNumber: 3, scheduledFor: new Date('2026-09-10T07:30:00Z') }]]]);
+    const lone = [{ id: 'x-s1', prospectTimezone: 'Europe/Madrid', delayDays: 0, campaignId: 'c', prospectId: 'x', stepNumber: 1 }];
+
+    const { schedule, unassigned } = await distributeEmailsAcrossBusinessDays(
+      lone, 'tenant-x', undefined, new Date('2026-09-01T12:00:00Z'), existing
+    );
+
+    expect(unassigned).toEqual([]);
+    expect(dayOf(schedule, 'x-s1') < '2026-09-10').toBe(true);
+  });
+
+  it('leaves a step unscheduled rather than placing it past a later sibling', async () => {
+    mockQueueOn({}, 10);
+    // step 3 already on the 2nd; a step 1 that cannot start before the 3rd has nowhere legal.
+    const existing = new Map([['c::x', [{ stepNumber: 3, scheduledFor: new Date('2026-09-02T07:30:00Z') }]]]);
+    const lone = [{ id: 'x-s1', prospectTimezone: 'Europe/Madrid', delayDays: 0, campaignId: 'c', prospectId: 'x', stepNumber: 1 }];
+
+    const { schedule, unassigned } = await distributeEmailsAcrossBusinessDays(
+      lone, 'tenant-x', undefined, new Date('2026-09-03T12:00:00Z'), existing
+    );
+
+    expect(schedule.size).toBe(0);
+    expect(unassigned).toEqual(['x-s1']);
+  });
+
+  // Order alone is not enough: a sequence whose three steps land on consecutive days is
+  // ordered but reads as harassment. With room to breathe, the 0/+3/+7 cadence must survive.
+  it('preserves the 0/+3/+7 cadence when capacity allows', async () => {
+    const start = futureWeekday(10);
+    mockQueueOn({}, 80);
+    const all = Array.from({ length: 5 }, (_, i) => sequence(`p${i}`)).flat();
+
+    const { schedule } = await distributeEmailsAcrossBusinessDays(all, 'tenant-x', undefined, start);
+
+    const days = (id: string) => new Date(`${dayOf(schedule, id)}T00:00:00Z`).getTime() / 86_400_000;
+    for (let i = 0; i < 5; i++) {
+      const [s1, s2, s3] = [1, 2, 3].map((s) => days(`camp-1-p${i}-s${s}`));
+      // >= rather than ===: a target landing on a weekend or holiday rolls forward.
+      expect(s2 - s1).toBeGreaterThanOrEqual(3);
+      expect(s3 - s2).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  // The invariants have to hold for queue shapes nobody thought to write a case for.
+  it('holds every invariant across randomised queues', async () => {
+    // Deterministic PRNG (mulberry32): a failure here is reproducible, not a flake.
+    let seed = 0x9e3779b9;
+    const rand = () => {
+      seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const pick = (n: number) => Math.floor(rand() * n);
+
+    for (let run = 0; run < 60; run++) {
+      const limit = 1 + pick(12);
+      const nSeqs = 1 + pick(25);
+      const start = futureWeekday(5 + pick(20));
+
+      // Pre-load some days so the run has to work around an existing queue.
+      const occupied: Record<string, number> = {};
+      const d = new Date(start);
+      for (let i = 0; i < pick(8); i++) {
+        occupied[getMadridDateString(d)] = pick(limit + 1);
+        d.setDate(d.getDate() + 1);
+      }
+      mockQueueOn(occupied, limit);
+
+      const all = Array.from({ length: nSeqs }, (_, i) => sequence(`p${i}`, `c${pick(3)}`)).flat();
+      const { schedule, dayTotals, unassigned } = await distributeEmailsAcrossBusinessDays(
+        all, 'tenant-x', undefined, start
+      );
+
+      const ctx = `run=${run} limit=${limit} seqs=${nSeqs}`;
+      // Nothing vanishes: every email is either scheduled or reported.
+      expect(schedule.size + unassigned.length, ctx).toBe(all.length);
+      // Capacity is never oversold.
+      for (const n of Object.values(dayTotals)) expect(n, ctx).toBeLessThanOrEqual(limit);
+
+      const byProspect = new Map<string, string[]>();
+      for (const e of all) {
+        const when = schedule.get(e.id);
+        if (!when) continue;
+        const day = getMadridDateString(when);
+        // Never a weekend, never a holiday.
+        expect(isBusinessDay(when), `${ctx} ${day}`).toBe(true);
+        const key = `${e.campaignId}::${e.prospectId}`;
+        if (!byProspect.has(key)) byProspect.set(key, []);
+        byProspect.get(key)![e.stepNumber - 1] = day;
+      }
+      for (const [key, days] of byProspect) {
+        const present = days.filter(Boolean);
+        // A sequence is all-or-nothing, and strictly ordered.
+        expect(present.length, `${ctx} ${key}`).toBe(3);
+        expect(present[0] < present[1] && present[1] < present[2], `${ctx} ${key} ${present}`).toBe(true);
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Holidays. Before this existed, isBusinessDay() only skipped Sat/Sun, so 52 emails were
+// scheduled on 2026-10-12 (Fiesta Nacional) and had to be moved by hand.
+// ---------------------------------------------------------------------------
+describe('holidays', () => {
+  const mockedGetTenantConfig = vi.mocked(getTenantConfig);
+  const mockedQuery = vi.mocked(query);
+
+  // Midday UTC — always inside the same Madrid calendar day, whatever the offset.
+  const at = (iso: string) => new Date(`${iso}T12:00:00Z`);
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('treats national holidays as non-business days', () => {
+    expect(isBusinessDay(at('2026-10-12'))).toBe(false); // Fiesta Nacional, a Monday
+    expect(isBusinessDay(at('2026-12-25'))).toBe(false); // Navidad, a Friday
+    expect(isBusinessDay(at('2027-01-01'))).toBe(false); // Año Nuevo, a Friday
+    expect(isBusinessDay(at('2026-10-13'))).toBe(true);  // the Tuesday after
+  });
+
+  it('computes Good Friday, the one movable national holiday', () => {
+    expect(nationalHolidays(2026).has('2026-04-03')).toBe(true);
+    expect(nationalHolidays(2027).has('2027-03-26')).toBe(true);
+    expect(nationalHolidays(2028).has('2028-04-14')).toBe(true);
+    expect(isBusinessDay(at('2026-04-03'))).toBe(false);
+  });
+
+  it('lets a tenant add and remove days', async () => {
+    mockedGetTenantConfig.mockResolvedValue({
+      config: { scheduling: { holidays: ['2026-06-24', '-2026-10-12'] } },
+    } as any);
+
+    const set = await resolveHolidays('tenant-x', [2026]);
+    expect(set.has('2026-06-24')).toBe(true);  // Sant Joan, added
+    expect(set.has('2026-10-12')).toBe(false); // Fiesta Nacional, removed
+    expect(set.has('2026-12-25')).toBe(true);  // national ones still there
+  });
+
+  it('lets a tenant opt out of holidays entirely', async () => {
+    mockedGetTenantConfig.mockResolvedValue({
+      config: { scheduling: { skipHolidays: false } },
+    } as any);
+    expect((await resolveHolidays('tenant-x', [2026])).size).toBe(0);
+  });
+
+  it('falls back to the national calendar when the tenant lookup fails', async () => {
+    mockedGetTenantConfig.mockRejectedValue(new Error('db down'));
+    const set = await resolveHolidays('tenant-x', [2026]);
+    expect(set.has('2026-10-12')).toBe(true);
+  });
+
+  it('never schedules on a holiday', async () => {
+    mockedQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('MIN(occurred_at)')) return [{ first_sent: '2026-01-01 09:00:00' }] as any;
+      if (sql.includes('COUNT(*)')) return [{ count: 0 }] as any;
+      return [] as any;
+    });
+    mockedGetTenantConfig.mockResolvedValue({
+      config: { warmup: { daily_limit_base: 2, daily_limit_max: 2, ramp_up_days: 1 } },
+    } as any);
+
+    // Start the Thursday before 12-oct-2026 so the queue has to run straight through it.
+    const { schedule } = await distributeEmailsAcrossBusinessDays(
+      Array.from({ length: 20 }, (_, i) => ({ id: `h-${i}`, prospectTimezone: 'Europe/Madrid', delayDays: 0 })),
+      'tenant-x', undefined, new Date('2026-10-08T12:00:00Z')
+    );
+
+    const days = [...schedule.values()].map((d) => getMadridDateString(d));
+    expect(days.length).toBe(20);
+    expect(days).not.toContain('2026-10-12');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Date arithmetic. Both of these were wrong in ways that only showed up off this machine:
+// the locale round-trip shifted by Madrid's offset under TZ=UTC (production), and stepping a
+// day by +24h lands on the same day when Madrid's day has 25 hours.
+// ---------------------------------------------------------------------------
+describe('date arithmetic is timezone- and DST-independent', () => {
+  it('reads the Madrid calendar day regardless of the process timezone', () => {
+    // 2026-10-24T22:30Z is already 2026-10-25 in Madrid (UTC+2 that evening).
+    expect(getMadridDateString(new Date('2026-10-24T22:30:00Z'))).toBe('2026-10-25');
+    // 2026-09-01T07:30Z is 09:30 Madrid — the pipeline's usual send time.
+    expect(getMadridDateString(new Date('2026-09-01T07:30:00Z'))).toBe('2026-09-01');
+    // 23:30Z on New Year's Eve is already 00:30 on the 1st in Madrid — a year rollover that
+    // a UTC-based reading would get wrong.
+    expect(getMadridDateString(new Date('2026-12-31T23:30:00Z'))).toBe('2027-01-01');
+  });
+
+  it('crosses the DST change without repeating or skipping a day', () => {
+    // Spain falls back on 2026-10-25, making that Madrid day 25 hours long.
+    const days = getNextBusinessDays(new Date('2026-10-23T12:00:00Z'), 5, new Set())
+      .map((d) => getMadridDateString(d));
+    expect(days).toEqual(['2026-10-23', '2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29']);
+    expect(new Set(days).size).toBe(days.length); // no repeats
+  });
+
+  it('crosses the spring DST change too', () => {
+    // Spain springs forward on 2026-03-29 (a Sunday): that Madrid day has 23 hours.
+    const days = getNextBusinessDays(new Date('2026-03-26T12:00:00Z'), 4, new Set())
+      .map((d) => getMadridDateString(d));
+    expect(days).toEqual(['2026-03-26', '2026-03-27', '2026-03-30', '2026-03-31']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The weekend/holiday auto-adjust on PUT. Restoring the caller's clock with
+// setUTCHours() on a midday-anchored result silently landed a day late for any
+// late-UTC instant, so the "bumped to Monday" contract quietly meant Tuesday.
+// ---------------------------------------------------------------------------
+describe('nextBusinessDayKeepingTime', () => {
+  const noHolidays = new Set<string>();
+
+  it('bumps a late-UTC Sunday to Monday, not Tuesday', () => {
+    // 2026-08-22T23:30Z is Sunday 01:30 in Madrid. The old setUTCHours() restore produced
+    // 2026-08-24T23:30Z, which is Madrid *Tuesday* 01:30 — a day past the intended Monday.
+    const out = nextBusinessDayKeepingTime(new Date('2026-08-22T23:30:00Z'), noHolidays);
+    expect(getMadridDateString(out)).toBe('2026-08-24');
+    expect(MADRID_HHMM.format(out)).toBe('01:30');
+  });
+
+  it('keeps the Madrid wall-clock time across the bump', () => {
+    // Saturday 09:30 Madrid → Monday, still 09:30 Madrid.
+    const out = nextBusinessDayKeepingTime(new Date('2026-08-22T07:30:00Z'), noHolidays);
+    expect(getMadridDateString(out)).toBe('2026-08-24');
+    expect(MADRID_HHMM.format(out)).toBe('09:30');
+  });
+
+  it('leaves a business day untouched', () => {
+    const input = new Date('2026-08-25T07:30:00Z');
+    expect(nextBusinessDayKeepingTime(input, noHolidays).toISOString()).toBe(input.toISOString());
+  });
+
+  it('walks past a holiday into the next year', () => {
+    // 2026-12-31 is a Thursday; 2027-01-01 (Friday) is Año Nuevo, so the next
+    // business day is Monday 2027-01-04. Needs both years in the holiday set.
+    const holidays = new Set([...nationalHolidays(2026), ...nationalHolidays(2027)]);
+    const out = nextBusinessDayKeepingTime(new Date('2027-01-01T08:30:00Z'), holidays);
+    expect(getMadridDateString(out)).toBe('2027-01-04');
+  });
+
+  it('preserves the wall clock across the autumn DST change', () => {
+    // Sunday 2026-10-25 is the 25-hour day; Monday the 26th is UTC+1.
+    const out = nextBusinessDayKeepingTime(new Date('2026-10-25T08:30:00Z'), noHolidays);
+    expect(getMadridDateString(out)).toBe('2026-10-26');
+    expect(MADRID_HHMM.format(out)).toBe('09:30');
   });
 });

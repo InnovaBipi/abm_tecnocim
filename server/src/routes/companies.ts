@@ -85,7 +85,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
               (SELECT COUNT(*) FROM prospects p WHERE p.company_id = c.id) as prospect_count
        FROM companies c
        ${whereSQL}
-       ORDER BY c.${safeSortBy} ${sortOrder}
+       ORDER BY c.${safeSortBy} ${sortOrder}, c.id DESC
        LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );

@@ -6,7 +6,9 @@ import {
   distributeEmailsAcrossBusinessDays,
   resolveProspectTimezone,
   isBusinessDay,
-  getNextBusinessDay,
+  nextBusinessDayKeepingTime,
+  resolveHolidays,
+  getMadridDateString,
 } from '../../services/scheduling';
 import { getTenantConfig, buildTenantAIContext, clearTenantCache } from '../../middleware/tenant';
 import { sanitizeEmailHtml } from '../../utils/sanitizeHtml';
@@ -462,9 +464,10 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
     const cam = await query<any[]>('SELECT id FROM campaigns WHERE id = ? AND tenant_id = ?', [campaign_id, t]);
     if (!cam.length) return textResult({ error: 'Campaign not found.' });
     const emails = await query<any[]>(
-      `SELECT ge.id, ge.delay_days, ge.prospect_id, ge.metadata, p.timezone, p.country, p.city
+      `SELECT ge.id, ge.delay_days, ge.step_number, ge.prospect_id, ge.metadata, p.timezone, p.country, p.city
        FROM generated_emails ge JOIN prospects p ON ge.prospect_id = p.id AND p.tenant_id = ge.tenant_id
-       WHERE ge.campaign_id = ? AND ge.tenant_id = ? AND ge.status = 'draft'`, [campaign_id, t]);
+       WHERE ge.campaign_id = ? AND ge.tenant_id = ? AND ge.status = 'draft'
+       ORDER BY ge.prospect_id, ge.step_number`, [campaign_id, t]);
     if (!emails.length) return textResult({ count: 0, message: 'No drafts to schedule.' });
     // Cross-campaign guard (cheap variant): don't queue drafts for prospects already
     // impacted/queued by another campaign, unless the draft carries an audited override.
@@ -476,7 +479,11 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
     if (!eligible.length) {
       return textResult({ count: 0, skipped_cross_campaign: skippedCross, message: 'All drafts blocked by cross-campaign contact guard.' });
     }
-    const forDist = eligible.map(e => ({ id: e.id, prospectTimezone: resolveProspectTimezone(e), delayDays: e.delay_days || 0 }));
+    // Sequence identity keeps a prospect's steps ordered (see distributeEmailsAcrossBusinessDays).
+    const forDist = eligible.map(e => ({
+      id: e.id, prospectTimezone: resolveProspectTimezone(e), delayDays: e.delay_days || 0,
+      campaignId: String(campaign_id), prospectId: e.prospect_id, stepNumber: e.step_number,
+    }));
     const { schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(forDist, t, undefined, startDate);
     let scheduled = 0;
     for (const e of eligible) {
@@ -511,18 +518,30 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
     if (email_ids && email_ids.length) { where += ` AND ge.id IN (${email_ids.map(() => '?').join(',')})`; params.push(...email_ids); }
     else if (campaign_id) { where += ' AND ge.campaign_id = ?'; params.push(campaign_id); }
     const emails = await query<any[]>(
-      `SELECT ge.id, ge.delay_days, ge.step_number, p.timezone, p.country, p.city, prev.status AS prev_step_status
+      `SELECT ge.id, ge.delay_days, ge.step_number, ge.prospect_id, ge.campaign_id,
+              p.timezone, p.country, p.city, prev.status AS prev_step_status
        FROM generated_emails ge JOIN prospects p ON ge.prospect_id = p.id AND p.tenant_id = ge.tenant_id
        LEFT JOIN generated_emails prev ON prev.prospect_id = ge.prospect_id AND prev.campaign_id = ge.campaign_id
          AND prev.tenant_id = ge.tenant_id AND prev.step_number = ge.step_number - 1
-       WHERE ${where}`, params);
+       WHERE ${where}
+       ORDER BY ge.campaign_id, ge.prospect_id, ge.step_number`, params);
     if (!emails.length) return textResult({ count: 0, message: 'No scheduled emails to redistribute.' });
     const forDist = emails.map((e: any) => ({
       id: e.id, prospectTimezone: resolveProspectTimezone(e),
       delayDays: (e.step_number <= 1 || e.prev_step_status === 'sent') ? 0 : (e.delay_days || 0),
+      campaignId: e.campaign_id, prospectId: e.prospect_id, stepNumber: e.step_number,
     }));
     const excludeIds = emails.map((e: any) => e.id);
-    const { schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(forDist, t, excludeIds, startDate);
+    let { schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(forDist, t, excludeIds, startDate);
+    // Emails with no slot are not moved and keep occupying their current day, but they were
+    // excluded from the capacity counts — so a second pass is needed to stop this run from
+    // handing their day to someone else and exceeding the warmup limit. See routes/outbox.ts.
+    if (unassigned.length > 0) {
+      const staying = new Set(unassigned);
+      ({ schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(
+        forDist.filter((e: any) => !staying.has(e.id)), t, excludeIds.filter((id: string) => !staying.has(id)), startDate));
+      unassigned = [...unassigned, ...staying];
+    }
     let updated = 0;
     for (const [id, when] of schedule) {
       await query('UPDATE generated_emails SET scheduled_for = ? WHERE id = ? AND tenant_id = ?', [toMysqlDate(when), id, t]);
@@ -553,8 +572,13 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
     if (a.scheduled_for !== undefined) {
       const d = new Date(a.scheduled_for);
       if (isNaN(d.getTime())) return textResult({ error: 'Invalid scheduled_for.' });
-      let fin = d;
-      if (!isBusinessDay(d)) { fin = getNextBusinessDay(d); fin.setUTCHours(d.getUTCHours(), d.getUTCMinutes(), 0, 0); }
+      // Tenant calendar, not the national default: a tenant that opted out of holidays must
+      // not be bounced off 12-oct here, and its own regional days must be honoured.
+      // Madrid year, not UTC: 2026-12-31T23:30Z is already 2027 in Madrid. Next year too,
+      // since the adjustment can walk across the boundary.
+      const hy = Number(getMadridDateString(d).slice(0, 4));
+      const hol = await resolveHolidays(t, [hy, hy + 1]);
+      const fin = isBusinessDay(d, hol) ? d : nextBusinessDayKeepingTime(d, hol);
       set.push('scheduled_for = ?'); params.push(toMysqlDate(fin));
     }
     if (!set.length) return textResult({ error: 'Nothing to update.' });
@@ -590,7 +614,7 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
         step_number: z.number().optional().describe('Sequence step (default 1).'),
         subject: z.string().describe('Email subject.'),
         body_html: z.string().describe('Email body (HTML, will be sanitized).'),
-        delay_days: z.number().optional().describe('Days after previous step (default 0).'),
+        delay_days: z.number().optional().describe('Days from the campaign start, CUMULATIVE across the sequence — e.g. 0 / 3 / 7, not 0 / 3 / 4. The scheduler derives each gap as delay[k] - delay[k-1]; relative values would collapse the cadence. (Note: sequence_steps.delay_days is relative — opposite convention, same column name.)'),
       })).describe('Emails to insert (max 500).'),
       force: z.boolean().optional().describe('Override the cross-campaign contact guard (audited in email metadata). Use ONLY with explicit operator authorization.'),
     },

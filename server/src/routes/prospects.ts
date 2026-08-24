@@ -128,7 +128,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
        FROM prospects p
        LEFT JOIN companies c ON p.company_id = c.id
        ${whereSQL}
-       ORDER BY p.${safeSortBy} ${sortOrder}
+       ORDER BY p.${safeSortBy} ${sortOrder}, p.id DESC
        LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );
