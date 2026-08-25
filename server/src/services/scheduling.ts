@@ -344,7 +344,16 @@ export function calculateOptimalSendTime(
     start_hour?: number;   // Local hour
     end_hour?: number;     // Local hour
     timezone?: string;     // Window timezone (usually sender's)
-  }
+  },
+  /**
+   * Days to treat as non-working on top of the send window, as YYYY-MM-DD.
+   *
+   * Optional so the 8 existing call sites keep their exact behaviour until they pass a set.
+   * Without it the sequences path skipped only Sat/Sun while the campaigns path already knew
+   * about holidays, so the platform held two different definitions of "business day" and
+   * sequence sends still landed on 12-oct.
+   */
+  holidays?: Set<string>
 ): Date {
   const effectiveTz = prospectTimezone || 'Europe/Madrid';
   const startHour = sendWindow?.start_hour ?? OPTIMAL_START_HOUR;
@@ -365,8 +374,13 @@ export function calculateOptimalSendTime(
   const localHour = localDate.getUTCHours();
   const localDay = localDate.getUTCDay();
 
-  // Is the current day allowed?
-  const isDayAllowed = allowedDays.includes(localDay);
+  // localDate carries local wall time in its UTC fields, so read the calendar day from those.
+  const localIso = (d: Date) =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  const isHoliday = (d: Date) => !!holidays && holidays.has(localIso(d));
+
+  // Is the current day allowed? A holiday is treated exactly like a disallowed weekday.
+  const isDayAllowed = allowedDays.includes(localDay) && !isHoliday(localDate);
 
   // Is the current hour within the window?
   const isHourInWindow = localHour >= startHour && localHour < endHour;
@@ -393,21 +407,40 @@ export function calculateOptimalSendTime(
   // Past the window or wrong day - find the next allowed day
   // Move to next day at start_hour
   let daysToAdd = 1;
-  let nextDay = (localDay + 1) % 7;
-
-  while (!allowedDays.includes(nextDay) && daysToAdd < 8) {
+  const dayAt = (add: number) => {
+    const probe = new Date(localDate.getTime());
+    probe.setUTCDate(probe.getUTCDate() + add);
+    return probe;
+  };
+  // Bound at 21 rather than 8: a long holiday bridge can push past a single week.
+  const MAX_SKIP_DAYS = 21;
+  let found = false;
+  while (daysToAdd < MAX_SKIP_DAYS) {
+    const probe = dayAt(daysToAdd);
+    if (allowedDays.includes(probe.getUTCDay()) && !isHoliday(probe)) { found = true; break; }
     daysToAdd++;
-    nextDay = (localDay + daysToAdd) % 7;
+  }
+  if (!found) {
+    // Misconfigured window (e.g. days: []) or a holiday list covering the horizon. Falling
+    // through silently would schedule on day 21 whatever it is — possibly a Saturday, which
+    // the outbox filter then never releases, stranding the row for good.
+    logger.warn('No allowed send day within horizon, falling back to the next weekday', {
+      allowedDays, horizonDays: MAX_SKIP_DAYS,
+    });
+    daysToAdd = 1;
+    while (![1, 2, 3, 4, 5].includes(dayAt(daysToAdd).getUTCDay())) daysToAdd++;
   }
 
   // Set to next allowed day at optimal start_hour
   localDate.setUTCDate(localDate.getUTCDate() + daysToAdd);
   localDate.setUTCHours(startHour, optimalMinute, 0, 0);
 
-  // Convert back to UTC
-  const resultUtc = new Date(localDate.getTime() - (offsetHours * 60 * 60 * 1000));
-
-  return resultUtc;
+  // Re-read the offset AT THE TARGET DAY, not at the candidate. The skip can now span three
+  // weeks, easily crossing a DST transition: converting back with the old offset would land a
+  // 9:30 local target at 8:30 local, i.e. before start_hour and outside the send window.
+  const approxUtc = new Date(localDate.getTime() - (offsetHours * 60 * 60 * 1000));
+  const targetOffset = getTimezoneOffsetHours(effectiveTz, approxUtc);
+  return new Date(localDate.getTime() - (targetOffset * 60 * 60 * 1000));
 }
 
 /**
@@ -421,7 +454,16 @@ export function isWithinSendWindow(
     days?: number[];
     start_hour?: number;
     end_hour?: number;
-  }
+  },
+  /**
+   * Holidays to treat as non-sending days.
+   *
+   * This is the gate on the ACTUAL send, so without it the holiday work is only half done:
+   * every enrollment whose next_send_at was written before the calendar existed still comes
+   * due on 12-oct, still passes this check, and still goes out. Recomputing future dates
+   * only helps rows computed after the change.
+   */
+  holidays?: Set<string>
 ): boolean {
   const now = new Date();
   const effectiveTz = prospectTimezone || 'Europe/Madrid';
@@ -435,6 +477,9 @@ export function isWithinSendWindow(
 
   const localHour = localDate.getUTCHours();
   const localDay = localDate.getUTCDay();
+
+  const localIso = `${localDate.getUTCFullYear()}-${String(localDate.getUTCMonth() + 1).padStart(2, '0')}-${String(localDate.getUTCDate()).padStart(2, '0')}`;
+  if (holidays?.has(localIso)) return false;
 
   return allowedDays.includes(localDay) && localHour >= startHour && localHour < endHour;
 }

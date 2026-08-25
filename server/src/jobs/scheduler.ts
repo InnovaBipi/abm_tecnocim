@@ -6,7 +6,7 @@ import { logger } from '../config/logger';
 import { processJobs, addJob } from './queue';
 import { sendEmail, sendSequenceEmail, getCampaignAttachments } from '../services/email';
 import { recalculateAllScores } from '../services/scoring';
-import { calculateOptimalSendTime, resolveProspectTimezone, isWithinSendWindow, getWarmupDailyLimit, getSentCountForDate, getMadridDateString, resolveProspectLanguage } from '../services/scheduling';
+import { calculateOptimalSendTime, resolveProspectTimezone, isWithinSendWindow, getWarmupDailyLimit, getSentCountForDate, getMadridDateString, resolveProspectLanguage, resolveHolidays } from '../services/scheduling';
 import { pollImapForReplies } from '../services/imap';
 import { getAllActiveTenants, getTenantConfig } from '../middleware/tenant';
 import { resolveNextStep, evaluateConditionStep, EnrollmentContext } from './branching';
@@ -216,6 +216,17 @@ async function processDueSequenceEmails(): Promise<void> {
   const tenantWarmup = new Map<string, { limit: number; sentToday: number }>();
   // Cache per-sequence counters: sequenceId -> sentToday
   const sequenceSentCache: Record<string, number> = {};
+  // Per-tenant holiday calendar, resolved once per cycle. Without it the sequences path only
+  // skipped weekends while the campaigns path knew about holidays — two definitions of
+  // "business day" in one platform, and sequence sends still landing on 12-oct.
+  const tenantHolidays = new Map<string, Set<string>>();
+  const holidaysFor = async (tenantId: string): Promise<Set<string>> => {
+    if (!tenantHolidays.has(tenantId)) {
+      const y = new Date().getFullYear();
+      tenantHolidays.set(tenantId, await resolveHolidays(tenantId, [y, y + 1]));
+    }
+    return tenantHolidays.get(tenantId)!;
+  };
 
   for (const enrollment of dueEnrollments) {
     try {
@@ -302,9 +313,9 @@ async function processDueSequenceEmails(): Promise<void> {
         : undefined;
 
       // Check if we're within the send window for this prospect
-      if (!isWithinSendWindow(prospectTz, seqSendWindow)) {
+      if (!isWithinSendWindow(prospectTz, seqSendWindow, await holidaysFor(enrollment.tenant_id))) {
         // Not in send window - reschedule to the next optimal time
-        const nextOptimal = calculateOptimalSendTime(new Date(), prospectTz, seqSendWindow);
+        const nextOptimal = calculateOptimalSendTime(new Date(), prospectTz, seqSendWindow, await holidaysFor(enrollment.tenant_id));
         await query(
           'UPDATE sequence_enrollments SET next_send_at = ? WHERE id = ?',
           [nextOptimal, enrollment.id]
@@ -328,7 +339,8 @@ async function processDueSequenceEmails(): Promise<void> {
         const tomorrow = calculateOptimalSendTime(
           new Date(Date.now() + 24 * 60 * 60 * 1000),
           prospectTz,
-          seqSendWindow
+          seqSendWindow,
+          await holidaysFor(enrollment.tenant_id)
         );
         await query(
           'UPDATE sequence_enrollments SET next_send_at = ? WHERE id = ?',
@@ -347,7 +359,8 @@ async function processDueSequenceEmails(): Promise<void> {
         const tomorrow = calculateOptimalSendTime(
           new Date(Date.now() + 24 * 60 * 60 * 1000),
           prospectTz,
-          seqSendWindow
+          seqSendWindow,
+          await holidaysFor(enrollment.tenant_id)
         );
         await query(
           'UPDATE sequence_enrollments SET next_send_at = ? WHERE id = ?',
@@ -376,7 +389,7 @@ async function processDueSequenceEmails(): Promise<void> {
           const rawNext = new Date();
           rawNext.setDate(rawNext.getDate() + (targetStep.delay_days || 0));
           rawNext.setHours(rawNext.getHours() + (targetStep.delay_hours || 0));
-          const nextSendAt = calculateOptimalSendTime(rawNext, prospectTz, seqSendWindow);
+          const nextSendAt = calculateOptimalSendTime(rawNext, prospectTz, seqSendWindow, await holidaysFor(enrollment.tenant_id));
 
           const pathEntry = JSON.stringify({
             from_step: step.step_number,
@@ -445,7 +458,7 @@ async function processDueSequenceEmails(): Promise<void> {
         rawNextSendAt.setHours(rawNextSendAt.getHours() + (nextStep.delay_hours || 0));
 
         // Adjust to optimal send time for prospect's timezone (no weekends)
-        const nextSendAt = calculateOptimalSendTime(rawNextSendAt, prospectTz, seqSendWindow);
+        const nextSendAt = calculateOptimalSendTime(rawNextSendAt, prospectTz, seqSendWindow, await holidaysFor(enrollment.tenant_id));
 
         // Build path_history entry for branched sequences
         const pathEntry = conditionResult !== undefined ? JSON.stringify({
@@ -518,6 +531,143 @@ async function cancelBouncedFollowups(): Promise<void> {
       [b.prospect_id, b.campaign_id, b.prospect_id, b.campaign_id]
     );
   }
+}
+
+/**
+ * Auto-cancel follow-ups whose immediately previous step was REJECTED.
+ *
+ * The send query only releases step N when step N-1 is 'sent'. A rejected predecessor can
+ * never become 'sent', so every later step is unreachable — it sits in 'scheduled' forever,
+ * ages, and pollutes any "oldest pending" signal. cancelBouncedFollowups() already covers the
+ * bounced case; rejected (do_not_contact, suppressed, cross-campaign, replied, stale) had no
+ * equivalent, which is how 22 of them accumulated in production.
+ *
+ * Deliberately keyed on the DIRECT predecessor and on 'rejected' only. A predecessor still in
+ * 'scheduled' or 'draft' is WAITING, not dead: treating those as terminal would have killed 38
+ * legitimate queued follow-ups whose step 1 simply had not gone out yet.
+ */
+export async function cancelOrphanedFollowups(): Promise<void> {
+  const res = await query<any>(
+    `UPDATE generated_emails ge
+     JOIN generated_emails prev
+       ON prev.prospect_id = ge.prospect_id
+      AND prev.campaign_id = ge.campaign_id
+      AND prev.tenant_id  = ge.tenant_id
+      AND prev.step_number = ge.step_number - 1
+     SET ge.status = 'rejected',
+         ge.metadata = JSON_SET(COALESCE(ge.metadata, '{}'), '$.skip_reason', 'orphaned_predecessor_rejected')
+     WHERE ge.status = 'scheduled' AND prev.status = 'rejected'`
+  );
+  const n = (res as any)?.affectedRows ?? 0;
+  if (n > 0) logger.info('Cancelled orphaned follow-ups (predecessor rejected)', { count: n });
+}
+
+/** An email later than this many days past its slot has lost its cadence: do not send it. */
+const STALE_SCHEDULE_DAYS = 7;
+/**
+ * Above this share of a tenant's DUE queue, a sweep is treated as a symptom, not a cleanup.
+ * Measured legitimate lateness is p99 = 1.65 days and only 0.10% of 4864 real sends ever
+ * exceeded 7 days, so a large stale batch means that tenant's sender stopped — and
+ * auto-rejecting the backlog would turn an outage into permanent data loss.
+ */
+const STALE_SWEEP_MAX_SHARE = 0.1;
+
+/**
+ * Rows the sender could actually have picked up: campaign active, and either step 1 or a
+ * predecessor already sent.
+ *
+ * Everything excluded here is late for a reason that is not the sender's fault, and must never
+ * be swept:
+ *   - a draft/paused/archived campaign is parked on purpose, and its whole queue sits past-due
+ *     by design (this is the normal state for a campaign held for review);
+ *   - a follow-up behind an unsent step 1 is blocked by the send gate, not late. Ageing those
+ *     out while step 1 still goes out would deliver one-step sequences — the same rows
+ *     cancelOrphanedFollowups deliberately spares.
+ */
+const SENDABLE = `
+  JOIN campaigns cam ON cam.id = ge.campaign_id AND cam.status = 'active'
+  WHERE ge.status = 'scheduled'
+    AND (ge.step_number = 1 OR EXISTS (
+      SELECT 1 FROM generated_emails prev
+      WHERE prev.prospect_id = ge.prospect_id AND prev.campaign_id = ge.campaign_id
+        AND prev.tenant_id = ge.tenant_id AND prev.step_number = ge.step_number - 1
+        AND prev.status = 'sent'))`;
+
+/**
+ * Reject emails whose scheduled_for is more than STALE_SCHEDULE_DAYS in the past.
+ *
+ * Sending a follow-up three weeks after its slot lands out of context and burns warmup budget;
+ * 111 recipients got two emails inside an hour when a stale backlog drained at once.
+ *
+ * Evaluated PER TENANT, and against the DUE queue rather than the whole queue: a global ratio
+ * lets one small tenant's stalled sender hide inside everyone else's healthy volume, and a
+ * denominator padded with future-dated emails dilutes the signal it exists to detect.
+ */
+export async function rejectStaleScheduled(): Promise<void> {
+  const rows = await query<any[]>(
+    `SELECT ge.tenant_id AS tenantId,
+            SUM(ge.scheduled_for < DATE_SUB(NOW(), INTERVAL ? DAY)) AS stale,
+            COUNT(*) AS due
+     FROM generated_emails ge ${SENDABLE} AND ge.scheduled_for <= NOW()
+     GROUP BY ge.tenant_id`,
+    [STALE_SCHEDULE_DAYS]
+  );
+
+  for (const r of rows) {
+    const stale = Number(r.stale) || 0;
+    const due = Number(r.due) || 0;
+    if (!stale) continue;
+    if (due > 0 && stale / due > STALE_SWEEP_MAX_SHARE) {
+      logger.error('Stale-schedule sweep aborted: most of the due queue for this tenant is stale, suspecting a stalled sender', {
+        tenantId: r.tenantId, stale, due, share: +(stale / due).toFixed(3), thresholdDays: STALE_SCHEDULE_DAYS,
+      });
+      continue;
+    }
+    const res = await query<any>(
+      `UPDATE generated_emails ge
+       JOIN campaigns cam ON cam.id = ge.campaign_id AND cam.status = 'active'
+       SET ge.status = 'rejected',
+           ge.metadata = JSON_SET(COALESCE(ge.metadata, '{}'), '$.skip_reason', 'stale_schedule')
+       WHERE ge.tenant_id = ?
+         AND ge.status = 'scheduled'
+         AND ge.scheduled_for < DATE_SUB(NOW(), INTERVAL ? DAY)
+         AND (ge.step_number = 1 OR EXISTS (
+           SELECT 1 FROM generated_emails prev
+           WHERE prev.prospect_id = ge.prospect_id AND prev.campaign_id = ge.campaign_id
+             AND prev.tenant_id = ge.tenant_id AND prev.step_number = ge.step_number - 1
+             AND prev.status = 'sent'))`,
+      [r.tenantId, STALE_SCHEDULE_DAYS]
+    );
+    logger.warn('Rejected stale scheduled emails', {
+      tenantId: r.tenantId, count: (res as any)?.affectedRows ?? 0, thresholdDays: STALE_SCHEDULE_DAYS,
+    });
+  }
+}
+
+/**
+ * Age in days of the oldest still-pending SENDABLE email, refreshed on the outbox cycle.
+ *
+ * Same sendable filter as the sweep: a campaign parked in draft would otherwise push this up
+ * for ever and the signal would read "stalled" permanently, which is the opposite of useful.
+ */
+let oldestPendingAgeDays: number | null = null;
+
+export async function refreshOldestPendingScheduledAge(): Promise<void> {
+  const [row] = await query<any[]>(
+    `SELECT MIN(ge.scheduled_for) AS oldest FROM generated_emails ge ${SENDABLE} AND ge.scheduled_for < NOW()`
+  );
+  oldestPendingAgeDays = row?.oldest
+    ? +((Date.now() - new Date(row.oldest).getTime()) / 86_400_000).toFixed(2)
+    : null;
+}
+
+/**
+ * Cached oldest-job age. Read from /api/health, which is an unauthenticated liveness probe:
+ * querying MySQL inline would let a slow pool block the handler past the platform's health
+ * timeout and get a perfectly healthy process restart-looped.
+ */
+export function getOldestPendingScheduledAgeDays(): number | null {
+  return oldestPendingAgeDays;
 }
 
 /**
@@ -633,6 +783,9 @@ async function processScheduledOutboxEmails(): Promise<void> {
   // Auto-cancel follow-ups after bounces and replies
   await cancelBouncedFollowups();
   await cancelRepliedFollowups();
+  await cancelOrphanedFollowups();
+  await rejectStaleScheduled();
+  await refreshOldestPendingScheduledAge();
 
   // Only send step N if step N-1 for the same prospect+campaign is already 'sent' (or it's step 1)
   const emailsToSend = await query<any[]>(

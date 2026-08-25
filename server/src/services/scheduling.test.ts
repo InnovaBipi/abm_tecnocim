@@ -9,7 +9,7 @@
  * separately when integration tests exist.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // The module imports `query` and `getTenantConfig` at the bottom for the
 // warmup-aware helpers. Mock them so the module can be imported without a
@@ -29,6 +29,7 @@ import {
   isBusinessDay,
   getNextBusinessDay,
   nextBusinessDayKeepingTime,
+  isWithinSendWindow,
 } from './scheduling';
 
 const MADRID_HHMM = new Intl.DateTimeFormat('en-GB', {
@@ -944,6 +945,96 @@ describe('date arithmetic is timezone- and DST-independent', () => {
 // setUTCHours() on a midday-anchored result silently landed a day late for any
 // late-UTC instant, so the "bumped to Monday" contract quietly meant Tuesday.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Holidays on the SEQUENCES path. calculateOptimalSendTime only skipped Sat/Sun, so the
+// platform held two definitions of "business day": campaigns knew about 12-oct, sequences
+// did not, and sequence sends still landed on it.
+// ---------------------------------------------------------------------------
+describe('calculateOptimalSendTime with holidays', () => {
+  // Reykjavik is UTC+0 year-round, so local == UTC and the assertions stay readable.
+  const TZ = 'Atlantic/Reykjavik';
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+  it('moves off a holiday that falls on a working weekday', () => {
+    // 2026-10-12 is a Monday and Fiesta Nacional.
+    const out = calculateOptimalSendTime(new Date('2026-10-12T08:00:00.000Z'), TZ, undefined,
+      new Set(['2026-10-12']));
+    expect(iso(out)).toBe('2026-10-13');
+  });
+
+  it('skips a holiday bridge that spans several days', () => {
+    // Thu 2026-12-24 candidate with 25th and 28th blocked: 26-27 is a weekend, so the next
+    // working day is Tue 2026-12-29. A one-week loop bound would not have reached it.
+    const out = calculateOptimalSendTime(new Date('2026-12-24T20:00:00.000Z'), TZ, undefined,
+      new Set(['2026-12-25', '2026-12-28']));
+    expect(iso(out)).toBe('2026-12-29');
+  });
+
+  it('lands on the holiday when no holiday set is passed (previous behaviour)', () => {
+    const out = calculateOptimalSendTime(new Date('2026-10-12T08:00:00.000Z'), TZ);
+    expect(iso(out)).toBe('2026-10-12');
+  });
+
+  it('lands on the holiday when the tenant opted out (empty set)', () => {
+    const out = calculateOptimalSendTime(new Date('2026-10-12T08:00:00.000Z'), TZ, undefined, new Set());
+    expect(iso(out)).toBe('2026-10-12');
+  });
+
+  it('combines a weekend and a holiday', () => {
+    // Fri 2026-10-09 past the window → Mon the 12th, which is the holiday → Tue the 13th.
+    const out = calculateOptimalSendTime(new Date('2026-10-09T20:00:00.000Z'), TZ, undefined,
+      new Set(['2026-10-12']));
+    expect(iso(out)).toBe('2026-10-13');
+  });
+
+  it('leaves an ordinary working day untouched', () => {
+    const out = calculateOptimalSendTime(new Date('2026-10-14T08:00:00.000Z'), TZ, undefined,
+      new Set(['2026-10-12']));
+    expect(iso(out)).toBe('2026-10-14');
+  });
+
+  it('uses the real national calendar, Good Friday included', () => {
+    const hol = nationalHolidays(2026);
+    // 2026-04-03 is Good Friday.
+    const out = calculateOptimalSendTime(new Date('2026-04-03T08:00:00.000Z'), TZ, undefined, hol);
+    expect(iso(out)).toBe('2026-04-06');
+  });
+});
+
+// isWithinSendWindow is the gate on the ACTUAL send. Without holidays here, every enrollment
+// whose next_send_at was written before the calendar existed still comes due on a holiday and
+// still goes out — recomputing future dates only helps rows computed after the change.
+describe('isWithinSendWindow with holidays', () => {
+  const TZ = 'Atlantic/Reykjavik'; // UTC+0 year-round, so local == UTC
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('refuses to send on a holiday that is otherwise a working weekday', () => {
+    vi.setSystemTime(new Date('2026-10-12T10:00:00.000Z')); // Monday, Fiesta Nacional
+    expect(isWithinSendWindow(TZ, undefined, new Set(['2026-10-12']))).toBe(false);
+  });
+
+  it('still sends on that day when no calendar is passed (previous behaviour)', () => {
+    vi.setSystemTime(new Date('2026-10-12T10:00:00.000Z'));
+    expect(isWithinSendWindow(TZ)).toBe(true);
+  });
+
+  it('still sends when the tenant opted out of holidays', () => {
+    vi.setSystemTime(new Date('2026-10-12T10:00:00.000Z'));
+    expect(isWithinSendWindow(TZ, undefined, new Set())).toBe(true);
+  });
+
+  it('sends normally on an ordinary working day', () => {
+    vi.setSystemTime(new Date('2026-10-13T10:00:00.000Z')); // Tuesday
+    expect(isWithinSendWindow(TZ, undefined, new Set(['2026-10-12']))).toBe(true);
+  });
+
+  it('keeps refusing weekends regardless of the calendar', () => {
+    vi.setSystemTime(new Date('2026-10-10T10:00:00.000Z')); // Saturday
+    expect(isWithinSendWindow(TZ, undefined, new Set())).toBe(false);
+  });
+});
+
 describe('nextBusinessDayKeepingTime', () => {
   const noHolidays = new Set<string>();
 

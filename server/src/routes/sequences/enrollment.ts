@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { query } from '../../config/database';
-import { calculateOptimalSendTime, resolveProspectTimezone } from '../../services/scheduling';
+import { calculateOptimalSendTime, resolveProspectTimezone, resolveHolidays } from '../../services/scheduling';
 
 const router = Router();
 
@@ -82,7 +82,11 @@ router.post('/:id/enroll', async (req: Request, res: Response): Promise<void> =>
         }
 
         // Adjust to optimal send time (no weekends, best hour for prospect's timezone)
-        const nextSendAt = calculateOptimalSendTime(rawNextSendAt, prospectTz, seqSendWindow);
+        // Same holiday calendar the campaigns path uses, so an enrolment cannot land on a
+        // day the outbox would have skipped.
+        const enrolYear = new Date().getFullYear();
+        const enrolHolidays = await resolveHolidays(req.user!.tenantId, [enrolYear, enrolYear + 1]);
+        const nextSendAt = calculateOptimalSendTime(rawNextSendAt, prospectTz, seqSendWindow, enrolHolidays);
 
         // A/B variant assignment: check if sequence has A/B steps
         const abSteps = await query<any[]>(

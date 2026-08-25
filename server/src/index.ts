@@ -9,7 +9,7 @@ import { config } from './config/env';
 import { logger } from './config/logger';
 import { testConnection } from './config/database';
 import pool from './config/database';
-import { startScheduler } from './jobs/scheduler';
+import { getOldestPendingScheduledAgeDays, startScheduler } from './jobs/scheduler';
 import { startDeliverabilityAlerts } from './jobs/deliverabilityAlert';
 import { authenticate } from './middleware/auth';
 
@@ -119,6 +119,11 @@ async function main(): Promise<void> {
         migrate: {
           __dirname,
           paths: dbPaths.map(p => ({ path: p, exists: fs.existsSync(p) })),
+        },
+        queue: {
+          // Oldest job age: the standard queue-hygiene signal. Non-zero and growing means the
+          // sender has stalled — 99 emails sat stranded for weeks with nothing surfacing it.
+          oldest_pending_scheduled_age_days: getOldestPendingScheduledAgeDays(),
         },
       },
     });

@@ -536,11 +536,24 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
     // Emails with no slot are not moved and keep occupying their current day, but they were
     // excluded from the capacity counts — so a second pass is needed to stop this run from
     // handing their day to someone else and exceeding the warmup limit. See routes/outbox.ts.
-    if (unassigned.length > 0) {
-      const staying = new Set(unassigned);
+    // Iterate to a fixed point (see routes/outbox.ts): one pass can strand a sequence that fit
+    // in the previous one, and a stranded email keeps its old slot while still being excluded
+    // from the counts.
+    const MAX_PASSES = 5;
+    const staying = new Set<string>(unassigned);
+    let converged = unassigned.length === 0;
+    for (let pass = 1; pass <= MAX_PASSES && !converged; pass++) {
       ({ schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(
         forDist.filter((e: any) => !staying.has(e.id)), t, excludeIds.filter((id: string) => !staying.has(id)), startDate));
-      unassigned = [...unassigned, ...staying];
+      if (unassigned.length === 0) { converged = true; break; }
+      for (const id of unassigned) staying.add(id);
+    }
+    unassigned = [...staying];
+    if (!converged) {
+      // Writing the last pass would apply a schedule computed with the strandings excluded
+      // from the counts while they keep their slots — the over-limit state this guards against.
+      return textResult({ count: 0, converged: false, unscheduled_no_capacity: unassigned,
+        message: 'Could not redistribute within the daily limit; queue left untouched.' });
     }
     let updated = 0;
     for (const [id, when] of schedule) {

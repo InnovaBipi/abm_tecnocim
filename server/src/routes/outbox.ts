@@ -7,6 +7,7 @@ import { getTenantConfig } from '../middleware/tenant';
 import { calculateOptimalSendTime, resolveProspectTimezone, distributeEmailsAcrossBusinessDays, getWarmupDailyLimit, isBusinessDay } from '../services/scheduling';
 import { resolveSender, type ResolvedSender } from '../services/sender';
 import { checkCrossCampaignContact, shouldSkipEmail, type GuardVerdict } from '../services/contactGuard';
+import { logger } from '../config/logger';
 
 const router = Router();
 
@@ -594,15 +595,43 @@ router.post('/redistribute', async (req: Request, res: Response): Promise<void> 
     // have handed its day to someone else and pushed that day over the warmup limit. Rerun
     // counting the ones that stay put. Rare (only when the 260-day horizon is exhausted), so
     // the extra pass costs nothing in the normal case.
-    if (unassigned.length > 0) {
-      const staying = new Set(unassigned);
+    // Iterate to a fixed point, not once: a pass that pulls stayers into the capacity counts
+    // can strand a sequence that fit in the previous pass, and THAT sequence would then keep
+    // its old scheduled_for while still being excluded from the counts — the exact over-limit
+    // condition this retry exists to prevent. Bounded so a pathological queue cannot spin.
+    const MAX_PASSES = 5;
+    const staying = new Set<string>(unassigned);
+    let converged = unassigned.length === 0;
+    for (let pass = 1; pass <= MAX_PASSES && !converged; pass++) {
       ({ schedule, distribution, dayTotals, unassigned, dailyLimit } = await distributeEmailsAcrossBusinessDays(
         emailsForDistribution.filter((e) => !staying.has(e.id)),
         tenantId,
         emailIds.filter((id: string) => !staying.has(id)),
         startDate
       ));
-      unassigned = [...unassigned, ...staying];
+      if (unassigned.length === 0) { converged = true; break; }
+      for (const id of unassigned) staying.add(id);
+    }
+    unassigned = [...staying];
+
+    if (!converged) {
+      // Every pass still stranded something. The last schedule was computed with those
+      // strandings excluded from the capacity counts while they keep their current slots, so
+      // writing it is exactly the over-limit state this loop exists to avoid. Report instead.
+      logger.warn('Redistribution did not converge, leaving the queue untouched', {
+        tenantId, passes: MAX_PASSES, stranded: unassigned.length,
+      });
+      res.json({
+        success: true,
+        data: {
+          message: 'No se pudo redistribuir sin superar el limite diario. La cola no se ha modificado.',
+          count: 0,
+          converged: false,
+          unscheduled_no_capacity: unassigned,
+          daily_limit: dailyLimit,
+        },
+      });
+      return;
     }
 
     let updated = 0;
