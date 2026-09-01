@@ -7,7 +7,7 @@ vi.mock('../config/logger', () => ({
 
 import { query } from '../config/database';
 import { logger } from '../config/logger';
-import { cancelOrphanedFollowups, rejectStaleScheduled } from './scheduler';
+import { cancelOrphanedFollowups, hygieneStep, rejectStaleScheduled } from './scheduler';
 
 const mockedQuery = vi.mocked(query);
 const mockedLogger = vi.mocked(logger);
@@ -164,5 +164,39 @@ describe('rejectStaleScheduled', () => {
     expect(String(upd[0])).toMatch(/INTERVAL \? DAY/);
     expect((upd[1] as any[])[1]).toBe(7);
     expect(String(upd[0])).toMatch(/skip_reason.*stale_schedule/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hygiene-step isolation. Every queue-hygiene helper runs before the send query, and none of
+// them used to be guarded: when cancelRepliedFollowups started throwing "Data truncated for
+// column 'status'", the throw reached the cron wrapper and skipped the send batch — silently,
+// for every tenant, on every 2-minute cycle, for 29 days.
+// ---------------------------------------------------------------------------
+describe('hygieneStep', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('swallows a failing step and logs which one failed', async () => {
+    const boom = vi.fn().mockRejectedValue(new Error("Data truncated for column 'status' at row 1"));
+
+    await expect(hygieneStep('cancelRepliedFollowups', boom)).resolves.toBeUndefined();
+
+    expect(boom).toHaveBeenCalledOnce();
+    expect(mockedLogger.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        step: 'cancelRepliedFollowups',
+        error: "Data truncated for column 'status' at row 1",
+      })
+    );
+  });
+
+  it('stays out of the way when the step succeeds', async () => {
+    const ok = vi.fn().mockResolvedValue(undefined);
+
+    await hygieneStep('rejectStaleScheduled', ok);
+
+    expect(ok).toHaveBeenCalledOnce();
+    expect(mockedLogger.error).not.toHaveBeenCalled();
   });
 });

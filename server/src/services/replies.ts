@@ -36,7 +36,7 @@ export interface RecordReplyInput {
 
 export interface RecordReplyResult {
   eventId: string;
-  prospectStatus: 'rejected' | 'replied' | 'unchanged';
+  prospectStatus: 'unsubscribed' | 'replied' | 'unchanged';
   doNotContact: boolean;
   enrollmentsStopped: number;
   scheduledCancelled: number;
@@ -116,11 +116,11 @@ export async function recordReply(input: RecordReplyInput): Promise<RecordReplyR
 
   if (classification === 'negative' || classification === 'unsubscribe') {
     await query(
-      `UPDATE prospects SET status = 'rejected', do_not_contact = TRUE, last_replied = NOW()
+      `UPDATE prospects SET status = 'unsubscribed', do_not_contact = TRUE, last_replied = NOW()
        WHERE id = ? AND tenant_id = ?`,
       [prospectId, tenantId]
     );
-    prospectStatus = 'rejected';
+    prospectStatus = 'unsubscribed';
     doNotContact = true;
     const enr: any = await query(
       `UPDATE sequence_enrollments SET status = 'replied', completed_at = NOW()

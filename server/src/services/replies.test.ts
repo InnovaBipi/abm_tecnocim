@@ -3,6 +3,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 
 vi.mock('../config/database', () => ({
   query: vi.fn(),
@@ -16,6 +18,17 @@ const mockQuery = query as ReturnType<typeof vi.fn>;
 const T = 'test-tenant-id';
 const P = 'prospect-1';
 
+// The prospects.status ENUM, read from the schema that actually ships (server/database is the
+// copy the build deploys), so the guard below tracks the column instead of a stale copy of it.
+const PROSPECT_STATUS_ENUM = (() => {
+  const schema = readFileSync(resolve(__dirname, '../../database/schema.sql'), 'utf8');
+  const table = schema.match(/CREATE TABLE[^;]*?\bprospects\b[^;]*?;/s)?.[0] ?? '';
+  const members = table.match(/^\s*status\s+ENUM\(([^)]*)\)/m)?.[1] ?? '';
+  const parsed = [...members.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  if (!parsed.length) throw new Error('Could not parse prospects.status ENUM from schema.sql');
+  return parsed;
+})();
+
 function findCall(fragment: string) {
   return mockQuery.mock.calls.find((c) => (c[0] as string).includes(fragment));
 }
@@ -27,7 +40,7 @@ beforeEach(() => {
 });
 
 describe('recordReply', () => {
-  it('negative: prospect rejected + DNC, enrollments stopped, scheduled cancelled', async () => {
+  it('negative: prospect unsubscribed + DNC, enrollments stopped, scheduled cancelled', async () => {
     mockQuery.mockImplementation(async (sql: string) => {
       if (sql.includes('UPDATE sequence_enrollments')) return { affectedRows: 2 };
       if (sql.includes("UPDATE generated_emails")) return { affectedRows: 3 };
@@ -40,13 +53,13 @@ describe('recordReply', () => {
       recordedBy: 'user-robert', subject: 'RE: no gracias',
     });
 
-    expect(r.prospectStatus).toBe('rejected');
+    expect(r.prospectStatus).toBe('unsubscribed');
     expect(r.doNotContact).toBe(true);
     expect(r.enrollmentsStopped).toBe(2);
     expect(r.scheduledCancelled).toBe(3);
 
     const prospectUpdate = findCall('UPDATE prospects')!;
-    expect(prospectUpdate[0]).toContain("status = 'rejected'");
+    expect(prospectUpdate[0]).toContain("status = 'unsubscribed'");
     expect(prospectUpdate[0]).toContain('do_not_contact = TRUE');
     expect(prospectUpdate[0]).toContain('tenant_id = ?');
     expect(prospectUpdate[1]).toEqual([P, T]);
@@ -73,7 +86,7 @@ describe('recordReply', () => {
     expect(r.prospectStatus).toBe('unchanged');
     const prospectUpdate = findCall('UPDATE prospects')!;
     expect(prospectUpdate[0]).toContain('last_replied = NOW()');
-    expect(prospectUpdate[0]).not.toContain("status = 'rejected'");
+    expect(prospectUpdate[0]).not.toContain("status = 'unsubscribed'");
     expect(findCall('UPDATE generated_emails')).toBeUndefined();
     expect(findCall('UPDATE sequence_enrollments')).toBeUndefined();
   });
@@ -125,4 +138,22 @@ describe('recordReply', () => {
       expect(call[1]).toContain(T);
     }
   });
+
+  // Regression guard. This service once wrote status = 'rejected', which is a member of
+  // generated_emails.status but not of prospects.status, so MySQL threw "Data truncated for
+  // column 'status'". Asserting the literal string is not enough — the value has to be checked
+  // against the real ENUM, so this reads it from the schema rather than restating it here.
+  it.each(['negative', 'unsubscribe', 'positive', 'out_of_office', 'other'] as const)(
+    'writes a valid prospects.status ENUM member for %s replies',
+    async (classification) => {
+      await recordReply({ tenantId: T, prospectId: P, classification, source: 'manual' });
+
+      for (const call of mockQuery.mock.calls) {
+        const sql = call[0] as string;
+        if (!sql.includes('UPDATE prospects')) continue;
+        const written = sql.match(/status\s*=\s*'([^']+)'/)?.[1];
+        if (written) expect(PROSPECT_STATUS_ENUM).toContain(written);
+      }
+    }
+  );
 });

@@ -714,9 +714,13 @@ async function cancelRepliedFollowups(): Promise<void> {
         [r.prospect_id, r.tenant_id]
       );
 
-      // Mark prospect to prevent future outreach
+      // Mark prospect to prevent future outreach.
+      // 'unsubscribed', NOT 'rejected': prospects.status has no 'rejected' member — that belongs
+      // to generated_emails.status. Writing it threw "Data truncated for column 'status'" here,
+      // and because this runs before the send query it silently killed every outbox cycle,
+      // for every tenant, for as long as one un-flagged negative reply existed.
       await query(
-        `UPDATE prospects SET status = 'rejected', do_not_contact = TRUE WHERE id = ? AND tenant_id = ? AND do_not_contact = FALSE`,
+        `UPDATE prospects SET status = 'unsubscribed', do_not_contact = TRUE WHERE id = ? AND tenant_id = ? AND do_not_contact = FALSE`,
         [r.prospect_id, r.tenant_id]
       );
     }
@@ -764,6 +768,29 @@ async function verifyDomainMx(domain: string, cache: Map<string, boolean>): Prom
 }
 
 /**
+ * Run one queue-hygiene step, containing its failure to that step.
+ *
+ * These steps run before the send query, so an unhandled throw used to abort the whole cycle:
+ * a single prospect row that failed to update stopped outbound mail for every tenant for 29
+ * days, and the only trace was one log line every two minutes.
+ *
+ * Continuing after a failed step is safe because none of them is the only guard: the per-email
+ * loop independently re-checks whether the prospect already replied, the cross-campaign contact
+ * guard, the suppression list and MX. A skipped hygiene pass costs at most one stale follow-up,
+ * where a skipped send batch costs the entire day's outreach.
+ */
+export async function hygieneStep(name: string, step: () => Promise<void>): Promise<void> {
+  try {
+    await step();
+  } catch (error: any) {
+    logger.error('Outbox hygiene step failed, continuing with send batch', {
+      step: name,
+      error: error.message,
+    });
+  }
+}
+
+/**
  * Process scheduled outbox emails whose scheduled_for time has arrived.
  * Sends up to 20 emails per cycle with 600ms delay between sends.
  */
@@ -777,15 +804,15 @@ async function processScheduledOutboxEmails(): Promise<void> {
 
   // Monday rescue: reschedule emails incorrectly set for weekend dates
   if (dayOfWeek === 1) {
-    await rescueWeekendEmails();
+    await hygieneStep('rescueWeekendEmails', rescueWeekendEmails);
   }
 
   // Auto-cancel follow-ups after bounces and replies
-  await cancelBouncedFollowups();
-  await cancelRepliedFollowups();
-  await cancelOrphanedFollowups();
-  await rejectStaleScheduled();
-  await refreshOldestPendingScheduledAge();
+  await hygieneStep('cancelBouncedFollowups', cancelBouncedFollowups);
+  await hygieneStep('cancelRepliedFollowups', cancelRepliedFollowups);
+  await hygieneStep('cancelOrphanedFollowups', cancelOrphanedFollowups);
+  await hygieneStep('rejectStaleScheduled', rejectStaleScheduled);
+  await hygieneStep('refreshOldestPendingScheduledAge', refreshOldestPendingScheduledAge);
 
   // Only send step N if step N-1 for the same prospect+campaign is already 'sent' (or it's step 1)
   const emailsToSend = await query<any[]>(

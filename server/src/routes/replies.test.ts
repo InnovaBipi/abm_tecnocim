@@ -155,7 +155,7 @@ describe('POST /api/replies', () => {
     vi.clearAllMocks();
     mockRecordReply.mockResolvedValue({
       eventId: 'event-new',
-      prospectStatus: 'rejected',
+      prospectStatus: 'unsubscribed',
       doNotContact: true,
       enrollmentsStopped: 1,
       scheduledCancelled: 2,
@@ -186,7 +186,7 @@ describe('POST /api/replies', () => {
 
       expect(res.status).toBe(201);
       expect(body.data.actions).toEqual({
-        prospect_status: 'rejected',
+        prospect_status: 'unsubscribed',
         do_not_contact: true,
         enrollments_stopped: 1,
         scheduled_emails_cancelled: 2,
@@ -251,6 +251,63 @@ describe('POST /api/replies', () => {
       expect(mockRecordReply).toHaveBeenCalledTimes(1);
       // With force, the dedupe SELECT is skipped entirely
       expect(mockQuery).toHaveBeenCalledTimes(1);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe('PATCH /api/replies/:eventId', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const patch = (server: TestServer, id: string, body: any) =>
+    server.fetch(`/api/replies/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  it('rewrites the classification, tenant-scoped, on replied events only', async () => {
+    mockQuery.mockResolvedValueOnce({ affectedRows: 1 });
+
+    const server = await createTestServer();
+    try {
+      const res = await patch(server, 'event-1', { classification: 'positive' });
+      const body: any = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.data).toEqual({ event_id: 'event-1', classification: 'positive' });
+
+      const [sql, params] = mockQuery.mock.calls[0];
+      expect(sql).toContain('$.reply_classification');
+      expect(sql).toContain('tenant_id = ?');
+      expect(sql).toContain("event_type = 'replied'");
+      expect(params).toEqual(['positive', 'event-1', 'test-tenant-id']);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('404s when the event belongs to another tenant or does not exist', async () => {
+    mockQuery.mockResolvedValueOnce({ affectedRows: 0 });
+
+    const server = await createTestServer();
+    try {
+      const res = await patch(server, 'event-other-tenant', { classification: 'other' });
+      expect(res.status).toBe(404);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects an unknown classification without touching the database', async () => {
+    const server = await createTestServer();
+    try {
+      const res = await patch(server, 'event-1', { classification: 'interested' });
+      expect(res.status).toBe(400);
+      expect(mockQuery).not.toHaveBeenCalled();
     } finally {
       await server.close();
     }

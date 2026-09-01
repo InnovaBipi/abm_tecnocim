@@ -768,7 +768,7 @@ export function registerWriteTools(server: McpServer, auth: McpAuth): void {
   // --- reply_record ---
   reg(server, 'reply_record', {
     title: 'Record a reply (manual sweep)',
-    description: 'Registra una respuesta detectada en un barrido manual del buzón (p.ej. Microsoft 365, donde el IMAP no funciona). Inserta el evento replied y ejecuta el pipeline completo: actualiza el estado del prospect y cancela follow-ups pendientes según la clasificación (negative/unsubscribe => rejected + do_not_contact).',
+    description: 'Registra una respuesta detectada en un barrido manual del buzón (p.ej. Microsoft 365, donde el IMAP no funciona). Inserta el evento replied y ejecuta el pipeline completo: actualiza el estado del prospect y cancela follow-ups pendientes según la clasificación (negative/unsubscribe => unsubscribed + do_not_contact).',
     inputSchema: {
       prospect_id: z.string().optional().describe('Prospect UUID (o usa prospect_email).'),
       prospect_email: z.string().optional().describe('Email del prospect (alternativa a prospect_id).'),

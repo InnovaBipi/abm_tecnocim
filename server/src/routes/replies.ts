@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { query } from '../config/database';
-import { authenticate } from '../middleware/auth';
+import { authenticate, requireRole } from '../middleware/auth';
 import { recordReply } from '../services/replies';
 
 const router = Router();
@@ -21,6 +21,10 @@ const recordReplySchema = z.object({
 }).refine((d) => d.prospect_id || d.prospect_email, {
   message: 'prospect_id o prospect_email es obligatorio',
 });
+
+const reclassifySchema = z.object({
+  classification: z.enum(CLASSIFICATIONS),
+}).strict();
 
 // --- GET / - List detected replies (email_events of type 'replied') ---
 // Filters: ?since=YYYY-MM-DD, ?classification=positive|negative|..., ?prospect_id=
@@ -201,6 +205,49 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   } catch (error: any) {
     console.error('Record reply error:', error);
     res.status(500).json({ success: false, error: 'An error occurred while recording the reply.' });
+  }
+});
+
+// --- PATCH /:eventId - Correct the AI classification of a detected reply ---
+// The classifier mislabels engaged replies as 'negative' (a buyer narrowing their criteria reads
+// like a rejection), and the scheduler derives do_not_contact from these labels on every cycle.
+// That makes the prospect flag unfixable by hand — clearing it is re-applied two minutes later —
+// so the label itself has to be correctable.
+//
+// This only relabels the event. It deliberately does NOT replay recordReply's side effects
+// (prospect status, enrollments, cancelled follow-ups): undoing those is a judgement call that
+// belongs to whoever read the reply, not to a relabel.
+router.patch('/:eventId', requireRole('admin', 'manager'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const tenantId = req.user!.tenantId;
+    const validation = reclassifySchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({
+        success: false,
+        error: validation.error.issues[0]?.message || 'Validation failed',
+      });
+      return;
+    }
+
+    const result: any = await query(
+      `UPDATE email_events
+       SET metadata = JSON_SET(COALESCE(metadata, '{}'), '$.reply_classification', ?)
+       WHERE id = ? AND tenant_id = ? AND event_type = 'replied'`,
+      [validation.data.classification, req.params.eventId, tenantId]
+    );
+
+    if (!result?.affectedRows) {
+      res.status(404).json({ success: false, error: 'Reply not found.' });
+      return;
+    }
+
+    res.json({
+      success: true,
+      data: { event_id: req.params.eventId, classification: validation.data.classification },
+    });
+  } catch (error: any) {
+    console.error('Reclassify reply error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred while reclassifying the reply.' });
   }
 });
 
