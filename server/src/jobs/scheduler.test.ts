@@ -7,7 +7,7 @@ vi.mock('../config/logger', () => ({
 
 import { query } from '../config/database';
 import { logger } from '../config/logger';
-import { cancelOrphanedFollowups, hygieneStep, rejectStaleScheduled } from './scheduler';
+import { cancelOrphanedFollowups, hasReplySince, hygieneStep, rejectStaleScheduled } from './scheduler';
 
 const mockedQuery = vi.mocked(query);
 const mockedLogger = vi.mocked(logger);
@@ -198,5 +198,41 @@ describe('hygieneStep', () => {
 
     expect(ok).toHaveBeenCalledOnce();
     expect(mockedLogger.error).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The send-time replied guard. d9ea4b2 taught cancelRepliedFollowups to spare re-engagements
+// written after the reply, but the same rule lives a second time inside the send loop and was
+// left unbounded there. It rejected on ANY reply ever recorded, so the "Reenganche leads"
+// campaign — 12 leads chosen precisely because they had replied — deleted itself one email at
+// a time as each came due. Two were lost before the campaign was paused.
+// ---------------------------------------------------------------------------
+describe('hasReplySince', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const sql = () => String(mockedQuery.mock.calls[0][0]).replace(/\s+/g, ' ');
+  const params = () => mockedQuery.mock.calls[0][1] as any[];
+
+  it('bounds the lookup by time, tenant and reply type', async () => {
+    mockedQuery.mockResolvedValue([] as any);
+
+    await hasReplySince('prospect-1', 'tenant-1', '2026-08-06 10:00:00');
+
+    expect(sql()).toMatch(/occurred_at >= \?/);
+    expect(sql()).toContain('tenant_id = ?');
+    expect(sql()).toMatch(/event_type = 'replied'/);
+    expect(params()).toEqual(['prospect-1', 'tenant-1', '2026-08-06 10:00:00']);
+  });
+
+  it('blocks a follow-up queued before the reply', async () => {
+    mockedQuery.mockResolvedValue([{ id: 'evt-1' }] as any);
+    await expect(hasReplySince('prospect-1', 'tenant-1', '2026-07-01 09:00:00')).resolves.toBe(true);
+  });
+
+  it('lets a re-engagement queued after the reply through', async () => {
+    // No reply at or after the email's created_at — the July reply predates it.
+    mockedQuery.mockResolvedValue([] as any);
+    await expect(hasReplySince('prospect-1', 'tenant-1', '2026-08-06 10:00:00')).resolves.toBe(false);
   });
 });

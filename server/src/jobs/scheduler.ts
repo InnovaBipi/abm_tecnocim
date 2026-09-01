@@ -768,6 +768,25 @@ async function verifyDomainMx(domain: string, cache: Map<string, boolean>): Prom
 }
 
 /**
+ * Did this prospect reply at or after `since`?
+ *
+ * `since` is the queued email's created_at, which is what separates the two cases that look
+ * identical from the prospect's side: a follow-up written BEFORE they answered is stale and must
+ * not go out, while a re-engagement written AFTER they answered is deliberate and must.
+ * Checking "has ever replied" collapses that distinction and makes any re-engagement campaign
+ * impossible, since every prospect in one is there precisely because they replied.
+ */
+export async function hasReplySince(prospectId: string, tenantId: string, since: Date | string): Promise<boolean> {
+  const rows = await query<any[]>(
+    `SELECT id FROM email_events
+     WHERE prospect_id = ? AND tenant_id = ? AND event_type = 'replied' AND occurred_at >= ?
+     LIMIT 1`,
+    [prospectId, tenantId, since]
+  );
+  return rows.length > 0;
+}
+
+/**
  * Run one queue-hygiene step, containing its failure to that step.
  *
  * These steps run before the send query, so an unhandled throw used to abort the whole cycle:
@@ -906,19 +925,19 @@ async function processScheduledOutboxEmails(): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 600));
     }
 
-    // Skip if prospect has replied to any email in this campaign
-    const prospectReplied = await query<any[]>(
-      `SELECT id FROM email_events
-       WHERE prospect_id = ? AND event_type = 'replied' LIMIT 1`,
-      [email.prospect_id]
-    );
-    if (prospectReplied.length > 0) {
-      logger.info('Skipping scheduled email, prospect replied', { emailId: email.id });
+    // Skip only if the reply came in AFTER this email was queued — i.e. this email belongs to
+    // the sequence the prospect already answered. Same rule cancelRepliedFollowups applies in
+    // bulk (created_at <= last_reply); this send-time guard was left unbounded when d9ea4b2
+    // added it there, so it kept rejecting on ANY reply ever recorded and quietly destroyed the
+    // re-engagement campaign built out of replied-then-silent leads — one lead at a time, as
+    // each came due.
+    if (await hasReplySince(email.prospect_id, emailTenantId, email.created_at)) {
+      logger.info('Skipping scheduled email, prospect replied after it was queued', { emailId: email.id });
       await query(
         `UPDATE generated_emails SET status = 'rejected',
          metadata = JSON_SET(COALESCE(metadata, '{}'), '$.skip_reason', 'prospect_replied')
-         WHERE id = ?`,
-        [email.id]
+         WHERE id = ? AND tenant_id = ?`,
+        [email.id, emailTenantId]
       );
       results.push({ name: prospectName, email: email.prospect_email, subject: email.subject, campaign: email.campaign_name, step: email.step_number, status: 'skipped', reason: 'prospecto respondió', tenant_id: emailTenantId });
       continue;
