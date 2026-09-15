@@ -7,6 +7,7 @@ import { config } from '../config/env';
 import { getTenantConfig, clearTenantCache } from '../middleware/tenant';
 import { encryptSecret, decryptSecret } from '../utils/crypto';
 import { assertSenderDomainAllowed } from '../services/sender';
+import { HubSpotClient } from '../services/hubspot';
 
 const router = Router();
 
@@ -458,11 +459,236 @@ router.put('/warmup', requireRole('admin', 'manager'), async (req: Request, res:
   }
 });
 
+// --- HubSpot bridge (replies → HubSpot leads) — see docs/hubspot-integration.md ---
+
+function hubspotView(hs: any) {
+  const mode = hs?.mode === 'crm' || hs?.mode === 'form' ? hs.mode : null;
+  let token = '';
+  try { token = hs?.access_token ? decryptSecret(hs.access_token) : ''; } catch { token = ''; }
+  return {
+    configured: !!mode,
+    enabled: !!mode && hs.enabled !== false,
+    mode,
+    owner_id: hs?.owner_id || '',
+    portal_id: hs?.portal_id || '',
+    form_guid: hs?.form_guid || '',
+    create_company: hs?.create_company !== false,
+    api_base: hs?.api_base || '',
+    has_token: !!token,
+    masked_token: token ? token.substring(0, 8) + '...' : '',
+  };
+}
+
+router.get('/hubspot', requireRole('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const tenant = await getTenantConfig(req.user!.tenantId);
+    if (!tenant) {
+      res.status(404).json({ success: false, error: 'Tenant not found.' });
+      return;
+    }
+    res.json({ success: true, data: hubspotView(tenant.config.hubspot) });
+  } catch (error: any) {
+    console.error('Get HubSpot settings error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+const hubspotSettingsSchema = z.object({
+  mode: z.enum(['crm', 'form']).optional(),
+  enabled: z.boolean().optional(),
+  // '' = keep the stored token; null = remove it
+  access_token: z.string().max(512).nullable().optional(),
+  owner_id: z.string().max(32).regex(/^\d*$/, 'owner_id must be numeric').optional(),
+  portal_id: z.string().max(32).regex(/^\d*$/, 'portal_id must be numeric').optional(),
+  form_guid: z.string().max(64).optional(),
+  create_company: z.boolean().optional(),
+  api_base: z.string().max(200).refine((v) => v === '' || /^https:\/\/[a-z0-9.-]+$/i.test(v), 'api_base must be https://host').optional(),
+}).strict();
+
+router.post('/hubspot', requireRole('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const validation = hubspotSettingsSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ success: false, error: 'Validation failed', details: validation.error.flatten().fieldErrors });
+      return;
+    }
+    const d = validation.data;
+    const tenant = await getTenantConfig(req.user!.tenantId);
+    if (!tenant) {
+      res.status(404).json({ success: false, error: 'Tenant not found.' });
+      return;
+    }
+
+    const current: any = tenant.config.hubspot || {};
+    const patch: Record<string, any> = {};
+    if (d.mode !== undefined) patch.mode = d.mode;
+    if (d.enabled !== undefined) patch.enabled = d.enabled;
+    if (d.owner_id !== undefined) patch.owner_id = d.owner_id;
+    if (d.portal_id !== undefined) patch.portal_id = d.portal_id;
+    if (d.form_guid !== undefined) patch.form_guid = d.form_guid;
+    if (d.create_company !== undefined) patch.create_company = d.create_company;
+    if (d.api_base !== undefined) patch.api_base = d.api_base;
+    if (d.access_token === null) patch.access_token = null;            // JSON_MERGE_PATCH null = delete key
+    else if (d.access_token) patch.access_token = encryptSecret(d.access_token.trim());
+
+    if (Object.keys(patch).length === 0) {
+      res.status(400).json({ success: false, error: 'No fields to update.' });
+      return;
+    }
+
+    const mode = patch.mode ?? current.mode;
+    if (!mode) {
+      res.status(400).json({ success: false, error: 'mode is required (crm | form) on first configuration.' });
+      return;
+    }
+    if (mode === 'form') {
+      const portal = patch.portal_id ?? current.portal_id;
+      const guid = patch.form_guid ?? current.form_guid;
+      if (!portal || !guid) {
+        res.status(400).json({ success: false, error: 'form mode requires portal_id and form_guid.' });
+        return;
+      }
+    }
+    if (mode === 'crm') {
+      const hasToken = patch.access_token === null ? false : !!(patch.access_token || current.access_token);
+      if (!hasToken) {
+        res.status(400).json({ success: false, error: 'crm mode requires a Private App access_token.' });
+        return;
+      }
+    }
+
+    await query(
+      `UPDATE tenants
+       SET config = JSON_SET(
+         config,
+         '$.hubspot',
+         JSON_MERGE_PATCH(COALESCE(JSON_EXTRACT(config, '$.hubspot'), JSON_OBJECT()), CAST(? AS JSON))
+       )
+       WHERE id = ?`,
+      [JSON.stringify(patch), req.user!.tenantId]
+    );
+    clearTenantCache(req.user!.tenantId);
+
+    const updated = await getTenantConfig(req.user!.tenantId);
+    res.json({ success: true, data: hubspotView(updated?.config.hubspot) });
+  } catch (error: any) {
+    console.error('Update HubSpot settings error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+// Credential probe for crm mode: GET one contact with the stored token.
+router.post('/hubspot/test', requireRole('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const tenant = await getTenantConfig(req.user!.tenantId);
+    const hs: any = tenant?.config.hubspot;
+    if (!hs?.mode) {
+      res.status(400).json({ success: false, error: 'HubSpot is not configured for this tenant.' });
+      return;
+    }
+    if (hs.mode === 'form') {
+      res.json({ success: true, data: { ok: true, message: 'form mode: no credentials to test (public Forms API).' } });
+      return;
+    }
+    const token = hs.access_token ? decryptSecret(hs.access_token) : '';
+    if (!token) {
+      res.status(400).json({ success: false, error: 'No access_token stored.' });
+      return;
+    }
+    const client = new HubSpotClient({ accessToken: token, apiBase: hs.api_base || undefined, retries: 0, timeoutMs: 8000 });
+    try {
+      await client.ping();
+      res.json({ success: true, data: { ok: true, message: 'Token válido: lectura de contactos OK.' } });
+    } catch (err: any) {
+      const status = err?.status || 0;
+      const hint = status === 401 ? 'token inválido o caducado'
+        : status === 403 ? 'token sin scope crm.objects.contacts.read'
+        : 'HubSpot no responde';
+      res.status(502).json({ success: false, error: `HubSpot test failed (${hint}): ${err.message}` });
+    }
+  } catch (error: any) {
+    console.error('HubSpot test error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+// --- Reply forwarding (detected replies → human inbox) ---
+
+router.get('/reply-forward', requireRole('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const tenant = await getTenantConfig(req.user!.tenantId);
+    if (!tenant) {
+      res.status(404).json({ success: false, error: 'Tenant not found.' });
+      return;
+    }
+    const rf: any = tenant.config.reply_forward || {};
+    res.json({
+      success: true,
+      data: {
+        configured: Array.isArray(rf.to) && rf.to.length > 0,
+        to: Array.isArray(rf.to) ? rf.to : [],
+        only_positive: !!rf.only_positive,
+        forward_out_of_office: !!rf.forward_out_of_office,
+      },
+    });
+  } catch (error: any) {
+    console.error('Get reply-forward settings error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
+const replyForwardSchema = z.object({
+  to: z.array(z.string().email()).max(10),
+  only_positive: z.boolean().optional().default(false),
+  forward_out_of_office: z.boolean().optional().default(false),
+}).strict();
+
+router.post('/reply-forward', requireRole('admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const validation = replyForwardSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ success: false, error: 'Validation failed', details: validation.error.flatten().fieldErrors });
+      return;
+    }
+    const d = validation.data;
+    if (d.to.length === 0) {
+      // Empty list = disable forwarding
+      await query(`UPDATE tenants SET config = JSON_REMOVE(config, '$.reply_forward') WHERE id = ?`, [req.user!.tenantId]);
+    } else {
+      await query(
+        `UPDATE tenants SET config = JSON_SET(config, '$.reply_forward', CAST(? AS JSON)) WHERE id = ?`,
+        [JSON.stringify({ to: d.to, only_positive: d.only_positive, forward_out_of_office: d.forward_out_of_office }), req.user!.tenantId]
+      );
+    }
+    clearTenantCache(req.user!.tenantId);
+    res.json({
+      success: true,
+      data: { configured: d.to.length > 0, to: d.to, only_positive: d.only_positive, forward_out_of_office: d.forward_out_of_office },
+    });
+  } catch (error: any) {
+    console.error('Update reply-forward settings error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred.' });
+  }
+});
+
 // --- API Keys ---
 
-router.get('/api-keys', async (_req: Request, res: Response): Promise<void> => {
+router.get('/api-keys', async (req: Request, res: Response): Promise<void> => {
   try {
+    // HubSpot is per-tenant (tenants.config.hubspot), unlike the global env keys below.
+    const tenant = await getTenantConfig(req.user!.tenantId);
+    const hs = hubspotView(tenant?.config.hubspot);
     const keys = [
+      {
+        name: 'HubSpot (CRM)',
+        service: 'hubspot',
+        is_active: hs.enabled,
+        masked_key: !hs.configured
+          ? null
+          : hs.mode === 'crm'
+            ? (hs.masked_token || 'crm: sin token')
+            : `form: ${hs.portal_id} / ${hs.form_guid.substring(0, 8)}...`,
+      },
       {
         name: 'Resend (Email)',
         service: 'resend',
