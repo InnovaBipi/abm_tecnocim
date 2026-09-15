@@ -721,38 +721,47 @@ describe('distributeEmailsAcrossBusinessDays preserves sequence order', () => {
   // today, which put it before its own earlier step already sitting in the queue.
   it('respects an already-scheduled earlier step as a floor', async () => {
     mockQueueOn({}, 10);
-    const existing = new Map([['c::x', [{ stepNumber: 1, scheduledFor: new Date('2026-09-15T07:30:00Z') }]]]);
+    // Anchored relative to today on purpose: the scheduler floors every candidate day at
+    // "now", so a hardcoded date quietly stops exercising this case once it goes by.
+    const anchor = futureWeekday(10);
+    anchor.setHours(7, 30, 0, 0);
+    const existing = new Map([['c::x', [{ stepNumber: 1, scheduledFor: anchor }]]]);
     const lone = [{ id: 'x-s2', prospectTimezone: 'Europe/Madrid', delayDays: 3, campaignId: 'c', prospectId: 'x', stepNumber: 2 }];
 
     const { schedule, unassigned } = await distributeEmailsAcrossBusinessDays(
-      lone, 'tenant-x', undefined, new Date('2026-08-24T12:00:00Z'), existing
+      lone, 'tenant-x', undefined, new Date(), existing
     );
 
     expect(unassigned).toEqual([]);
-    expect(dayOf(schedule, 'x-s2') > '2026-09-15').toBe(true);
+    expect(dayOf(schedule, 'x-s2') > getMadridDateString(anchor)).toBe(true);
   });
 
   it('respects an already-scheduled later step as a ceiling', async () => {
     mockQueueOn({}, 10);
-    const existing = new Map([['c::x', [{ stepNumber: 3, scheduledFor: new Date('2026-09-10T07:30:00Z') }]]]);
+    const anchor = futureWeekday(10);
+    anchor.setHours(7, 30, 0, 0);
+    const existing = new Map([['c::x', [{ stepNumber: 3, scheduledFor: anchor }]]]);
     const lone = [{ id: 'x-s1', prospectTimezone: 'Europe/Madrid', delayDays: 0, campaignId: 'c', prospectId: 'x', stepNumber: 1 }];
 
     const { schedule, unassigned } = await distributeEmailsAcrossBusinessDays(
-      lone, 'tenant-x', undefined, new Date('2026-09-01T12:00:00Z'), existing
+      lone, 'tenant-x', undefined, new Date(), existing
     );
 
     expect(unassigned).toEqual([]);
-    expect(dayOf(schedule, 'x-s1') < '2026-09-10').toBe(true);
+    expect(dayOf(schedule, 'x-s1') < getMadridDateString(anchor)).toBe(true);
   });
 
   it('leaves a step unscheduled rather than placing it past a later sibling', async () => {
     mockQueueOn({}, 10);
-    // step 3 already on the 2nd; a step 1 that cannot start before the 3rd has nowhere legal.
-    const existing = new Map([['c::x', [{ stepNumber: 3, scheduledFor: new Date('2026-09-02T07:30:00Z') }]]]);
+    // step 3 already scheduled a week out; a step 1 whose window opens after it has
+    // nowhere legal to go.
+    const anchor = futureWeekday(3);
+    anchor.setHours(7, 30, 0, 0);
+    const existing = new Map([['c::x', [{ stepNumber: 3, scheduledFor: anchor }]]]);
     const lone = [{ id: 'x-s1', prospectTimezone: 'Europe/Madrid', delayDays: 0, campaignId: 'c', prospectId: 'x', stepNumber: 1 }];
 
     const { schedule, unassigned } = await distributeEmailsAcrossBusinessDays(
-      lone, 'tenant-x', undefined, new Date('2026-09-03T12:00:00Z'), existing
+      lone, 'tenant-x', undefined, futureWeekday(10), existing
     );
 
     expect(schedule.size).toBe(0);
