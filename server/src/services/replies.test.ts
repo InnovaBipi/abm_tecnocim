@@ -10,10 +10,21 @@ vi.mock('../config/database', () => ({
   query: vi.fn(),
 }));
 
+// Downstream routing (forward to humans + HubSpot) is exercised in replyRouter.test.ts;
+// here it is a stub so the pipeline tests stay about the pipeline.
+vi.mock('./replyRouter', () => ({
+  routeReply: vi.fn().mockResolvedValue({
+    forward: { status: 'skipped', detail: 'not configured' },
+    hubspot: { status: 'skipped', detail: 'not configured' },
+  }),
+}));
+
 import { query } from '../config/database';
+import { routeReply } from './replyRouter';
 import { recordReply } from './replies';
 
 const mockQuery = query as ReturnType<typeof vi.fn>;
+const mockRoute = routeReply as unknown as ReturnType<typeof vi.fn>;
 
 const T = 'test-tenant-id';
 const P = 'prospect-1';
@@ -156,4 +167,38 @@ describe('recordReply', () => {
       }
     }
   );
+
+  // Downstream routing hook (forward to humans + HubSpot) — see replyRouter.test.ts for the
+  // routing itself. Here: it is called once, after the pipeline, with the recorded event; and a
+  // routing failure can never break reply detection.
+  it('hands the recorded reply to routeReply with event id, classification, body and source', async () => {
+    const r = await recordReply({
+      tenantId: T, prospectId: P, classification: 'positive', source: 'imap',
+      subject: 'RE: hola', snippet: 'Sí, hablemos', from: 'ceo@acme.com',
+    });
+    expect(mockRoute).toHaveBeenCalledTimes(1);
+    expect(mockRoute).toHaveBeenCalledWith({
+      tenantId: T, prospectId: P, eventId: r.eventId, classification: 'positive',
+      subject: 'RE: hola', snippet: 'Sí, hablemos', from: 'ceo@acme.com', source: 'imap',
+    });
+    expect(r.routing).toEqual({
+      forward: { status: 'skipped', detail: 'not configured' },
+      hubspot: { status: 'skipped', detail: 'not configured' },
+    });
+    // Routing runs after every pipeline write (event insert, prospect update, activity)
+    const routeOrder = mockRoute.mock.invocationCallOrder[0];
+    const lastQueryOrder = Math.max(...mockQuery.mock.invocationCallOrder);
+    expect(routeOrder).toBeGreaterThan(lastQueryOrder);
+  });
+
+  it('a routing crash does not break reply detection', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockRoute.mockRejectedValueOnce(new Error('HubSpot exploded'));
+    const r = await recordReply({ tenantId: T, prospectId: P, classification: 'positive', source: 'manual' });
+    expect(r.prospectStatus).toBe('replied');
+    expect(r.eventId).toBeTruthy();
+    expect(r.routing).toBeUndefined();
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('reply routing failed'));
+    errSpy.mockRestore();
+  });
 });

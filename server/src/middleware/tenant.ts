@@ -69,6 +69,30 @@ export interface TenantConfig {
     min_sample: number;              // e.g. 30 (min sends in window before evaluating)
     window_hours?: number;           // e.g. 48
   };
+  // Optional HubSpot bridge: when a prospect replies, push them into HubSpot as a lead.
+  // See docs/hubspot-integration.md. Two modes:
+  //  - 'form': public Forms API submission (no token needed; reuses the website contact form,
+  //            so the existing HubSpot workflows — e.g. Teams notification — fire). Provisional.
+  //  - 'crm':  Private App token → contact/company upsert + note + owner. Needs scopes
+  //            crm.objects.contacts.{read,write}, crm.objects.companies.{read,write}.
+  // Managed via GET/POST /api/settings/hubspot (admin). access_token is encrypted at rest.
+  hubspot?: {
+    mode: 'crm' | 'form';
+    enabled?: boolean;        // default true when the object exists
+    access_token?: string;    // encrypted with encryptSecret(); crm mode only
+    owner_id?: string;        // hubspot_owner_id assigned to new leads (crm mode)
+    portal_id?: string;       // form mode
+    form_guid?: string;       // form mode
+    create_company?: boolean; // crm mode: upsert company by domain + associate (default true)
+    api_base?: string;        // override for EU data-residency portals (api-eu1.hubapi.com)
+  };
+  // Optional: forward every detected reply to a human inbox (e.g. the account owner).
+  // Managed via GET/POST /api/settings/reply-forward (admin).
+  reply_forward?: {
+    to: string[];
+    only_positive: boolean;          // true → only 'positive'; false → positive + other + negative
+    forward_out_of_office?: boolean; // default false
+  };
 }
 
 export interface Tenant {
@@ -162,6 +186,11 @@ export function sanitizeTenantConfig(config: any): any {
   // IMAP credentials (incl. pass) are never needed by the frontend; the Settings
   // page reads connection status via the admin-only GET /api/settings/email.
   delete c.imap;
+  // HubSpot Private App token: server-side only (the Settings page reads a masked
+  // status via the admin-only GET /api/settings/hubspot).
+  if (c.hubspot) {
+    delete c.hubspot.access_token;
+  }
   return c;
 }
 
