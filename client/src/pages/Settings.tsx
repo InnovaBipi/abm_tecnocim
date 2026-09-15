@@ -64,6 +64,14 @@ export default function Settings() {
   const [emailForm, setEmailForm] = useState<Record<string, string>>({});
   const [emailFormInitialized, setEmailFormInitialized] = useState(false);
 
+  // HubSpot bridge + reply forwarding (admin only, tab "Claves API")
+  const [hubspotForm, setHubspotForm] = useState({
+    mode: 'form', enabled: true, access_token: '', owner_id: '', portal_id: '', form_guid: '', create_company: true,
+  });
+  const [hubspotFormInitialized, setHubspotFormInitialized] = useState(false);
+  const [replyForwardForm, setReplyForwardForm] = useState({ to: '', only_positive: false, forward_out_of_office: false });
+  const [replyForwardInitialized, setReplyForwardInitialized] = useState(false);
+
   // Scoring rule modal
   const [showRuleModal, setShowRuleModal] = useState(false);
   const [editingRule, setEditingRule] = useState<Record<string, unknown> | null>(null);
@@ -163,6 +171,49 @@ export default function Settings() {
     },
   });
 
+  // HubSpot + reply forwarding (admin only)
+  const { data: hubspotData } = useQuery({
+    queryKey: ['settings', 'hubspot'],
+    queryFn: () => settingsApi.getHubspotSettings(),
+    enabled: user?.role === 'admin',
+  });
+  const { data: replyForwardData } = useQuery({
+    queryKey: ['settings', 'reply-forward'],
+    queryFn: () => settingsApi.getReplyForward(),
+    enabled: user?.role === 'admin',
+  });
+
+  const updateHubspotMutation = useMutation({
+    mutationFn: (data: Record<string, unknown>) => settingsApi.updateHubspotSettings(data),
+    onSuccess: () => {
+      toast.success('Integración HubSpot guardada');
+      setHubspotForm((f) => ({ ...f, access_token: '' }));
+      queryClient.invalidateQueries({ queryKey: ['settings', 'hubspot'] });
+      queryClient.invalidateQueries({ queryKey: ['settings', 'api-keys'] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.error || 'Error al guardar la integración HubSpot');
+    },
+  });
+
+  const testHubspotMutation = useMutation({
+    mutationFn: () => settingsApi.testHubspot(),
+    onSuccess: (res: any) => toast.success(res?.data?.data?.message || 'HubSpot OK'),
+    onError: (err: any) => toast.error(err?.response?.data?.error || 'HubSpot no responde'),
+  });
+
+  const updateReplyForwardMutation = useMutation({
+    mutationFn: (data: { to: string[]; only_positive: boolean; forward_out_of_office: boolean }) =>
+      settingsApi.updateReplyForward(data),
+    onSuccess: () => {
+      toast.success('Reenvío de respuestas guardado');
+      queryClient.invalidateQueries({ queryKey: ['settings', 'reply-forward'] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.error || 'Error al guardar el reenvío de respuestas');
+    },
+  });
+
   // Users query & mutations (admin only)
   const { data: usersData } = useQuery({
     queryKey: ['users'],
@@ -219,6 +270,56 @@ export default function Settings() {
     });
     setEmailFormInitialized(true);
   }
+
+  const hubspotSettings = hubspotData?.data?.data;
+  if (hubspotSettings && !hubspotFormInitialized) {
+    setHubspotForm({
+      mode: hubspotSettings.mode || 'form',
+      enabled: hubspotSettings.enabled !== false,
+      access_token: '',
+      owner_id: hubspotSettings.owner_id || '',
+      portal_id: hubspotSettings.portal_id || '',
+      form_guid: hubspotSettings.form_guid || '',
+      create_company: hubspotSettings.create_company !== false,
+    });
+    setHubspotFormInitialized(true);
+  }
+
+  const replyForwardSettings = replyForwardData?.data?.data;
+  if (replyForwardSettings && !replyForwardInitialized) {
+    setReplyForwardForm({
+      to: (replyForwardSettings.to || []).join(', '),
+      only_positive: !!replyForwardSettings.only_positive,
+      forward_out_of_office: !!replyForwardSettings.forward_out_of_office,
+    });
+    setReplyForwardInitialized(true);
+  }
+
+  const handleHubspotSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload: Record<string, unknown> = {
+      mode: hubspotForm.mode,
+      enabled: hubspotForm.enabled,
+      owner_id: hubspotForm.owner_id.trim(),
+      create_company: hubspotForm.create_company,
+    };
+    if (hubspotForm.mode === 'form') {
+      payload.portal_id = hubspotForm.portal_id.trim();
+      payload.form_guid = hubspotForm.form_guid.trim();
+    }
+    if (hubspotForm.access_token.trim()) payload.access_token = hubspotForm.access_token.trim();
+    updateHubspotMutation.mutate(payload);
+  };
+
+  const handleReplyForwardSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const to = replyForwardForm.to.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
+    updateReplyForwardMutation.mutate({
+      to,
+      only_positive: replyForwardForm.only_positive,
+      forward_out_of_office: replyForwardForm.forward_out_of_office,
+    });
+  };
 
   const resetRuleForm = () => {
     setRuleForm({ name: '', field: '', condition: 'equals', value: '', score: '10' });
@@ -621,6 +722,7 @@ export default function Settings() {
 
             {/* API Keys Tab */}
             {activeTab === 'api-keys' && (
+              <div className="space-y-6">
               <Card padding="none">
                 <CardHeader>
                   <div className="flex items-center gap-2">
@@ -665,6 +767,176 @@ export default function Settings() {
                   )}
                 </CardContent>
               </Card>
+
+              {/* HubSpot bridge: detected replies → HubSpot leads (admin only) */}
+              {user?.role === 'admin' && (
+                <Card padding="none">
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      <Send className="h-5 w-5 text-primary-600" />
+                      <h2 className="text-lg font-semibold text-slate-900">HubSpot — respuestas a leads</h2>
+                      {hubspotSettings?.configured ? (
+                        hubspotSettings.enabled ? (
+                          <Badge variant="success"><CheckCircle className="h-3 w-3 mr-1" /> Activo ({hubspotSettings.mode})</Badge>
+                        ) : (
+                          <Badge variant="warning"><XCircle className="h-3 w-3 mr-1" /> Pausado</Badge>
+                        )
+                      ) : (
+                        <Badge variant="warning"><XCircle className="h-3 w-3 mr-1" /> Sin configurar</Badge>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-slate-500 mb-4">
+                      Cuando un prospecto responde (positiva o sin clasificar) entra en HubSpot como lead.
+                      <span className="font-medium"> Modo formulario</span>: sin token, usa el formulario de contacto de la web (puente provisional).
+                      <span className="font-medium"> Modo CRM</span>: token de Private App, crea contacto + empresa + nota y asigna propietario.
+                    </p>
+                    <form onSubmit={handleHubspotSubmit} className="space-y-4 max-w-2xl">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Select
+                          label="Modo"
+                          value={hubspotForm.mode}
+                          onChange={(val) => setHubspotForm((f) => ({ ...f, mode: val }))}
+                          options={[
+                            { value: 'form', label: 'Formulario (sin token)' },
+                            { value: 'crm', label: 'CRM (Private App token)' },
+                          ]}
+                        />
+                        <Input
+                          label="Propietario HubSpot (owner_id)"
+                          value={hubspotForm.owner_id}
+                          onChange={(e) => setHubspotForm((f) => ({ ...f, owner_id: e.target.value }))}
+                          placeholder="34489913"
+                          helperText="Solo modo CRM: usuario al que se asignan los leads"
+                        />
+                        {hubspotForm.mode === 'form' ? (
+                          <>
+                            <Input
+                              label="Portal ID"
+                              value={hubspotForm.portal_id}
+                              onChange={(e) => setHubspotForm((f) => ({ ...f, portal_id: e.target.value }))}
+                              placeholder="145850079"
+                              required
+                            />
+                            <Input
+                              label="Form GUID"
+                              value={hubspotForm.form_guid}
+                              onChange={(e) => setHubspotForm((f) => ({ ...f, form_guid: e.target.value }))}
+                              placeholder="9c812eca-b6fb-4c2e-b2c9-5623008cfc0c"
+                              required
+                            />
+                          </>
+                        ) : (
+                          <div className="md:col-span-2">
+                            <Input
+                              label="Private App token"
+                              type="password"
+                              value={hubspotForm.access_token}
+                              onChange={(e) => setHubspotForm((f) => ({ ...f, access_token: e.target.value }))}
+                              placeholder={hubspotSettings?.has_token ? `Guardado (${hubspotSettings.masked_token}) — dejar vacío para no cambiar` : 'pat-eu1-...'}
+                              helperText="Scopes: crm.objects.contacts.read/write, crm.objects.companies.read/write. Se guarda cifrado."
+                            />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-6">
+                        <label className="flex items-center gap-2 text-sm text-slate-700">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+                            checked={hubspotForm.enabled}
+                            onChange={(e) => setHubspotForm((f) => ({ ...f, enabled: e.target.checked }))}
+                          />
+                          Integración activa
+                        </label>
+                        {hubspotForm.mode === 'crm' && (
+                          <label className="flex items-center gap-2 text-sm text-slate-700">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+                              checked={hubspotForm.create_company}
+                              onChange={(e) => setHubspotForm((f) => ({ ...f, create_company: e.target.checked }))}
+                            />
+                            Crear/asociar empresa por dominio
+                          </label>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <Button type="submit" loading={updateHubspotMutation.isPending} icon={<Save className="h-4 w-4" />}>
+                          Guardar HubSpot
+                        </Button>
+                        {hubspotSettings?.configured && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            loading={testHubspotMutation.isPending}
+                            onClick={() => testHubspotMutation.mutate()}
+                          >
+                            Probar conexión
+                          </Button>
+                        )}
+                      </div>
+                    </form>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Reply forwarding: detected replies → human inbox (admin only) */}
+              {user?.role === 'admin' && (
+                <Card padding="none">
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      <Mail className="h-5 w-5 text-primary-600" />
+                      <h2 className="text-lg font-semibold text-slate-900">Reenvío de respuestas</h2>
+                      {replyForwardSettings?.configured ? (
+                        <Badge variant="success"><CheckCircle className="h-3 w-3 mr-1" /> Activo</Badge>
+                      ) : (
+                        <Badge variant="warning"><XCircle className="h-3 w-3 mr-1" /> Sin configurar</Badge>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-slate-500 mb-4">
+                      Cada respuesta detectada (IMAP o registro manual) se reenvía por email con la clasificación,
+                      el texto original, la ficha del prospecto y el enlace a ABM. Las bajas nunca se reenvían.
+                    </p>
+                    <form onSubmit={handleReplyForwardSubmit} className="space-y-4 max-w-2xl">
+                      <Input
+                        label="Destinatarios"
+                        value={replyForwardForm.to}
+                        onChange={(e) => setReplyForwardForm((f) => ({ ...f, to: e.target.value }))}
+                        placeholder="Robert.Belmonte@tecnocim.com, otro@tecnocim.com"
+                        helperText="Separados por coma. Vacío = desactivar el reenvío."
+                      />
+                      <div className="flex flex-wrap gap-6">
+                        <label className="flex items-center gap-2 text-sm text-slate-700">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+                            checked={replyForwardForm.only_positive}
+                            onChange={(e) => setReplyForwardForm((f) => ({ ...f, only_positive: e.target.checked }))}
+                          />
+                          Solo respuestas positivas
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-slate-700">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+                            checked={replyForwardForm.forward_out_of_office}
+                            onChange={(e) => setReplyForwardForm((f) => ({ ...f, forward_out_of_office: e.target.checked }))}
+                          />
+                          Reenviar también "fuera de oficina"
+                        </label>
+                      </div>
+                      <Button type="submit" loading={updateReplyForwardMutation.isPending} icon={<Save className="h-4 w-4" />}>
+                        Guardar reenvío
+                      </Button>
+                    </form>
+                  </CardContent>
+                </Card>
+              )}
+              </div>
             )}
 
             {/* Scoring Tab */}

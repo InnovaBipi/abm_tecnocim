@@ -338,6 +338,22 @@ export const settingsApi = {
   getApiKeys: () =>
     api.get('/settings/api-keys'),
 
+  // HubSpot bridge (replies → leads) + reply forwarding — admin only
+  getHubspotSettings: () =>
+    api.get('/settings/hubspot'),
+
+  updateHubspotSettings: (data: Record<string, unknown>) =>
+    api.post('/settings/hubspot', data),
+
+  testHubspot: () =>
+    api.post('/settings/hubspot/test'),
+
+  getReplyForward: () =>
+    api.get('/settings/reply-forward'),
+
+  updateReplyForward: (data: { to: string[]; only_positive: boolean; forward_out_of_office: boolean }) =>
+    api.post('/settings/reply-forward', data),
+
   getScoringRules: () =>
     api.get('/settings/scoring-rules'),
 

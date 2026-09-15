@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
+import { routeReply, type RouteReplyResult } from './replyRouter';
 
 /**
  * Shared reply-recording pipeline.
@@ -40,6 +41,8 @@ export interface RecordReplyResult {
   doNotContact: boolean;
   enrollmentsStopped: number;
   scheduledCancelled: number;
+  /** Downstream routing (forward to humans + HubSpot). Present unless routing itself crashed. */
+  routing?: RouteReplyResult;
 }
 
 export async function recordReply(input: RecordReplyInput): Promise<RecordReplyResult> {
@@ -173,5 +176,18 @@ export async function recordReply(input: RecordReplyInput): Promise<RecordReplyR
     ]
   );
 
-  return { eventId, prospectStatus, doNotContact, enrollmentsStopped, scheduledCancelled };
+  // Downstream routing: forward the reply to a human inbox and/or push the prospect into
+  // HubSpot as a lead (services/replyRouter.ts). Single hook for both sources (IMAP + manual),
+  // after classification and after every DB side effect above has been committed.
+  // routeReply() never throws, but the guard stays: reply detection must not depend on it.
+  let routing: RouteReplyResult | undefined;
+  try {
+    routing = await routeReply({
+      tenantId, prospectId, eventId, classification, subject, snippet, from, source,
+    });
+  } catch (err: any) {
+    console.error(`recordReply [${tenantId}]: reply routing failed for event ${eventId}: ${err?.message || err}`);
+  }
+
+  return { eventId, prospectStatus, doNotContact, enrollmentsStopped, scheduledCancelled, routing };
 }

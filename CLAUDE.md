@@ -97,6 +97,9 @@ abm_tecnocim/
 | `server/src/middleware/tenant.ts` | TenantConfig interface, getTenantConfig(), buildTenantAIContext() |
 | `server/src/middleware/auth.ts` | JWT verification, tenantId extraction, role-based access |
 | `server/src/services/ai.ts` | Gemini + Perplexity integration, generateEmail(), classifyReply() |
+| `server/src/services/replies.ts` | Shared reply pipeline (IMAP + manual) → calls `replyRouter.ts` |
+| `server/src/services/replyRouter.ts` | After a reply: forward to a human inbox + push lead to HubSpot (never throws). See `docs/hubspot-integration.md` |
+| `server/src/services/hubspot.ts` | HubSpot client (Forms API without token / CRM v3 with Private App token) |
 | `server/src/config/env.ts` | Environment variable configuration |
 | `server/src/index.ts` | Express app entry point, all routes, rate limiters |
 | `client/src/services/api.ts` | Axios client with auth interceptors |
