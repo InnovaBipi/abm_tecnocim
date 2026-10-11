@@ -59,7 +59,7 @@ NOTES = {
 3. Webhook de Resend configurado el 11-oct (tras el fix b3f4a81): la key es la de la web/portal de New Brokers y el webhook es de toda la cuenta; los eventos de correos NO enviados por el ABM se ignoran. No volver a ejecutar webhook-setup (da 409). No activar el tracking de newbrokers.es en Resend (reescribiria los enlaces del portal).
 4. Solo B2B grandes cuentas / seguros corporativos (D&O, ciber, RC, caucion, programas a medida). Nada de particulares ni seguros de hogar/coche.
 5. Registro de usted, tono tecnico y discreto. NUNCA nombrar aseguradoras concretas, ni citar clientes o casos reales, ni dar cifras o datos normativos sin fuente. OJO: el prompt base pide "social proof" en el Email 3; para este tenant sustituirlo por timing o exposicion al riesgo y revisar cada Email 3 a mano.
-6. Firma "César Perejoan / New Brokers" (con tilde). Las respuestas llegan a info@newbrokers.es.
+6. Firma corporativa "Equipo New Brokers / New Brokers Correduría de Seguros", en primera persona del plural; nunca firmar como una persona concreta. Remitente y respuestas: info@newbrokers.es.
 7. Excluir siempre clientes actuales (Rhenus, Sama, Totalmedia, ALCO) y leads abiertos (KUCERA, LLC de Nevada). La lista completa de exclusiones la tiene César.
 8. info@ es un buzon compartido (IMAP cargado el 11-oct): revisar a mano cualquier respuesta registrada que no venga de un prospect real.
 9. Nunca guardar datos de asegurados (DNI, polizas, siniestros) en esta plataforma.
