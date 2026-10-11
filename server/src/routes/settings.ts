@@ -287,6 +287,16 @@ router.post('/email/webhook-setup', requireRole('admin'), async (req: Request, r
       return;
     }
 
+    // A second run would create a duplicate webhook in Resend and overwrite the
+    // stored secret, so the first webhook's deliveries would start failing with 401.
+    if (tenant.config.email?.webhook_secret && req.body?.force !== true) {
+      res.status(409).json({
+        success: false,
+        error: 'A webhook is already configured for this tenant. Delete it in Resend first, then retry with { "force": true }.',
+      });
+      return;
+    }
+
     const storedApiKey = tenant.config.email?.resend_api_key ? decryptSecret(tenant.config.email.resend_api_key) : '';
     const apiKey = storedApiKey || config.RESEND_API_KEY;
     if (!apiKey) {

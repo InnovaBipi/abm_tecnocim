@@ -8,6 +8,9 @@ import { decryptSecret } from '../utils/crypto';
 
 const router = Router();
 
+/** How long after a send an unmatched bounce/complaint is retried instead of dropped. */
+const FRESH_EVENT_RETRY_MS = 2 * 60 * 1000;
+
 /**
  * Check if a single secret matches the webhook signature.
  */
@@ -33,17 +36,30 @@ function checkSignature(secret: string, svixId: string, svixTimestamp: string, s
 }
 
 /**
- * Verify Resend/Svix webhook signature.
- * Tries the global secret and all per-tenant secrets.
+ * Result of verifying a webhook.
+ * - tenantIds: the tenants whose OWN webhook signed this event. Each per-tenant
+ *   webhook (created by POST /settings/email/webhook-setup) has its own signing
+ *   secret, so a match identifies the Resend webhook the event came from.
+ * - null: verified by the global RESEND_WEBHOOK_SECRET (or unsigned in dev), so
+ *   the source account is unknown — legacy, unscoped behaviour.
  */
-async function verifyWebhookSignature(req: Request): Promise<boolean> {
+export interface WebhookVerification {
+  valid: boolean;
+  tenantIds: string[] | null;
+}
+
+/**
+ * Verify Resend/Svix webhook signature.
+ * Tries the per-tenant secrets first, then the global secret.
+ */
+export async function verifyWebhookSignature(req: Request): Promise<WebhookVerification> {
   const svixId = req.headers['svix-id'] as string;
   const svixTimestamp = req.headers['svix-timestamp'] as string;
   const svixSignature = req.headers['svix-signature'] as string;
 
   if (!svixId || !svixTimestamp || !svixSignature) {
     // Only allow missing headers in development (never in production)
-    return config.NODE_ENV !== 'production';
+    return { valid: config.NODE_ENV !== 'production', tenantIds: null };
   }
 
   // Reject timestamps older than 5 minutes (replay protection)
@@ -51,18 +67,15 @@ async function verifyWebhookSignature(req: Request): Promise<boolean> {
   const ts = parseInt(svixTimestamp, 10);
   if (isNaN(ts) || Math.abs(now - ts) > 300) {
     console.warn('Webhook timestamp too old or invalid');
-    return false;
+    return { valid: false, tenantIds: null };
   }
 
   const rawBody = (req as any).rawBody || JSON.stringify(req.body);
 
-  // Collect all secrets to try: global env + per-tenant
-  // The env secret is never encrypted; per-tenant secrets are stored encrypted
-  // at rest, so they MUST be passed through decryptSecret() before use.
-  // decryptSecret() is backward-compatible: it returns legacy plaintext unchanged.
-  const secrets: string[] = [];
-  if (config.RESEND_WEBHOOK_SECRET) secrets.push(config.RESEND_WEBHOOK_SECRET);
-
+  // Per-tenant secrets are stored encrypted at rest, so they MUST be passed
+  // through decryptSecret() before use (it returns legacy plaintext unchanged).
+  // The env secret is never encrypted.
+  const tenantSecrets: Array<{ tenantId: string; secret: string }> = [];
   try {
     const tenants = await getAllActiveTenants();
     for (const t of tenants) {
@@ -75,28 +88,35 @@ async function verifyWebhookSignature(req: Request): Promise<boolean> {
         // Malformed/undecryptable secret for this tenant — skip it, try the rest
         continue;
       }
-      if (decrypted && !secrets.includes(decrypted)) secrets.push(decrypted);
+      if (decrypted) tenantSecrets.push({ tenantId: t.id, secret: decrypted });
     }
   } catch { /* if DB fails, continue with what we have */ }
 
+  const globalSecret = config.RESEND_WEBHOOK_SECRET;
+
   // No secrets configured: fail-closed in production (never accept unsigned webhooks),
   // allow only in development to ease local testing.
-  if (secrets.length === 0) {
+  if (tenantSecrets.length === 0 && !globalSecret) {
     if (config.NODE_ENV === 'production') {
       console.warn('Webhook rejected: no signing secret configured for any tenant');
-      return false;
+      return { valid: false, tenantIds: null };
     }
-    return true;
+    return { valid: true, tenantIds: null };
   }
 
-  for (const secret of secrets) {
-    if (checkSignature(secret, svixId, svixTimestamp, svixSignature, rawBody)) {
-      return true;
-    }
+  // The global secret wins: a tenant that stored the same value must not turn
+  // the global webhook's events into tenant-scoped ones.
+  if (globalSecret && checkSignature(globalSecret, svixId, svixTimestamp, svixSignature, rawBody)) {
+    return { valid: true, tenantIds: null };
   }
 
-  console.warn('Webhook signature verification failed (tried', secrets.length, 'secrets)');
-  return false;
+  const matched = tenantSecrets
+    .filter(({ secret }) => checkSignature(secret, svixId, svixTimestamp, svixSignature, rawBody))
+    .map(({ tenantId }) => tenantId);
+  if (matched.length > 0) return { valid: true, tenantIds: matched };
+
+  console.warn('Webhook signature verification failed (tried', tenantSecrets.length + (globalSecret ? 1 : 0), 'secrets)');
+  return { valid: false, tenantIds: null };
 }
 
 /**
@@ -108,7 +128,8 @@ async function verifyWebhookSignature(req: Request): Promise<boolean> {
 router.post('/resend', async (req: Request, res: Response): Promise<void> => {
   try {
     // Verify webhook signature
-    if (!await verifyWebhookSignature(req)) {
+    const verification = await verifyWebhookSignature(req);
+    if (!verification.valid) {
       res.status(401).json({ error: 'Invalid webhook signature' });
       return;
     }
@@ -169,8 +190,30 @@ router.post('/resend', async (req: Request, res: Response): Promise<void> => {
       enrollmentId = originalEvents[0].enrollment_id;
       stepId = originalEvents[0].step_id;
       tenantId = originalEvents[0].tenant_id;
+    } else if (verification.tenantIds !== null) {
+      // Signed by a tenant's OWN webhook. Resend webhooks are account-wide, and
+      // a tenant may share its Resend account with other apps (New Brokers shares
+      // it with its website and client portal). An unknown resend_email_id there
+      // is mail the ABM did not send: matching its recipient against prospects
+      // would let portal/website bounces suppress prospects, even in another
+      // tenant. So no recipient fallback for tenant webhooks. Every send path
+      // records its resend_email_id today; the cost is losing late opens/clicks
+      // of mail sent before that recording existed.
+      //
+      // Race: the email_events row is written AFTER sendEmail() returns, so a
+      // fast bounce/complaint can arrive first. For a fresh one, answer 503 so
+      // Svix retries (~5s later) and finds the row; losing it would mean mailing
+      // a dead address again on the next step.
+      const createdAt = Date.parse(data.created_at);
+      const isFresh = !isNaN(createdAt) && Date.now() - createdAt < FRESH_EVENT_RETRY_MS;
+      if (isFresh && (eventType === 'bounced' || eventType === 'complaint')) {
+        res.status(503).json({ received: false, retry: 'send not recorded yet' });
+        return;
+      }
+      res.status(200).json({ received: true, skipped: 'email not sent by the ABM' });
+      return;
     } else {
-      // FALLBACK PATH (best-effort): no email_event matched the resend_email_id
+      // FALLBACK PATH (best-effort, global secret only): no email_event matched the resend_email_id
       // (e.g. the event predates event recording). The Resend webhook is GLOBAL,
       // so this lookup intentionally cannot be scoped to a single tenant up front.
       //
