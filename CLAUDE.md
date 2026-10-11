@@ -48,6 +48,8 @@ npm run db:seed        # Seed database with sample data
 | CamiaCasa | camiacasa | camiacasa.cat | Real estate agency |
 | Technova Partners | technova | technovapartners.com | AI training consulting |
 | Tecnocim | tecnocim | tecnocim.com | Innovation consulting + I+D+i |
+| Tree Mobile Group (MasTree) | treemg | treemg.com | Telecom operator (fibre + mobile) |
+| New Brokers | newbrokers | newbrokers.es | Corporate insurance brokerage — account only; sending blocked until DMARC + privacy policy |
 
 ## Production
 

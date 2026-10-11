@@ -1,7 +1,7 @@
 """Seed a tenant's MCP operational notes (Phase E) and verify they ride the initialize.
 
-Usage: python scripts/mcp-seed-tenant-notes.py <camiacasa|tecnocim|technova|treemg>
-Password read from env ABM_PASSWORD (same for all tenant admin users).
+Usage: python scripts/mcp-seed-tenant-notes.py <camiacasa|tecnocim|technova|treemg|newbrokers>
+Password read from env ABM_PASSWORD (shared by the alfons.marques@ admins; newbrokers has its own).
 Caches the JWT to C:/Users/user/tmp_auth_<tenant>.txt for connector reuse.
 """
 import json
@@ -17,6 +17,7 @@ TENANTS = {
     "tecnocim": "alfons.marques@tecnocim.com",
     "technova": "alfons.marques@technovapartners.com",
     "treemg": "alfons.marques@treemg.com",
+    "newbrokers": "info@newbrokers.es",
 }
 
 NOTES = {
@@ -51,6 +52,17 @@ NOTES = {
 4. Warmup 100/dia (desde 30-jul). Envios solo lunes-viernes.
 5. Oferta de referencia: "LOVE 5" (fibra + 5 lineas moviles, 58 EUR/mes). No inventar otras ofertas ni precios.
 6. Firma "Alfons Marques" SIN acento.""",
+
+    "newbrokers": """Guardarrailes operativos New Brokers (actualizado 2026-10-11):
+1. DRAFT-ONLY: nunca aprobar, programar ni enviar automaticamente. Toda salida de emails requiere decision explicita del usuario.
+2. ENVIO BLOQUEADO (no activar ninguna campana) hasta resolver: DMARC de newbrokers.es (p=none, sin rua); politica de privacidad que cubra la prospeccion por interes legitimo; revision LSSI art. 21 del cold email comercial por New Brokers o su asesor; y key de Resend propia cargada (sin ella se enviaria por la cuenta global de Tecnocim).
+3. Solo B2B grandes cuentas / seguros corporativos (D&O, ciber, RC, caucion, programas a medida). Nada de particulares ni seguros de hogar/coche.
+4. Registro de usted, tono tecnico y discreto. NUNCA nombrar aseguradoras concretas, ni citar clientes o casos reales, ni dar cifras o datos normativos sin fuente. OJO: el prompt base pide "social proof" en el Email 3; para este tenant sustituirlo por timing o exposicion al riesgo y revisar cada Email 3 a mano.
+5. Firma "César Perejoan / New Brokers" (con tilde). Las respuestas llegan a info@newbrokers.es.
+6. Excluir siempre clientes actuales (Rhenus, Sama, Totalmedia, ALCO) y leads abiertos (KUCERA, LLC de Nevada). La lista completa de exclusiones la tiene César.
+7. info@ es un buzon compartido: cargar su password IMAP ANTES de importar prospects, o el primer barrido puede registrar como respuesta correos antiguos de esos dominios.
+8. Nunca guardar datos de asegurados (DNI, polizas, siniestros) en esta plataforma.
+9. Warmup conservador 20->50/dia en 30 dias. Envios solo lunes-viernes; festivos de Cataluna y Barcelona configurados.""",
 }
 
 
