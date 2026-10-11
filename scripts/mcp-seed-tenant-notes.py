@@ -56,12 +56,12 @@ NOTES = {
     "newbrokers": """Guardarrailes operativos New Brokers (actualizado 2026-10-11):
 1. DRAFT-ONLY: nunca aprobar, programar ni enviar automaticamente. Toda salida de emails requiere decision explicita del usuario.
 2. ENVIO BLOQUEADO (no activar ninguna campana) hasta resolver: DMARC de newbrokers.es (p=none, sin rua); politica de privacidad que cubra la prospeccion por interes legitimo; y revision LSSI art. 21 del cold email comercial por New Brokers o su asesor.
-3. NUNCA ejecutar el webhook-setup de Resend en este tenant: la key cargada (11-oct) es la de la web/portal de New Brokers, con acceso completo, y el webhook de Resend es de toda la cuenta; el handler del ABM (routes/webhooks.ts) cruzaria rebotes de portal/web con prospects de cualquier tenant. Sin webhook, aperturas/rebotes no se registran y la alerta de entregabilidad no ve nada.
+3. Webhook de Resend configurado el 11-oct (tras el fix b3f4a81): la key es la de la web/portal de New Brokers y el webhook es de toda la cuenta; los eventos de correos NO enviados por el ABM se ignoran. No volver a ejecutar webhook-setup (da 409). No activar el tracking de newbrokers.es en Resend (reescribiria los enlaces del portal).
 4. Solo B2B grandes cuentas / seguros corporativos (D&O, ciber, RC, caucion, programas a medida). Nada de particulares ni seguros de hogar/coche.
 5. Registro de usted, tono tecnico y discreto. NUNCA nombrar aseguradoras concretas, ni citar clientes o casos reales, ni dar cifras o datos normativos sin fuente. OJO: el prompt base pide "social proof" en el Email 3; para este tenant sustituirlo por timing o exposicion al riesgo y revisar cada Email 3 a mano.
 6. Firma "César Perejoan / New Brokers" (con tilde). Las respuestas llegan a info@newbrokers.es.
 7. Excluir siempre clientes actuales (Rhenus, Sama, Totalmedia, ALCO) y leads abiertos (KUCERA, LLC de Nevada). La lista completa de exclusiones la tiene César.
-8. info@ es un buzon compartido: cargar su password IMAP ANTES de importar prospects, o el primer barrido puede registrar como respuesta correos antiguos de esos dominios.
+8. info@ es un buzon compartido (IMAP cargado el 11-oct): revisar a mano cualquier respuesta registrada que no venga de un prospect real.
 9. Nunca guardar datos de asegurados (DNI, polizas, siniestros) en esta plataforma.
 10. Warmup conservador 20->50/dia en 30 dias. Envios solo lunes-viernes; festivos de Cataluna y Barcelona configurados.""",
 }
