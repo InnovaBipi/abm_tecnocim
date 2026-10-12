@@ -53,17 +53,17 @@ NOTES = {
 5. Oferta de referencia: "LOVE 5" (fibra + 5 lineas moviles, 58 EUR/mes). No inventar otras ofertas ni precios.
 6. Firma "Alfons Marques" SIN acento.""",
 
-    "newbrokers": """Guardarrailes operativos New Brokers (actualizado 2026-10-11):
-1. DRAFT-ONLY: nunca aprobar, programar ni enviar automaticamente. Toda salida de emails requiere decision explicita del usuario.
-2. ENVIO BLOQUEADO (no activar ninguna campana) hasta resolver: DMARC de newbrokers.es (p=none, sin rua); politica de privacidad que cubra la prospeccion por interes legitimo; y revision LSSI art. 21 del cold email comercial por New Brokers o su asesor.
+    "newbrokers": """Guardarrailes operativos New Brokers (actualizado 2026-10-12):
+1. ENVIO EN MARCHA desde el 13-oct-2026 por decision del usuario (asume los pendientes: exclusiones completas de Cesar, politica de privacidad publicada y decision LSSI art. 21). No crear ni activar campanas nuevas sin decision explicita del usuario.
+2. Ritmo: warmup 30->60 correos/dia en 7 dias, solo lunes-viernes, festivos de Cataluna y Barcelona configurados. Bounce gate automatico (tareas de Windows 12:30 y 18:00) pausa una campana con >5% de rebote tras 50 envios.
 3. Webhook de Resend configurado el 11-oct (tras el fix b3f4a81): la key es la de la web/portal de New Brokers y el webhook es de toda la cuenta; los eventos de correos NO enviados por el ABM se ignoran. No volver a ejecutar webhook-setup (da 409). No activar el tracking de newbrokers.es en Resend (reescribiria los enlaces del portal).
-4. Solo B2B grandes cuentas / seguros corporativos (D&O, ciber, RC, caucion, programas a medida). Nada de particulares ni seguros de hogar/coche.
-5. Registro de usted, tono tecnico y discreto. NUNCA nombrar aseguradoras concretas, ni citar clientes o casos reales, ni dar cifras o datos normativos sin fuente. OJO: el prompt base pide "social proof" en el Email 3; para este tenant sustituirlo por timing o exposicion al riesgo y revisar cada Email 3 a mano.
+4. B2B: programas corporativos (D&O, caucion, RC) y, desde el 12-oct, productos sencillos para agencias inmobiliarias de Cataluna (RC + caucion del registro AICAT) y consultoras digitales/tecnologicas (RC profesional). Nada de particulares ni seguros de hogar/coche.
+5. Registro de usted/voste, tono tecnico y discreto. NUNCA nombrar aseguradoras concretas, ni citar clientes o casos reales, ni dar cifras o datos normativos sin fuente.
 6. Firma corporativa "Equipo New Brokers / New Brokers Correduría de Seguros", en primera persona del plural; nunca firmar como una persona concreta. Remitente y respuestas: info@newbrokers.es.
-7. Excluir siempre clientes actuales (Rhenus, Sama, Totalmedia, ALCO) y leads abiertos (KUCERA, LLC de Nevada). La lista completa de exclusiones la tiene César.
-8. info@ es un buzon compartido (IMAP cargado el 11-oct): revisar a mano cualquier respuesta registrada que no venga de un prospect real.
+7. Excluir siempre clientes actuales (Rhenus, Sama, Totalmedia, ALCO) y leads abiertos (KUCERA, LLC de Nevada). Si alguien responde que ya es cliente de New Brokers: emails_reject de sus follow-ups y avisar.
+8. info@ es un buzon compartido: revisar a mano cualquier respuesta registrada que no venga de un prospect real. Bajas/negativas: emails_reject + do_not_contact.
 9. Nunca guardar datos de asegurados (DNI, polizas, siniestros) en esta plataforma.
-10. Warmup conservador 20->50/dia en 30 dias. Envios solo lunes-viernes; festivos de Cataluna y Barcelona configurados.""",
+10. Campanas: usar siempre campanas (no secuencias: la via de secuencias no escribe tenant_id).""",
 }
 
 
